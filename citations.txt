@@ -1,0 +1,19 @@
+Branson, Oscar. "B systematics in cbsyst". Jun. 2017.
+    https://github.com/oscarbranson/cbsyst/blob/main/cbsyst/docs/B_systematics.pdf
+
+Hain, M.P., Sigman, D.M., Higgins, J.A., and Haug, G.H. (2015) "The effects of 
+    secular calcium and magnesium concentration changes on the thermodynamics of
+    seawater acid/base chemistry: Implications for Eocene and Cretaceous ocean 
+    carbon chemistry and buffering", Global Biogeochemical Cycles, 29, 
+    doi:10.1002/2014GB004986
+
+Klochko, Kateryna, et al. “Experimental measurement of boron isotope 
+    fractionation in seawater.” Earth and Planetary Science Letters, vol. 248,
+    no. 1–2, Aug. 2006, pp. 276–285, https://doi.org/10.1016/j.epsl.2006.05.034.
+
+Uppström, Leif R. “The boron/chlorinity ratio of deep-sea water from the 
+    Pacific Ocean.” Deep Sea Research and Oceanographic Abstracts, vol. 21, 
+    no. 2, Feb. 1974, pp. 161–162, https://doi.org/10.1016/0011-7471(74)90074-6. 
+
+Zeebe, Richard, and Wolf-Gladrow, Dieter. "CO2 in Seawater: Equilibrium,
+    Kinetics, Isotopes". 2001. 
