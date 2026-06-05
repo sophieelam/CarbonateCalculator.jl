@@ -1,4 +1,5 @@
 test/data/
 test/CO2SYS_tests/results/
 *.zip
-test/GLODAPv2_pH_DIC_ALK_subset.csv
+test/GLODAPv2_pH_DIC_ALK_subset.csv\
+Manifest.toml
