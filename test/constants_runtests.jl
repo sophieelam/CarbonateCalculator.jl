@@ -1,6 +1,6 @@
 include("../src/Calculator.jl")
 
-using .Calculator
+using Calculator
 
 println("Starting tests...")
 

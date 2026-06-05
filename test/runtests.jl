@@ -1,6 +1,5 @@
 using Test
-include("../src/Calculator.jl")
-using .Calculator 
+using Calculator
 include("check_vals.jl")
 using .CheckVals
 
