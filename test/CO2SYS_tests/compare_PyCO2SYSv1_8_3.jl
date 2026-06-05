@@ -1,15 +1,15 @@
 using Test, CSV, DataFrames, Statistics
-include("../../src/Calculator.jl")
-using .Calculator
+# include("../../src/Calculator.jl")
+# using .Calculator
 
 # --- 0. Global Validation Thresholds ---
 # GENUINE: Mathematically identical down to numerical precision
-const GENUINE_RTOL = 1e-12 
+GENUINE_RTOL = 1e-12 
 # NOISE: Very minor rounding differences (often order of operations)
-const NOISE_RTOL   = 1e-8  
+NOISE_RTOL   = 1e-8  
 # BULK: The legacy allowance for historical PyCO2SYS quirks
-const BULK_RTOL    = 4e-3  
-const PH_ATOL      = 0.005 
+BULK_RTOL    = 4e-3  
+PH_ATOL      = 0.005 
 
 # Mapping Dictionaries (Aligned with PyCO2SYS 1.8.3)
 k1k2_map = Dict(

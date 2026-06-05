@@ -42,8 +42,10 @@ import .Calculator.Isotopes: get_alphaB, calc_ABT, ABOH3_from_H_ABT, ABOH4_from_
 
     @testset "CO2SYS Replication & Consistency" begin
         include("CO2SYS_tests/round_robin.jl")
+        include("CO2SYS_tests/cc_round_robin.jl")
         include("CO2SYS_tests/compare_PyCO2SYSv1_8_3.jl")
         include("CO2SYS_tests/compare_MATLABv3_2_0.jl")
+        include("CO2SYS_tests/compare_carbon_calculator.jl")
     end
 
 end

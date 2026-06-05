@@ -1,4 +1,4 @@
-using .Calculator
+# using .Calculator
 @testset "BoronIsotopeFunctions: Test B isotope functions" begin
 
     @testset "get_alphaB" begin

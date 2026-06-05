@@ -1,32 +1,33 @@
 using Test
 
 # 1. Define the baseline environmental conditions 
+# (Updated argument names to match carbon_calculator signature exactly)
 ENV_KWARGS = (
     S_in = 33.0, 
     T_in = 22.0, 
     P_in = 1234.0, 
-    Si_in = 10.0,
-    PO4_in = 1.0,
-    NH3_in = 2.0,
-    H2S_in = 3.0,
+    SiT = 10.0,   # Was Si_in
+    PT = 1.0,     # Was PO4_in
+    NH4T = 2.0,   # Was NH3_in
+    H2ST = 3.0,   # Was H2S_in
     K_method = "Lueker 2000"
 )
 
-@testset "Round-Robin Internal Consistency" begin
+@testset "carbon_calculator Round-Robin Internal Consistency" begin
 
     # 2. Solve the base system using TA and DIC
     base_TA = 2300.0
     base_DIC = 2100.0
     
-    # Calculate the baseline truth
-    baseline = whole_system(TA=base_TA, DIC=base_DIC; ENV_KWARGS...)
+    # Calculate the baseline truth using the new carbon_calculator
+    baseline = carbon_calculator(TA=base_TA, DIC=base_DIC; ENV_KWARGS...)
 
     # 3. Map out the parameter names EXACTLY as your Calculator.jl returns them
     calculated_vars = Dict(
         :TA => baseline.TA,
         :DIC => baseline.DIC,
-        :pHtot => baseline.pHtot,   # Changed from :pH
-        :pCO₂ => baseline.pCO₂,     # Note the subscript '2' - check your Calculator.jl exports!
+        :pHtot => baseline.pHtot,   
+        :pCO₂ => baseline.pCO₂,     
         :CO₃ => baseline.CO₃,
         :HCO₃ => baseline.HCO₃,
         :CO₂ => baseline.CO₂
@@ -35,10 +36,10 @@ ENV_KWARGS = (
     all_pars = collect(keys(calculated_vars))
 
     # 4. Identify Invalid Pairs
-    # Added pCO2 & CO2 because they are chemically redundant
+    # pCO2 & CO2 are chemically redundant and cannot uniquely solve the system
     invalid_pairs = Set([
         Set([:pCO₂, :CO₂]), 
-        Set([:TA, :DIC])
+        Set([:TA, :DIC]) # We already solved this one to get the baseline!
     ])
 
     # 5. Run the Round-Robin Iterations
@@ -60,11 +61,11 @@ ENV_KWARGS = (
                 val2 = calculated_vars[p2_sym]
                 input_kwargs = Dict(p1_sym => val1, p2_sym => val2)
 
-                # Solve the system using the new pair
-                rr_results = whole_system(; input_kwargs..., ENV_KWARGS...)
+                # Solve the system using the new pair and new function
+                rr_results = carbon_calculator(; input_kwargs..., ENV_KWARGS...)
 
                 # Assert that all major parameters match the baseline
-                # Using an absolute tolerance of 1e-4
+                # Using an absolute tolerance of 1e-3
                 tol = 1e-3
 
                 @test isapprox(rr_results.TA, baseline.TA, atol=tol)
