@@ -1,9 +1,19 @@
 module Constants
 using PythonCall
-const np = pyimport("numpy") 
-const kgen = pyimport("kgen")
+
+# 1. Create empty placeholders instead of importing right away
+const np = PythonCall.pynew()
+const kgen = PythonCall.pynew()
+
+# 2. Fill them exactly when the module is loaded at runtime
+function __init__()
+    PythonCall.pycopy!(np, pyimport("numpy"))
+    PythonCall.pycopy!(kgen, pyimport("kgen"))
+end
+
 using ..Helpers
 using Statistics
+
 
 # Helper function:
 function SWStoTOT(; ST, FT, KS, KF, kwargs...)
