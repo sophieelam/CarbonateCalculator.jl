@@ -120,9 +120,9 @@ end
 #     return find_zero((f, df), initial_guess, Roots.Newton())
 # end
 
-function H_from_HCO₃_CO₃(HCO₃, CO₃, Ks)
-    return (Ks.K2 * HCO₃) / CO₃
-end
+# function H_from_HCO₃_CO₃(HCO₃, CO₃, Ks)
+#     return (Ks.K2 * HCO₃) / CO₃
+# end
 
 
 ## Calculation #5 
@@ -215,6 +215,7 @@ function H_from_HCO₃_CO₃(HCO₃, CO₃, Ks)
     f(H) = solve_H_from_HCO₃_CO₃(H, HCO₃, CO₃, Ks)
     return find_zero(f, (1e-14, 1))
 end 
+
 
 
 ## Calculation #11
