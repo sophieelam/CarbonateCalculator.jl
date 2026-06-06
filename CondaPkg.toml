@@ -1,0 +1,6 @@
+[deps]
+numpy = ""
+scipy = ""
+
+[pip.deps]
+PyCO2SYS = ""
