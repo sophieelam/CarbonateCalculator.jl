@@ -1,6 +1,5 @@
 module Boron
 
-
 """
 Calculation for Chi B
 (Branson, 2017)
@@ -9,8 +8,6 @@ function calc_chiB(H, Ks)
     return 1 / (1 + Ks.KB / H)
 end
 
-
-## Calculation #1
 """
 #1: Calculating [H⁺] from BT and B(OH)₃
 Taken from CBsyst (Branson, 2017)
@@ -20,7 +17,6 @@ function H_from_BT_BOH3(BT, BOH₃, Ks)
 end
 
 
-## Calculation #2
 """
 #2: Calculating [H⁺] from BT and B(OH)₄
 Taken from CBsyst (Branson, 2017)
@@ -30,7 +26,6 @@ function H_from_BT_BOH4(BT, BOH₄, Ks)
 end
 
 
-## Calculation #3
 """
 #3: Calculating BT from pH and B(OH)₃
 Taken from CBsyst (Branson, 2017)
@@ -41,7 +36,6 @@ function BT_from_pH_BOH3(pH, BOH₃, Ks)
 end
 
 
-## Calculation #4
 """
 #4: Calculating BT from pH and B(OH)₄
 Taken from CBsyst (Branson, 2017)
@@ -52,7 +46,7 @@ function BT_from_pH_BOH4(pH, BOH₄, Ks)
 end
 
 
-## Catch-all calculations
+
 """
 Calculating B(OH)₄ from BT and H⁺
 Taken from CBsyst (Branson, 2017)
@@ -62,7 +56,6 @@ function calc_BOH4(BT, H, Ks)
 end
 
 
-##
 """
 Calculating B(OH)₃ from BT and H⁺
 Taken from CBsyst (Branson, 2017)
@@ -72,7 +65,6 @@ function calc_BOH3(BT, H, Ks)
 end
 
 
-## Boron species calculator
 """
 Calculates boron system from any two of the following: 
 pH, BT, B(OH)₃, B(OH)₄

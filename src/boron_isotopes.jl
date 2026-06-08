@@ -36,7 +36,6 @@ return (ϵ/1000) + 1
 end
 
 
-## Isotope unit converters
 """
 Converts fractional abundnace (A11) to δ-notation
 SRM_ratio: the 11B/10B of SRM, default is NIST951 (4.04367)

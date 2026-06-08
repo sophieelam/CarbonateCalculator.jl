@@ -123,7 +123,6 @@ end
 # end
 
 
-## Calculation #5 
 """
 #5: Calculating H⁺ from CO₂ and DIC
 Zeebe & Wolf-Gladrow, 2001, Appendix B
@@ -142,7 +141,6 @@ function H_from_CO₂_DIC(CO₂, DIC, Ks)
 end
 
 
-## Calculation #6
 """
 #6: Calculating DIC from pH and HCO₃
 Zeebe & Wolf-Gladrow, 2001, Appendix B
@@ -153,7 +151,6 @@ function DIC_from_pH_HCO₃(pH, HCO₃, Ks)
 end
 
 
-## Calculation #7
 """
 #7: Calculating DIC from pH and CO₃
 Zeebe & Wolf-Gladrow, 2001, Appendix B
@@ -164,7 +161,6 @@ function DIC_from_pH_CO₃(pH, CO₃, Ks)
 end
 
 
-## Calculation #8
 """
 #8: Calculating DIC from pH and TA
 Taken from MatLab CO2SYS
@@ -186,7 +182,7 @@ function DIC_from_pH_TA(pH, TA, BT, PT, SiT, ST, FT, H2ST, NH4T, Ks)
     return CAlk * (H^2 + Ks.K1 * H + Ks.K1 * Ks.K2) / (Ks.K1 * (H + 2.0 * Ks.K2))
 end
 
-## Calculation #9
+
 """
 #9: Calculating CO₂ from pH and DIC
 Zeebe & Wolf-Gladrow, 2001, Appendix B
@@ -197,7 +193,7 @@ function CO₂_from_pH_DIC(pH, DIC, Ks)
 end
 
 
-## Calculation #10
+
 """
 #10: Calculating H⁺ from HCO₃ and CO₃
 Zeebe & Wolf-Gladrow, 2001, Appendix B
@@ -216,7 +212,7 @@ end
 
 
 
-## Calculation #11
+
 """
 #11: Calculating H⁺ from HCO₃ and TA
 Zeebe & Wolf-Gladrow, 2001, Appendix B
@@ -252,7 +248,7 @@ end
 # end 
 
 
-## Calculation #12
+
 """
 #12: Calculating pH from HCO₃ and DIC
 Zeebe & Wolf-Gladrow, 2001, Appendix B
@@ -283,7 +279,7 @@ function pH_from_HCO₃_DIC(HCO₃, DIC, Ks)
 end
 
 
-## Calculation #13
+
 """
 #13: Calculating H⁺ from CO₃ and TA
 Zeebe & Wolf-Gladrow, 2001, Appendix B
@@ -332,7 +328,7 @@ end
 # end
 
 
-## Calculation #14
+
 """
 #14: Calculating H⁺ from CO₃ and DIC
 Zeebe & Wolf-Gladrow, 2001, Appendix B
@@ -349,7 +345,7 @@ function H_from_CO₃_DIC(CO₃, DIC, Ks)
 end
 
 
-## Calculation #15 
+
 """
 #15: Calculating pH from TA and DIC
 Taken from MatLab CO2SYS (which originally used a Newton-Raphson method) and
@@ -389,7 +385,6 @@ function pH_from_TA_DIC(TA, DIC, BT, PT, SiT, ST, FT, H2ST, NH4T, Ks)
 end
 
 
-## Equation 1.1.9
 """
 Calculating CO₂ from H⁺ and DIC
 Equation 1.1.9 from Zeebe & Wolf-Gladrow, 2001, Chapter 1
@@ -399,7 +394,6 @@ function calc_CO₂(H, DIC, Ks)
 end
 
 
-## Equation 1.1.10
 """
 Calculating HCO₃ from H⁺ and DIC
 Equation 1.1.10 from Zeebe & Wolf-Gladrow, 2001, Chapter 1
@@ -409,7 +403,6 @@ function calc_HCO₃(H, DIC, Ks)
 end
 
 
-## Equation 1.1.11
 """
 Calculating CO₃ from H⁺ and DIC
 Equation 1.1.11 from Zeebe & Wolf-Gladrow, 2001, Chapter 1
@@ -419,7 +412,6 @@ function calc_CO₃(H, DIC, Ks)
 end
 
 
-## Equation 1.5.80
 """
 Calculating TA
 Equation 1.5.80 from Zeebe & Wolf-Gladrow, 2001, Chapter 1
@@ -449,7 +441,7 @@ function calc_TA(H, DIC, BT, PT, SiT, ST, FT, H2ST, NH4T, Ks; mode="multi")
 end
 
 
-# Equation C.4.14
+
 """
 Calculating CO₂ from fugacity
 Equation C.4.14 from Zeebe & Wolf-Gladrow, 2001, Appendix C
@@ -459,7 +451,7 @@ function fCO₂_to_CO₂(fCO₂, Ks)
 end 
 
 
-# Equation C.4.14
+
 """
 Calculating fugacity from CO₂
 Equation C.4.14 from Zeebe & Wolf-Gladrow, 2001, Appendix C
