@@ -97,14 +97,14 @@ function solve_pH_from_CO₂_TA(pH, CO₂, TA, BT, PT, SiT, ST, FT, H2ST, NH4T, 
 end
 
 function pH_from_CO₂_TA(CO₂, TA, BT, PT, SiT, ST, FT, H2ST, NH4T, Ks)
-    # 1. Create temporary function
-    f(pH) = solve_pH_from_CO₂_TA(pH, CO₂, TA, BT, PT, SiT, ST, FT, H2ST, NH4T, Ks)
+    # Promote type to handle Dual numbers or Float64
+    T = promote_type(typeof(CO₂), typeof(TA), typeof(BT))
     
-    # 2. Use ForwardDiff for exact derivative
+    f(pH) = solve_pH_from_CO₂_TA(pH, CO₂, TA, BT, PT, SiT, ST, FT, H2ST, NH4T, Ks)
     df(pH) = ForwardDiff.derivative(f, pH)
     
-    # 3. Solve using Newton's method
-    initial_guess = 8.0 + zero(CO₂) + zero(TA)
+    # Use convert(T, ...) to ensure the Newton state is type-generic
+    initial_guess = convert(T, 8.0)
     return find_zero((f, df), initial_guess, Roots.Newton())
 end
 
@@ -223,9 +223,12 @@ function solve_H_from_HCO₃_TA(H, HCO₃, TA, BT, PT, SiT, ST, FT, H2ST, NH4T, 
 end
 
 function H_from_HCO₃_TA(HCO₃, TA, BT, PT, SiT, ST, FT, H2ST, NH4T, Ks)
+    T = promote_type(typeof(HCO₃), typeof(TA), typeof(BT))
+    
     f(pH) = solve_H_from_HCO₃_TA(10.0^(-pH), HCO₃, TA, BT, PT, SiT, ST, FT, H2ST, NH4T, Ks)
     df(pH) = ForwardDiff.derivative(f, pH)
-    initial_guess = 8.0 + zero(HCO₃) + zero(TA)
+    
+    initial_guess = convert(T, 8.0)
     sol_pH = find_zero((f, df), initial_guess, Roots.Newton())
     return 10.0^(-sol_pH)
 end
@@ -292,17 +295,14 @@ function solve_H_from_CO₃_TA(H, CO₃, TA, BT, PT, SiT, ST, FT, H2ST, NH4T, Ks
 end
 
 function H_from_CO₃_TA(CO₃, TA, BT, PT, SiT, ST, FT, H2ST, NH4T, Ks)
-    # 1. Create stability wrapper
-    f(pH) = solve_H_from_CO₃_TA(10.0^(-pH), CO₃, TA, BT, PT, SiT, ST, FT, H2ST, NH4T, Ks)
+    T = promote_type(typeof(CO₃), typeof(TA), typeof(BT))
     
-    # 2. Get derivative
+    f(pH) = solve_H_from_CO₃_TA(10.0^(-pH), CO₃, TA, BT, PT, SiT, ST, FT, H2ST, NH4T, Ks)
     df(pH) = ForwardDiff.derivative(f, pH)
     
-    # 3. Solve
-    initial_guess = 8.0 + zero(CO₃) + zero(TA)
+    initial_guess = convert(T, 8.0)
     sol_pH = find_zero((f, df), initial_guess, Roots.Newton())
     
-    # 4. Return H⁺
     return 10.0^(-sol_pH)
 end
 
@@ -372,14 +372,20 @@ end
 
 
 function pH_from_TA_DIC(TA, DIC, BT, PT, SiT, ST, FT, H2ST, NH4T, Ks)
+    # Ensure we capture the "best" type (could be Float64 or Dual)
+    T = promote_type(typeof(TA), typeof(DIC), typeof(BT))
+
     # 1. Create a temporary function where pH is the only input
     f(pH) = solve_pH_from_TA_DIC(pH, TA, DIC, BT, PT, SiT, ST, FT, H2ST, NH4T, Ks)
     
-    # 2. Use ForwardDiff to automatically generate the exact derivative function
+    # 2. Use ForwardDiff for the derivative
     df(pH) = ForwardDiff.derivative(f, pH)
     
-    # 3. Pass both the function and its derivative to find_zero, using Newton's method
-    initial_guess = 8.0 + zero(TA) + zero(DIC)
+    # 3. Create a guess that is explicitly the correct type
+    # Using convert(T, 8.0) ensures the solver's internal state starts 
+    # as a Dual number if the inputs are Dual numbers.
+    initial_guess = convert(T, 8.0)
+    
     return find_zero((f, df), initial_guess, Roots.Newton())
 end
 

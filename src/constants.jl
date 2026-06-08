@@ -1,5 +1,6 @@
 module Constants
 using PythonCall
+using ForwardDiff
 
 # 1. Create empty placeholders instead of importing right away
 const np = PythonCall.pynew()
@@ -1278,7 +1279,7 @@ function K_calculator(; T_in, S_in, P_in=0.0, ST=nothing, FT=nothing,
 
     # MyAMI case
     elseif K_method == "MyAMI"
-        
+
         # Calculate these values based on MyAMI/CBsys equations
         final_ST = isnothing(ST) ? Helpers.calc_ST(S_in) : ST
         final_FT = isnothing(FT) ? Helpers.calc_FT(S_in) : FT
@@ -1288,6 +1289,13 @@ function K_calculator(; T_in, S_in, P_in=0.0, ST=nothing, FT=nothing,
         Ca_val = get(kwargs, :Ca, 0.0102821)
 
         mode_val = get(kwargs, :MyAMI_mode, "calculate")
+
+        # --- AD BOUNDARY FIX ---
+        # Explicitly trap and strip Duals using Julia's multiple dispatch
+        unwrap_dual(x::ForwardDiff.Dual) = ForwardDiff.value(x)
+        unwrap_dual(x::AbstractArray) = unwrap_dual.(x) # Recursively unwrap arrays
+        unwrap_dual(x) = x # Safe fallback for standard floats and strings
+
 
         py_ks = kgen.calc_Ks(
             temp_c = np.asarray(T_in),

@@ -16,6 +16,7 @@ using Printf
 const np = pyimport("numpy")
 using ForwardDiff, LinearAlgebra, Roots
 include("errors.jl")
+include("display.jl")
 
 
 export whole_system, carbon_system, boron_system, boron_isotopes, carbon_boron_calculator, carbon_calculator, propagate_errors # export user-facing functions
@@ -26,7 +27,10 @@ export whole_system, carbon_system, boron_system, boron_isotopes, carbon_boron_c
 """
 Calculates the carbon chemistry of seawater from given input parameters for 
 specified output conditions.
-FOR EXAMPLE:
+FOR EXAMPLE: Input conditions would be the values recorded when a sample is 
+measured (i.e., at sea surface level and 22C) which would be calculated for 
+out put conditions representative of where the sample was taken from (i.e., 
+at 500m depth and 10C).
 Constants calculated using Kgen (Hain, et al., 2015)
 Speciation calculations from Zeebe & Wolf-Gladrow (2001, Appendix B)
 
@@ -78,7 +82,7 @@ Returns
 -------
 NamedTuple containing all calculated parameters
 """
-function carbon_system(;
+function carbon_system_core(;
     pH=nothing, pHtot=nothing, DIC=nothing, TA=nothing, CO₂=nothing, HCO₃=nothing,
     CO₃=nothing, pCO₂=nothing, fCO₂=nothing, BT=nothing, Ca=0.0102821,
     Mg=0.0528171, T_in=25.0, T_out=nothing, S_in=35.0, S_out=nothing,
@@ -301,7 +305,7 @@ function carbon_system(;
             PT = ps.PT,
             SiT = ps.SiT,
             MyAMI_mode = MyAMI_mode, 
-            K_method="default",
+            K_method= K_method,
             KSO4_method="default",
             BT_method="default"
         )
@@ -322,7 +326,7 @@ function carbon_system(;
     end 
 
     # Clean up tuple before returning
-    keys_to_keep = Tuple(k for k in keys(ps) if k ∉ (:pdict, :unit, :scale))
+    keys_to_keep = Tuple(k for k in keys(ps) if k ∉ (:pdict, :scale))
     ps = NamedTuple{keys_to_keep}(ps)
 
     return ps
@@ -653,7 +657,10 @@ end
 """
 Calculates the carbon and boron species as well as boron isotopes of seawater 
 from given input parameters for specified output conditions.
-FOR EXAMPLE:
+FOR EXAMPLE: Input conditions would be the values recorded when a sample is 
+measured (i.e., at sea surface level and 22C) which would be calculated for 
+out put conditions representative of where the sample was taken from (i.e., 
+at 500m depth and 10C).
 Constants calculated using Kgen (Hain, et al., 2015)
 Speciation calculations from Zeebe & Wolf-Gladrow (2001, Appendix B)
 
@@ -722,7 +729,7 @@ Returns
 NamedTuple containing all calculated parameters
 
 """
-function whole_system(;
+function whole_system_core(;
     pH=nothing, pHtot=nothing, DIC=nothing, TA=nothing, CO₂=nothing, HCO₃=nothing,
     CO₃=nothing, pCO₂=nothing, fCO₂=nothing, BT =nothing, BOH₃=nothing,
     BOH₄=nothing, ABT=nothing, ABOH₃=nothing, ABOH₄=nothing, δBT=nothing,
@@ -985,7 +992,7 @@ function whole_system(;
             PT = ps.PT,
             SiT = ps.SiT,
             MyAMI_mode = MyAMI_mode,
-            K_method="default",
+            K_method=K_method,
             KSO4_method="default",
             BT_method="default"
         )
@@ -1006,7 +1013,7 @@ function whole_system(;
         ps = merge(ps, in_vals, out_vals)
     end 
     
-    keys_to_keep = Tuple(k for k in keys(ps) if k ∉ (:pdict, :unit, :scale))
+    keys_to_keep = Tuple(k for k in keys(ps) if k ∉ (:pdict, :scale))
     ps = NamedTuple{keys_to_keep}(ps)
     
     return ps
@@ -1061,7 +1068,7 @@ Returns
 -------
 NamedTuple containing all calculated parameters
 """
-function carbon_calculator(;
+function carbon_calculator_core(;
     pH=nothing, pHtot=nothing, DIC=nothing, TA=nothing, CO₂=nothing, HCO₃=nothing,
     CO₃=nothing, pCO₂=nothing, fCO₂=nothing, BT=nothing, Ca=0.0102821,
     Mg=0.0528171, T_in=25.0, S_in=35.0, P_in=0.0, PT=0.0, SiT=0.0, H2ST=0.0,
@@ -1248,7 +1255,7 @@ function carbon_calculator(;
     ps = merge(ps, rescaled_gases)
 
     # Clean up tuple before returning
-    keys_to_keep = Tuple(k for k in keys(ps) if k ∉ (:pdict, :unit, :scale))
+    keys_to_keep = Tuple(k for k in keys(ps) if k ∉ (:pdict, :scale))
     ps = NamedTuple{keys_to_keep}(ps)
 
     return ps
@@ -1320,7 +1327,7 @@ Returns
 NamedTuple containing all calculated parameters
 
 """
-function carbon_boron_calculator(;
+function carbon_boron_calculator_core(;
     pH=nothing, pHtot=nothing, DIC=nothing, TA=nothing, CO₂=nothing, HCO₃=nothing,
     CO₃=nothing, pCO₂=nothing, fCO₂=nothing, BT =nothing, BOH₃=nothing,
     BOH₄=nothing, ABT=nothing, ABOH₃=nothing, ABOH₄=nothing, δBT=nothing,
@@ -1548,10 +1555,237 @@ function carbon_boron_calculator(;
     )
     ps = merge(ps, rescaled_gases)
     
-    keys_to_keep = Tuple(k for k in keys(ps) if k ∉ (:pdict, :unit, :scale))
+    keys_to_keep = Tuple(k for k in keys(ps) if k ∉ (:pdict, :scale))
     ps = NamedTuple{keys_to_keep}(ps)
     
     return ps
+end
+
+
+"""
+    carbon_system(; errors=nothing, kwargs...)
+
+Calculates the carbonate system parameters. 
+If the `errors` NamedTuple is provided, returns propagated uncertainties.
+"""
+function carbon_system(;
+    errors=nothing, 
+    pH=nothing, pHtot=nothing, DIC=nothing, TA=nothing, CO₂=nothing, HCO₃=nothing,
+    CO₃=nothing, pCO₂=nothing, fCO₂=nothing, BT=nothing, Ca=0.0102821,
+    Mg=0.0528171, T_in=25.0, T_out=nothing, S_in=35.0, S_out=nothing,
+    P_in=0.0, P_out=nothing, PT=0.0, SiT=0.0, H2ST=0.0, NH4T=0.0, ST=nothing, FT=nothing,
+    pHsws=nothing, pHfree=nothing, pHNBS=nothing, unit="umol", scale="total", Ks=nothing,
+    pdict=nothing, ΩC=nothing, ΩA=nothing, MyAMI_mode="calculate", 
+    K_method="default", KSO4_method="default", BT_method="default", 
+    KF_method="default", K_mode="static", KNH3_method="default",
+    Ca_method="default", kwargs...
+    )
+    # --- MyAMI Error Intercept ---
+    if K_method == "MyAMI" && errors !== nothing
+        @warn "Error propagation is currently not supported for the Python-based MyAMI method. Bypassing AD and calculating values without errors."
+        errors = nothing
+    end
+    # -----------------------------
+    # 1. Package all the inputs into a clean NamedTuple
+    inputs_nt = (
+        pH=pH, pHtot=pHtot, DIC=DIC, TA=TA, CO₂=CO₂, HCO₃=HCO₃, CO₃=CO₃, 
+        pCO₂=pCO₂, fCO₂=fCO₂, BT=BT, Ca=Ca, Mg=Mg, T_in=T_in, T_out=T_out, 
+        S_in=S_in, S_out=S_out, P_in=P_in, P_out=P_out, PT=PT, SiT=SiT, 
+        H2ST=H2ST, NH4T=NH4T, ST=ST, FT=FT, pHsws=pHsws, pHfree=pHfree, 
+        pHNBS=pHNBS, unit=unit, scale=scale, Ks=Ks, pdict=pdict, ΩC=ΩC, 
+        ΩA=ΩA, MyAMI_mode=MyAMI_mode, K_method=K_method, KSO4_method=KSO4_method, 
+        BT_method=BT_method, KF_method=KF_method, K_mode=K_mode, 
+        KNH3_method=KNH3_method, Ca_method=Ca_method
+    )
+
+    # Merge any overflow kwargs just to be safe
+    full_inputs = merge(inputs_nt, NamedTuple(kwargs))
+
+
+    # Identify which of the main carbonate parameters were actually provided
+    # We check the inputs_nt for non-nothing values
+    master_pool = [:TA, :DIC, :pH, :pHtot, :pCO₂, :fCO₂, :CO₃, :HCO₃]
+    provided = [k for k in master_pool if haskey(full_inputs, k) && !isnothing(full_inputs[k])]
+
+    if isnothing(errors)
+        # Fast path
+        res = carbon_system_core(; full_inputs...)
+        # Construct with 3 arguments: val, err (nothing), and provided keys
+        return CarbonateResult(res, nothing, provided)
+    else
+        # AD path
+        # propagate_errors now returns a NamedTuple (val, err)
+        res_data = propagate_errors(carbon_system_core; inputs=full_inputs, errors=errors)
+        # Construct with 3 arguments: val, err, and provided keys
+        return CarbonateResult(res_data.val, res_data.err, provided)
+    end
+end
+
+
+function whole_system(;
+    errors=nothing, 
+    pH=nothing, pHtot=nothing, DIC=nothing, TA=nothing, CO₂=nothing, HCO₃=nothing,
+    CO₃=nothing, pCO₂=nothing, fCO₂=nothing, BT=nothing, BOH₃=nothing,
+    BOH₄=nothing, ABT=nothing, ABOH₃=nothing, ABOH₄=nothing, δBT=nothing,
+    δBOH₃=nothing, δBOH₄=nothing, alphaB=nothing, Ca=0.0102821,
+    Mg=0.0528171, T_in=25.0, T_out=nothing, S_in=35.0, S_out=nothing,
+    P_in=0.0, P_out=nothing, PT=0.0, SiT=0.0, H2ST=0.0, NH4T=0.0, ST=nothing, FT=nothing,
+    pHsws=nothing, pHfree=nothing, pHNBS=nothing, unit="umol", scale="total", Ks=nothing,
+    pdict=nothing, ΩC=nothing, ΩA=nothing, MyAMI_mode="calculate",
+    K_method="default", KSO4_method="default", BT_method="default", 
+    KF_method="default", KNH3_method="default", Ca_method="default",
+    K_mode="static", kwargs...
+)
+    # --- MyAMI Error Intercept ---
+    if K_method == "MyAMI" && errors !== nothing
+        @warn "Error propagation is currently not supported for the Python-based MyAMI method. Bypassing AD and calculating values without errors."
+        errors = nothing
+    end
+    # -----------------------------
+    
+    # 1. Package all the inputs into a clean NamedTuple
+    inputs_nt = (
+        pH=pH, pHtot=pHtot, DIC=DIC, TA=TA, CO₂=CO₂, HCO₃=HCO₃, CO₃=CO₃, 
+        pCO₂=pCO₂, fCO₂=fCO₂, BT=BT, BOH₃=BOH₃, BOH₄=BOH₄, ABT=ABT, 
+        ABOH₃=ABOH₃, ABOH₄=ABOH₄, δBT=δBT, δBOH₃=δBOH₃, δBOH₄=δBOH₄, 
+        alphaB=alphaB, Ca=Ca, Mg=Mg, T_in=T_in, T_out=T_out, S_in=S_in, 
+        S_out=S_out, P_in=P_in, P_out=P_out, PT=PT, SiT=SiT, H2ST=H2ST, 
+        NH4T=NH4T, ST=ST, FT=FT, pHsws=pHsws, pHfree=pHfree, pHNBS=pHNBS, 
+        unit=unit, scale=scale, Ks=Ks, pdict=pdict, ΩC=ΩC, ΩA=ΩA, 
+        MyAMI_mode=MyAMI_mode, K_method=K_method, KSO4_method=KSO4_method, 
+        BT_method=BT_method, KF_method=KF_method, K_mode=K_mode, 
+        KNH3_method=KNH3_method, Ca_method=Ca_method
+    )
+
+    # Merge any overflow kwargs just to be safe
+    full_inputs = merge(inputs_nt, NamedTuple(kwargs))
+
+    # Identify which of the main carbonate parameters were actually provided
+    # We check the inputs_nt for non-nothing values
+    master_pool = [:TA, :DIC, :pH, :pHtot, :pCO₂, :fCO₂, :CO₃, :HCO₃]
+    provided = [k for k in master_pool if haskey(full_inputs, k) && !isnothing(full_inputs[k])]
+
+    if isnothing(errors)
+        # Fast path
+        res = whole_system_core(; full_inputs...)
+        # Construct with 3 arguments: val, err (nothing), and provided keys
+        return CarbonateResult(res, nothing, provided)
+    else
+        # AD path
+        # propagate_errors now returns a NamedTuple (val, err)
+        res_data = propagate_errors(whole_system_core; inputs=full_inputs, errors=errors)
+        # Construct with 3 arguments: val, err, and provided keys
+        return CarbonateResult(res_data.val, res_data.err, provided)
+    end
+end
+
+
+function carbon_calculator(;
+    errors=nothing, 
+    pH=nothing, pHtot=nothing, DIC=nothing, TA=nothing, CO₂=nothing, HCO₃=nothing,
+    CO₃=nothing, pCO₂=nothing, fCO₂=nothing, BT=nothing, Ca=0.0102821,
+    Mg=0.0528171, T_in=25.0, S_in=35.0, P_in=0.0, PT=0.0, SiT=0.0, H2ST=0.0,
+    NH4T=0.0, ST=nothing, FT=nothing, pHsws=nothing, pHfree=nothing,
+    pHNBS=nothing, unit="umol", scale="total", Ks=nothing, pdict=nothing,
+    ΩC=nothing, ΩA=nothing, MyAMI_mode="calculate", K_method="default",
+    KSO4_method="default", BT_method="default", KF_method="default",
+    K_mode="static", KNH3_method="default", Ca_method="default", kwargs...
+)
+    # --- MyAMI Error Intercept ---
+    # Python-based calculations cannot be differentiated by ForwardDiff
+    if K_method == "MyAMI" && errors !== nothing
+        @warn "Error propagation is currently not supported for the Python-based MyAMI method. Bypassing AD and calculating values without errors."
+        errors = nothing
+    end
+    # -----------------------------
+
+    inputs_nt = (
+        pH=pH, pHtot=pHtot, DIC=DIC, TA=TA, CO₂=CO₂, HCO₃=HCO₃, CO₃=CO₃, 
+        pCO₂=pCO₂, fCO₂=fCO₂, BT=BT, Ca=Ca, Mg=Mg, T_in=T_in, S_in=S_in, 
+        P_in=P_in, PT=PT, SiT=SiT, H2ST=H2ST, NH4T=NH4T, ST=ST, FT=FT, 
+        pHsws=pHsws, pHfree=pHfree, pHNBS=pHNBS, unit=unit, scale=scale, 
+        Ks=Ks, pdict=pdict, ΩC=ΩC, ΩA=ΩA, MyAMI_mode=MyAMI_mode, 
+        K_method=K_method, KSO4_method=KSO4_method, BT_method=BT_method, 
+        KF_method=KF_method, K_mode=K_mode, KNH3_method=KNH3_method, 
+        Ca_method=Ca_method
+    )
+
+    # Combine with any additional keyword arguments
+    full_inputs = merge(inputs_nt, NamedTuple(kwargs))
+
+    # Identify which of the main carbonate parameters were actually provided
+    # We check the inputs_nt for non-nothing values
+    master_pool = [:TA, :DIC, :pH, :pHtot, :pCO₂, :fCO₂, :CO₃, :HCO₃]
+    provided = [k for k in master_pool if haskey(full_inputs, k) && !isnothing(full_inputs[k])]
+
+    if isnothing(errors)
+        # Fast path
+        res = carbon_calculator_core(; full_inputs...)
+        # Construct with 3 arguments: val, err (nothing), and provided keys
+        return CarbonateResult(res, nothing, provided)
+    else
+        # AD path
+        # propagate_errors now returns a NamedTuple (val, err)
+        res_data = propagate_errors(carbon_calculator_core; inputs=full_inputs, errors=errors)
+        # Construct with 3 arguments: val, err, and provided keys
+        return CarbonateResult(res_data.val, res_data.err, provided)
+    end
+
+end
+
+function carbon_boron_calculator(;
+    errors=nothing, 
+    pH=nothing, pHtot=nothing, DIC=nothing, TA=nothing, CO₂=nothing, HCO₃=nothing,
+    CO₃=nothing, pCO₂=nothing, fCO₂=nothing, BT=nothing, BOH₃=nothing,
+    BOH₄=nothing, ABT=nothing, ABOH₃=nothing, ABOH₄=nothing, δBT=nothing,
+    δBOH₃=nothing, δBOH₄=nothing, alphaB=nothing, Ca=0.0102821,
+    Mg=0.0528171, T_in=25.0, S_in=35.0, P_in=0.0, PT=0.0, SiT=0.0, H2ST=0.0,
+    NH4T=0.0, ST=nothing, FT=nothing, pHsws=nothing, pHfree=nothing, pHNBS=nothing,
+    unit="umol", scale="total", Ks=nothing, pdict=nothing, ΩC=nothing, ΩA=nothing,
+    MyAMI_mode="calculate", K_method="default", KSO4_method="default", 
+    BT_method="default", KF_method="default", KNH3_method="default", 
+    Ca_method="default", K_mode="static", kwargs...
+)
+    # --- MyAMI Error Intercept ---
+    if K_method == "MyAMI" && errors !== nothing
+        @warn "Error propagation is currently not supported for the Python-based MyAMI method. Bypassing AD and calculating values without errors."
+        errors = nothing
+    end
+    # -----------------------------
+
+    # 1. Package all the inputs into a clean NamedTuple
+    inputs_nt = (
+        pH=pH, pHtot=pHtot, DIC=DIC, TA=TA, CO₂=CO₂, HCO₃=HCO₃, CO₃=CO₃, 
+        pCO₂=pCO₂, fCO₂=fCO₂, BT=BT, BOH₃=BOH₃, BOH₄=BOH₄, ABT=ABT, 
+        ABOH₃=ABOH₃, ABOH₄=ABOH₄, δBT=δBT, δBOH₃=δBOH₃, δBOH₄=δBOH₄, 
+        alphaB=alphaB, Ca=Ca, Mg=Mg, T_in=T_in, S_in=S_in, P_in=P_in, 
+        PT=PT, SiT=SiT, H2ST=H2ST, NH4T=NH4T, ST=ST, FT=FT, pHsws=pHsws, 
+        pHfree=pHfree, pHNBS=pHNBS, unit=unit, scale=scale, Ks=Ks, 
+        pdict=pdict, ΩC=ΩC, ΩA=ΩA, MyAMI_mode=MyAMI_mode, K_method=K_method, 
+        KSO4_method=KSO4_method, BT_method=BT_method, KF_method=KF_method, 
+        KNH3_method=KNH3_method, Ca_method=Ca_method, K_mode=K_mode
+    )
+
+    # Merge any overflow kwargs
+    full_inputs = merge(inputs_nt, NamedTuple(kwargs))
+
+    # Identify which of the main carbonate parameters were actually provided
+    # We check the inputs_nt for non-nothing values
+    master_pool = [:TA, :DIC, :pH, :pHtot, :pCO₂, :fCO₂, :CO₃, :HCO₃]
+    provided = [k for k in master_pool if haskey(full_inputs, k) && !isnothing(full_inputs[k])]
+
+    if isnothing(errors)
+        # Fast path
+        res = carbon_boron_calculator_core(; full_inputs...)
+        # Construct with 3 arguments: val, err (nothing), and provided keys
+        return CarbonateResult(res, nothing, provided)
+    else
+        # AD path
+        # propagate_errors now returns a NamedTuple (val, err)
+        res_data = propagate_errors(carbon_boron_calculator_core; inputs=full_inputs, errors=errors)
+        # Construct with 3 arguments: val, err, and provided keys
+        return CarbonateResult(res_data.val, res_data.err, provided)
+    end
 end
 
 end # module
