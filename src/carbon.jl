@@ -18,7 +18,6 @@ function DIC_from_CO₂_pH(CO₂, pH, Ks)
 end
 
 
-
 """
 #2: Calculating H⁺ from CO₂ and HCO₃⁻
 Zeebe & Wolf-Gladrow, 2001, Appendix B

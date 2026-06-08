@@ -47,4 +47,8 @@ import .CarbonateCalculator.Isotopes: get_alphaB, calc_ABT, ABOH3_from_H_ABT, AB
         include("CO2SYS_tests/compare_carbon_calculator.jl")
     end
 
+        @testset "Error Propagation" begin
+        include("errors_test.jl")
+    end
+
 end

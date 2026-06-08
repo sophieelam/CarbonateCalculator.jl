@@ -1,5 +1,6 @@
 module Helpers
 using Printf
+using ForwardDiff, LinearAlgebra
 
 # Calculates fH; used in carbon.jl.
 """
@@ -164,4 +165,5 @@ function print_system_results(results::NamedTuple)
     println("==============================================\n")
 end
 export calc_fH, calc_ST, calc_FT, calc_pH_scale, calc_BT
+
 end # module

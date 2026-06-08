@@ -14,9 +14,11 @@ using PythonCall
 const kgen = pyimport("kgen")
 using Printf
 const np = pyimport("numpy")
+using ForwardDiff, LinearAlgebra, Roots
+include("errors.jl")
 
 
-export whole_system, carbon_system, boron_system, boron_isotopes, carbon_boron_calculator, carbon_calculator # export user-facing functions
+export whole_system, carbon_system, boron_system, boron_isotopes, carbon_boron_calculator, carbon_calculator, propagate_errors # export user-facing functions
 
 
 
