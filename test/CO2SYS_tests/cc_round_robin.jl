@@ -22,7 +22,7 @@ ENV_KWARGS = (
     # Calculate the baseline truth using the new carbon_calculator
     baseline = carbon_calculator(TA=base_TA, DIC=base_DIC; ENV_KWARGS...)
 
-    # 3. Map out the parameter names EXACTLY as your Calculator.jl returns them
+    # 3. Map out the parameter names EXACTLY as Calculator.jl returns them
     calculated_vars = Dict(
         :TA => baseline.TA,
         :DIC => baseline.DIC,

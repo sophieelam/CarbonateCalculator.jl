@@ -1,5 +1,4 @@
 module Carbon
-## Remember to run packages!
 using Roots
 using ForwardDiff
 include("helpers.jl")
@@ -8,7 +7,6 @@ using .Helpers
 export C_calculator, calc_revelle_factor, calc_buffer_capacity, fCO₂_to_CO₂,
 CO₂_to_fCO₂, fCO₂_to_pCO₂, pCO₂_to_fCO₂
 
-## Calculation #1
 """
 #1: Calculating DIC from CO₂ and pH
 Zeebe & Wolf-Gladrow, 2001, Appendix B
@@ -20,7 +18,7 @@ function DIC_from_CO₂_pH(CO₂, pH, Ks)
 end
 
 
-## Calculation #2 
+
 """
 #2: Calculating H⁺ from CO₂ and HCO₃⁻
 Zeebe & Wolf-Gladrow, 2001, Appendix B
@@ -45,7 +43,7 @@ function H_from_CO₂_HCO₃(CO₂, HCO₃, Ks)
     return (Ks.K1 * CO₂) / HCO₃
 end
 
-## Calculation #3 
+
 """
 #3: Calculating H⁺ from CO₂ and CO₃
 Zeebe & Wolf-Gladrow, 2001, Appendix B
@@ -71,7 +69,7 @@ function H_from_CO₂_CO₃(CO₂, CO₃, Ks)
 end
 
 
-## Calculation #4 
+
 """
 #4: Calculating pH from CO₂ and TA
 Taken from MatLab CO2SYS (which originally used a Newton-Raphson method) and

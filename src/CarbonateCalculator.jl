@@ -1,4 +1,4 @@
-module Calculator
+module CarbonateCalculator
 # Packages & helpers:
 include("carbon.jl")
 using .Carbon

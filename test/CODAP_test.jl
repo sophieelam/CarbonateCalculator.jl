@@ -2,8 +2,8 @@ using DataFrames, CSV, Statistics, Printf, Plots, Measures
 using Base.Filesystem
 using ProgressMeter
 using Downloads
-include("../src/Calculator.jl")
-using .Calculator: carbon_system, K_calculator
+include("../src/CarbonateCalculator.jl")
+using .CarbonateCalculator: carbon_system, K_calculator
 include("../src/helpers.jl")
 using .Helpers
 default(

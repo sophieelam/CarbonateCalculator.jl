@@ -21,12 +21,12 @@ ENV_KWARGS = (
     # Calculate the baseline truth
     baseline = whole_system(TA=base_TA, DIC=base_DIC; ENV_KWARGS...)
 
-    # 3. Map out the parameter names EXACTLY as your Calculator.jl returns them
+    # 3. Map out the parameter names EXACTLY as Calculator.jl returns them
     calculated_vars = Dict(
         :TA => baseline.TA,
         :DIC => baseline.DIC,
         :pHtot => baseline.pHtot,   # Changed from :pH
-        :pCO₂ => baseline.pCO₂,     # Note the subscript '2' - check your Calculator.jl exports!
+        :pCO₂ => baseline.pCO₂,     # Note the subscript '2' - check Calculator.jl exports!
         :CO₃ => baseline.CO₃,
         :HCO₃ => baseline.HCO₃,
         :CO₂ => baseline.CO₂

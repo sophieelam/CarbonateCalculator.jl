@@ -1,7 +1,4 @@
 using Test, CSV, DataFrames, Statistics
-# Adjust this include path if needed based on where you save the script
-# include("../../src/Calculator.jl")
-# using .Calculator
 
 # =========================================================================
 # 0. GLOBAL CONFIGURATION & HELPER FUNCTIONS
@@ -91,7 +88,7 @@ end
             
             try
                 # CALLING THE NEW FUNCTION HERE
-                res = Calculator.carbon_calculator(; inputs..., env...)
+                res = CarbonateCalculator.carbon_calculator(; inputs..., env...)
                 
                 unpack(x) = x isa Tuple ? x[1] : x
                 calc_vals = (
@@ -176,7 +173,7 @@ end
             
             try
                 # CALLING THE NEW FUNCTION HERE
-                res = Calculator.carbon_calculator(; inputs..., env...)
+                res = CarbonateCalculator.carbon_calculator(; inputs..., env...)
                 
                 unpack(x) = x isa Tuple ? x[1] : x
                 calc_vals = (

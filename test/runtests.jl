@@ -1,23 +1,23 @@
 using Test
-using Calculator
+using CarbonateCalculator
 include("check_vals.jl")
 using .CheckVals
 
-import .Calculator.Carbon: CO₂_from_pH_DIC, H_from_HCO₃_CO₃, H_from_HCO₃_TA, 
+import .CarbonateCalculator.Carbon: CO₂_from_pH_DIC, H_from_HCO₃_CO₃, H_from_HCO₃_TA, 
                            pH_from_HCO₃_DIC, H_from_CO₃_TA, H_from_CO₃_DIC, 
                            pH_from_TA_DIC, calc_CO₂, calc_CO₃, calc_HCO₃, calc_TA, 
                            fCO₂_to_CO₂, CO₂_to_fCO₂, fCO₂_to_pCO₂, pCO₂_to_fCO₂,
                            DIC_from_CO₂_pH, H_from_CO₂_HCO₃, H_from_CO₂_CO₃,
                            pH_from_CO₂_TA, H_from_CO₂_DIC, DIC_from_pH_HCO₃,
                            DIC_from_pH_CO₃, DIC_from_pH_TA
-import .Calculator.Boron: H_from_BT_BOH3, H_from_BT_BOH4, BT_from_pH_BOH3, 
+import .CarbonateCalculator.Boron: H_from_BT_BOH3, H_from_BT_BOH4, BT_from_pH_BOH3, 
                           BT_from_pH_BOH4, calc_BOH3, calc_BOH4, calc_chiB,
                           B_calculator
-import .Calculator.Isotopes: get_alphaB, calc_ABT, ABOH3_from_H_ABT, ABOH4_from_H_ABT,
+import .CarbonateCalculator.Isotopes: get_alphaB, calc_ABT, ABOH3_from_H_ABT, ABOH4_from_H_ABT,
                             A11_to_δ11, δ11_to_A11
 
 
-@testset "calculator.jl Full Test Suite" begin
+@testset "CarbonateCalculator.jl Full Test Suite" begin
 
     @testset "Carbon" begin
         include("carbon_test.jl")

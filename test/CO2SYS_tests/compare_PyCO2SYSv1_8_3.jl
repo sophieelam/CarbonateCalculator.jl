@@ -1,6 +1,5 @@
 using Test, CSV, DataFrames, Statistics
-# include("../../src/Calculator.jl")
-# using .Calculator
+
 
 # --- 0. Global Validation Thresholds ---
 # GENUINE: Mathematically identical down to numerical precision
@@ -88,7 +87,7 @@ end
         if sym2 == :pH_temp; inputs[current_scale_sym] = val2; else; t2 = (sym2==:pCO₂ && is_mehrbach) ? :fCO₂ : sym2; if !haskey(inputs, t2) inputs[t2] = val2; end; end
         
         try
-            res = Calculator.whole_system(; inputs..., env...)
+            res = CarbonateCalculator.whole_system(; inputs..., env...)
             
             unpack(x) = x isa Tuple ? x[1] : x
             calc_vals = (

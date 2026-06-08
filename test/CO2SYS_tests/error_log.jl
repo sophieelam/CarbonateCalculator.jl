@@ -1,6 +1,6 @@
 using CSV, DataFrames
-include("../../src/Calculator.jl")
-using Calculator
+include("../../src/CarbonateCalculator.jl")
+using CarbonateCalculator
 
 # 1. K1 & K2 Constants
 k1k2_map = Dict(

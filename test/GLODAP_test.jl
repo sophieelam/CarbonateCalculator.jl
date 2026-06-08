@@ -7,8 +7,8 @@ using Base.Filesystem
 using Plots
 using Statistics
 using Printf
-include("../src/Calculator.jl")
-using .Calculator: carbon_system, boron_system, boron_isotopes, whole_system
+include("../src/CarbonateCalculator.jl")
+using .CarbonateCalculator: carbon_system, boron_system, boron_isotopes, whole_system
 using PythonCall
 const np = pyimport("numpy")
 const kgen = pyimport("kgen")
@@ -229,7 +229,7 @@ function carbon_systemGLODAPv2_comparison(figdir=".")
     for i in 1:nrow(gd)
         try
             # 1. Calculate the constants for just THIS row
-            row_K_results = Calculator.K_calculator(
+            row_K_results = CarbonateCalculator.K_calculator(
                 T_in = gd.temperature[i],
                 S_in = gd.salinity[i],
                 P_in = gd.pressure[i],
@@ -270,7 +270,7 @@ function carbon_systemGLODAPv2_comparison(figdir=".")
     for i in 1:nrow(gd)
         try
             # 1. Calculate the constants for just THIS row
-            row_K_results = Calculator.K_calculator(
+            row_K_results = CarbonateCalculator.K_calculator(
                 T_in = gd.temperature[i],
                 S_in = gd.salinity[i],
                 P_in = gd.pressure[i],
@@ -309,7 +309,7 @@ function carbon_systemGLODAPv2_comparison(figdir=".")
     for i in 1:nrow(gd)
         try
             # 1. Calculate the constants for just THIS row
-            row_K_results = Calculator.K_calculator(
+            row_K_results = CarbonateCalculator.K_calculator(
                 T_in = gd.temperature[i],
                 S_in = gd.salinity[i],
                 P_in = gd.pressure[i],
