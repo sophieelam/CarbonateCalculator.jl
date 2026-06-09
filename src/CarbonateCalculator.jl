@@ -317,12 +317,17 @@ function carbon_system_core(;
             "revelle_factor"
         ]
         
-        in_vals = (; (Symbol(k * "_in") => getfield(ps, Symbol(k)) 
+        in_vals = (; (Symbol(k * "_in") => getproperty(ps, Symbol(k)) 
                       for k in outputs if hasproperty(ps, Symbol(k)))...)
 
-        out_vals = (; (Symbol(k) => getfield(out_cond, Symbol(k)) 
+        # Added the "_out" suffix so the display can find them!
+        out_vals = (; (Symbol(k * "_out") => getproperty(out_cond, Symbol(k)) 
                        for k in outputs if hasproperty(out_cond, Symbol(k)))...)
-        ps = merge(ps, in_vals, out_vals)
+        
+        out_base = (; (Symbol(k) => getproperty(out_cond, Symbol(k)) 
+                       for k in outputs if hasproperty(out_cond, Symbol(k)))...)
+                        
+        ps = merge(ps, in_vals, out_vals, out_base)
     end 
 
     # Clean up tuple before returning
@@ -1005,12 +1010,17 @@ function whole_system_core(;
             "ABOH₃", "ABOH₄", "alphaB"
         ]
 
-        in_vals = (; (Symbol(k * "_in") => getfield(ps, Symbol(k)) 
+        in_vals = (; (Symbol(k * "_in") => getproperty(ps, Symbol(k)) 
                       for k in outputs if hasproperty(ps, Symbol(k)))...)
 
-        out_vals = (; (Symbol(k) => getfield(out_cond, Symbol(k)) 
+        # Added the "_out" suffix so the display can find them!
+        out_vals = (; (Symbol(k * "_out") => getproperty(out_cond, Symbol(k)) 
                        for k in outputs if hasproperty(out_cond, Symbol(k)))...)
-        ps = merge(ps, in_vals, out_vals)
+                        
+        out_base = (; (Symbol(k) => getproperty(out_cond, Symbol(k)) 
+                       for k in outputs if hasproperty(out_cond, Symbol(k)))...)
+                        
+        ps = merge(ps, in_vals, out_vals, out_base)
     end 
     
     keys_to_keep = Tuple(k for k in keys(ps) if k ∉ (:pdict, :scale))

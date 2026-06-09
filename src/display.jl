@@ -7,6 +7,42 @@ struct CarbonateResult
     input_keys::Vector{Symbol} 
 end
 
+function Base.getproperty(res::CarbonateResult, s::Symbol)
+    # 1. Standard fields
+    if s in (:val, :err, :input_keys)
+        return getfield(res, s)
+    end
+    
+    v = getfield(res, :val)
+    
+    # 2. Priority: If it's a two-state system, return the "out" value as the default
+    s_out = Symbol(string(s), "_out")
+    if haskey(v, s_out)
+        return getproperty(v, s_out)
+    end
+    
+    # 3. Fallback: Return the base value (or the "in" value if that's all there is)
+    return getproperty(v, s)
+end
+
+# Make tab-completion work for both the struct fields AND the math outputs
+function Base.propertynames(res::CarbonateResult, private::Bool=false)
+    return (fieldnames(CarbonateResult)..., keys(getfield(res, :val))...)
+end
+
+# Allow iteration so tools like ForwardDiff can treat the result like a tuple
+function Base.iterate(res::CarbonateResult, state...)
+    return iterate(getfield(res, :val), state...)
+end
+
+function Base.keys(res::CarbonateResult)
+    return keys(getfield(res, :val))
+end
+
+function Base.length(res::CarbonateResult)
+    return length(getfield(res, :val))
+end
+
 # 2. Overload the Base.show method
 function Base.show(io::IO, ::MIME"text/plain", r::CarbonateResult)
     is_two_state = haskey(r.val, :pHtot_in)
@@ -78,19 +114,21 @@ function _print_dynamic_vars(io, r, suffix)
             s_suffix = Symbol(string(s) * suffix)
             
             # 1. Look for the suffixed version (e.g., DIC_out)
+            # 1. Look for the suffixed version (e.g., DIC_out)
             if haskey(r.val, s_suffix)
                 found_key = s_suffix
                 break
-            # 2. FALLBACK: If we are in "out" mode but the variable is conservative,
-            # look for the "in" version or the plain version.
+            # 2. FALLBACK:
             elseif suffix == "_out"
-                s_in = Symbol(string(s) * "_in")
-                if haskey(r.val, s_in)
-                    found_key = s_in
-                    break
-                elseif haskey(r.val, s)
+                if haskey(r.val, s)        # Look for the base symbol first
                     found_key = s
                     break
+                else 
+                    s_in = Symbol(string(s) * "_in")
+                    if haskey(r.val, s_in) # Then fall back to _in
+                        found_key = s_in
+                        break
+                    end
                 end
             end
         end
