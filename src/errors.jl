@@ -13,6 +13,13 @@ function propagate_errors(target_func; inputs::NamedTuple, errors::NamedTuple)
     base_values = Float64[getproperty(inputs, k) for k in error_keys]
     uncertainties = Float64[getproperty(errors, k) for k in error_keys]
 
+    for key in keys(errors)
+    if getproperty(inputs, key) === nothing
+        error("Parameter '$key' was given an error/uncertainty, but its input value is 'nothing'. " *
+              "Please provide a numerical value for '$key' in your inputs.")
+    end
+end
+
     # 1. Define the AD-compatible wrapper
     function wrapped_math(x_vec)
         # Create a mutable copy of the inputs

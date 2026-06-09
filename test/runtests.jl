@@ -49,6 +49,7 @@ import .CarbonateCalculator.Isotopes: get_alphaB, calc_ABT, ABOH3_from_H_ABT, AB
 
         @testset "Error Propagation" begin
         include("errors_test.jl")
+        include("in_out_error_test.jl")
     end
 
 end
