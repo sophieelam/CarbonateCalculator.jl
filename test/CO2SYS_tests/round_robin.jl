@@ -5,10 +5,10 @@ ENV_KWARGS = (
     sal = 33.0, 
     temp_c = 22.0, 
     pres_bar = 1234.0, 
-    Si_in = 10.0,
-    PO4_in = 1.0,
-    NH3_in = 2.0,
-    H2S_in = 3.0,
+    SiT = 10.0,
+    PT = 1.0,
+    NH4T = 2.0,
+    H2ST = 3.0,
     K_method = "Lueker 2000"
 )
 
