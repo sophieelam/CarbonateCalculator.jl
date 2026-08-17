@@ -1,5 +1,5 @@
 using CSV, DataFrames
-include("../../src/CarbonateCalculator.jl")
+include("../src/CarbonateCalculator.jl")
 using CarbonateCalculator
 
 # 1. K1 & K2 Constants

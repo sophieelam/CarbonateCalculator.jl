@@ -14,9 +14,15 @@ inputs = (
     sal = 35.0,
     PT = 1.0,
     SiT = 15.0,
-    δBT = 39.61,       # Adding explicit isotope for whole_system
-    alphaB = 1.0272
 )
+
+# The isotope arguments belong to whole_system only. They used to live in the shared tuple
+# above, where carbon_system absorbed them into its kwargs sink and carried them into its
+# output as fields that meant nothing.
+boron_inputs = merge(inputs, (
+    δBT = 39.61,
+    alphaB = 1.0272,
+))
 
 # Conditions the sample was collected at: cold and deep.
 const TARGET_TEMP_C = 2.0
@@ -67,7 +73,7 @@ uncertainties = (
         # Add error for isotopic fractionation factor and delta
         iso_errs = merge(uncertainties, (δBT = 0.05, alphaB = 0.0001))
 
-        result = whole_system(; errors=iso_errs, K_method="Lueker 2000", inputs...)
+        result = whole_system(; errors=iso_errs, K_method="Lueker 2000", boron_inputs...)
 
         @test hasproperty(result.err, :δBOH₄)
         @test result.err.δBOH₄ > 0.0
@@ -86,7 +92,7 @@ uncertainties = (
 
     @testset "Boron Species: carbon_boron_calculator" begin
         @info "Testing carbon_boron_calculator..."
-        result = carbon_boron_calculator(; errors=(BT=0.01,), inputs...)
+        result = carbon_boron_calculator(; errors=(BT=0.01,), boron_inputs...)
         
         @test hasproperty(result.err, :BOH₃)
         @test result.err.BOH₃ > 0.0
@@ -98,8 +104,8 @@ uncertainties = (
         # through it. The Python implementation could not, and this path used to warn and
         # silently discard the requested errors.
 
-        for f in (carbon_system, whole_system)
-            result = f(; K_method="MyAMI", errors=(TA=2.0,), inputs...)
+        for (f, args) in ((carbon_system, inputs), (whole_system, boron_inputs))
+            result = f(; K_method="MyAMI", errors=(TA=2.0,), args...)
             @test hasproperty(result, :err)
             @test result.err.pHtot > 0.0
             @test isfinite(result.err.pHtot)

@@ -1,4 +1,4 @@
-include("../src/CarbonateCalculator.jl")
+include("../../src/CarbonateCalculator.jl")
 
 using CarbonateCalculator
 
