@@ -21,8 +21,6 @@ include("conditions.jl")
 
 export whole_system, carbon_system, boron_system, boron_isotopes, carbon_boron_calculator, carbon_calculator, propagate_errors, recalculate_at_target_conditions # export user-facing functions
 
-
-
 # Carbon species calculations
 """
 Calculates the carbon chemistry of seawater from given input parameters for 
@@ -80,10 +78,13 @@ Parameters
     If none, Ks are calculated with the MyAMI model. Alternative Ks for non-
     seawater conditions are available in predefined NamedTuples. See file 
     "Constants" for details.
-* pdict: dict
-    Optional: can be used to provide some or all paramters as a dictionary/
-    NamedTuples with the same key names. Any paramters in pdict will 
-    overwrite manually specified paramters.
+Supplying parameters in bulk
+----------------------------
+Julia does this natively, so there is no `pdict` argument. Splat a NamedTuple or a Dict of
+`Symbol` keys, and later entries win:
+
+    settings = (temp_c = 2.0, sal = 34.5, K_method = "Lueker 2000")
+    carbon_system(; TA = 2300.0, DIC = 2000.0, settings...)
 
 Returns
 -------
@@ -336,10 +337,13 @@ Parameters
     If none, Ks are calculated with teh MyAMI model. Alternative Ks for non-
     seawater conditions are available in predefined NamedTuples. See file 
     "Constants" for details.
-* pdict: dict
-    Optional: can be used to provide some or all paramters as a dictionary/
-    NamedTuples with the same key names. Any paramters in pdict will 
-    overwrite manually specified paramters.
+Supplying parameters in bulk
+----------------------------
+Julia does this natively, so there is no `pdict` argument. Splat a NamedTuple or a Dict of
+`Symbol` keys, and later entries win:
+
+    settings = (temp_c = 2.0, sal = 34.5, K_method = "Lueker 2000")
+    carbon_system(; TA = 2300.0, DIC = 2000.0, settings...)
 
 Returns
 -------
@@ -523,10 +527,13 @@ Parameters
     If none, Ks are calculated with teh MyAMI model. Alternative Ks for non-
     seawater conditions are available in predefined NamedTuples. See file 
     "Constants" for details.
-* pdict: dict
-    Optional: can be used to provide some or all paramters as a dictionary/
-    NamedTuples with the same key names. Any paramters in pdict will 
-    overwrite manually specified paramters.
+Supplying parameters in bulk
+----------------------------
+Julia does this natively, so there is no `pdict` argument. Splat a NamedTuple or a Dict of
+`Symbol` keys, and later entries win:
+
+    settings = (temp_c = 2.0, sal = 34.5, K_method = "Lueker 2000")
+    carbon_system(; TA = 2300.0, DIC = 2000.0, settings...)
 
 Returns
 -------
@@ -706,10 +713,13 @@ Parameters
     If none, Ks are calculated with teh MyAMI model. Alternative Ks for non-
     seawater conditions are available in predefined NamedTuples. See file 
     "Constants" for details.
-* pdict: dict
-    Optional: can be used to provide some or all paramters as a dictionary/
-    NamedTuples with the same key names. Any paramters in pdict will 
-    overwrite manually specified paramters.
+Supplying parameters in bulk
+----------------------------
+Julia does this natively, so there is no `pdict` argument. Splat a NamedTuple or a Dict of
+`Symbol` keys, and later entries win:
+
+    settings = (temp_c = 2.0, sal = 34.5, K_method = "Lueker 2000")
+    carbon_system(; TA = 2300.0, DIC = 2000.0, settings...)
 
 Returns
 -------
@@ -996,6 +1006,9 @@ function carbon_system(;
     # Merge any overflow kwargs just to be safe
     full_inputs = merge(inputs_nt, NamedTuple(kwargs))
 
+    _check_determinacy(full_inputs, carbon_system; require_two = true)
+    _check_conditions(temp_c, sal, pres_bar)
+    _check_error_names(errors, full_inputs, carbon_system)
 
     # Identify which of the main carbonate parameters were actually provided
     # We check the inputs_nt for non-nothing values
@@ -1047,6 +1060,12 @@ function whole_system(;
 
     # Merge any overflow kwargs just to be safe
     full_inputs = merge(inputs_nt, NamedTuple(kwargs))
+
+    # require_two = false: the boron and isotope routes to a solution live in the core's own
+    # check, which reports them properly.
+    _check_determinacy(full_inputs, whole_system; require_two = false)
+    _check_conditions(temp_c, sal, pres_bar)
+    _check_error_names(errors, full_inputs, whole_system)
 
     # Identify which of the main carbonate parameters were actually provided
     # We check the inputs_nt for non-nothing values
