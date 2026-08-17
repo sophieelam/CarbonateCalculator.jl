@@ -71,6 +71,14 @@ end
             include("internal/isotope_test.jl")
         end
 
+        @testset "Input Validation" begin
+            include("internal/validation_test.jl")
+        end
+
+        @testset "Method Selection" begin
+            include("internal/method_selection_test.jl")
+        end
+
         @testset "Input/Output Consistency" begin
             include("internal/input_output_test.jl")
         end
