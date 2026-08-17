@@ -1,4 +1,5 @@
 using Test
+using Logging
 using ForwardDiff
 using CarbonateCalculator
 
@@ -81,17 +82,34 @@ uncertainties = (
         @test result.err.BOH₃ > 0.0
     end
 
-    @testset "Guardrails: MyAMI Intercepts" begin
-        @info "Testing MyAMI Intercepts..."
-        
-        # Check carbon_system
-        @test_logs (:warn, r"not supported") carbon_system(; 
-            K_method="MyAMI", errors=(TA=2.0,), inputs...
-        )
+    @testset "MyAMI supports error propagation" begin
+        @info "Testing error propagation through the MyAMI path..."
+        # Kgen.jl is pure Julia and Real-typed, so ForwardDiff differentiates straight
+        # through it. The Python implementation could not, and this path used to warn and
+        # silently discard the requested errors.
 
-        # Check whole_system
-        @test_logs (:warn, r"not supported") whole_system(; 
+        for f in (carbon_system, whole_system)
+            result = f(; K_method="MyAMI", errors=(TA=2.0,), inputs...)
+            @test hasproperty(result, :err)
+            @test result.err.pHtot > 0.0
+            @test isfinite(result.err.pHtot)
+        end
+
+        # No warning should be emitted any more.
+        @test_logs min_level=Logging.Warn carbon_system(;
             K_method="MyAMI", errors=(TA=2.0,), inputs...
         )
+    end
+
+    @testset "Guardrails: MyAMI_mode" begin
+        @info "Testing MyAMI_mode validation..."
+        # Only the polynomial approximation is implemented in Kgen.jl; the full MyAMI
+        # model is Python-only. Asking for it must fail loudly rather than silently
+        # returning approximate values.
+        @test_throws ArgumentError carbon_system(;
+            K_method="MyAMI", MyAMI_mode="calculate", inputs...
+        )
+        @test carbon_system(; K_method="MyAMI", MyAMI_mode="approximate", inputs...).pHtot ≈
+              carbon_system(; K_method="MyAMI", inputs...).pHtot
     end
 end

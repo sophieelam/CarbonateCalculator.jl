@@ -9,9 +9,6 @@ using Statistics
 using Printf
 include("../src/CarbonateCalculator.jl")
 using .CarbonateCalculator: carbon_system, boron_system, boron_isotopes, whole_system
-using PythonCall
-const np = pyimport("numpy")
-const kgen = pyimport("kgen")
 include("../src/helpers.jl")
 using .Helpers
 default(

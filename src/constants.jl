@@ -1,16 +1,12 @@
 module Constants
-using PythonCall
-using ForwardDiff
+using Kgen
 
-# 1. Create empty placeholders instead of importing right away
-const np = PythonCall.pynew()
-const kgen = PythonCall.pynew()
-
-# 2. Fill them exactly when the module is loaded at runtime
-function __init__()
-    PythonCall.pycopy!(np, pyimport("numpy"))
-    PythonCall.pycopy!(kgen, pyimport("kgen"))
-end
+# Modern seawater composition, taken from Kgen so there is a single source of truth for
+# what "unspecified Ca/Mg" means. Ca and Mg default to `nothing` throughout the public
+# API: nothing leaves Ca_method in charge of the calcium used for saturation state, and
+# means "modern" for the MyAMI correction.
+const MODERN_CALCIUM = Kgen.MODERN_CALCIUM
+const MODERN_MAGNESIUM = Kgen.MODERN_MAGNESIUM
 
 using ..Helpers
 using Statistics
@@ -978,9 +974,11 @@ end
 
 
 # Helper function to handle when user passes K_method="default"
-function which_K(; K_method="default", T_in, S_in,Ca=0.0102821, 
-    Mg=0.0528171, kwargs...)
-    if Ca != 0.0102821 || Mg != 0.0528171
+function which_K(; K_method="default", T_in, S_in, Ca=nothing,
+    Mg=nothing, kwargs...)
+    # An unspecified Ca/Mg is modern seawater, so it must not read as "non-modern" here.
+    if something(Ca, MODERN_CALCIUM) != MODERN_CALCIUM ||
+       something(Mg, MODERN_MAGNESIUM) != MODERN_MAGNESIUM
         return "MyAMI"
     elseif T_in > 35
         return "Millero 2006"
@@ -1023,7 +1021,10 @@ end
 # Possible options for KNH3_method are "Millero", "Clegg" or "default".
 # Default will be calculated as "Millero".
 # Possible options for Ca_method are "Culkin", "RT67" or "default".
-# Default will be calculated as "Culkin".
+# Default is modern seawater Ca (MODERN_CALCIUM), the same composition Kgen assumes for
+# the MyAMI correction, so that the Ca used for saturation state and the Ca used to
+# correct the constants agree. "Culkin" and "RT67" give salinity-scaled concentrations.
+# An explicitly supplied Ca overrides Ca_method entirely.
 function K_calculator(; T_in, S_in, P_in=0.0, ST=nothing, FT=nothing,
     BT=nothing, K_method="default", KSO4_method="default", BT_method="default",
     KF_method="default", KNH3_method="default", Ca_method="default",
@@ -1072,6 +1073,7 @@ function K_calculator(; T_in, S_in, P_in=0.0, ST=nothing, FT=nothing,
             FT = [r.FT for r in raw_results],
             BT = [r.BT for r in raw_results],
             Ca = [r.Ca for r in raw_results],
+            Mg = [r.Mg for r in raw_results],
             fH = [r.fH for r in raw_results],
             method = [r.method for r in raw_results] # Changed 'methods' to 'method' for consistency
         )
@@ -1093,13 +1095,25 @@ function K_calculator(; T_in, S_in, P_in=0.0, ST=nothing, FT=nothing,
     end
 
     Ca_in = get(kwargs, :Ca, nothing)
+    Mg_in = get(kwargs, :Mg, nothing)
 
-    if Ca_method == ""
-        final_Ca = isnothing(Ca_in) ? RT67_Ca(; S_in) : Ca_in
+    # An unspecified Ca or Mg is modern seawater, and "modern" means the same composition
+    # Kgen assumes for its MyAMI correction. Defaulting to that rather than to Culkin
+    # keeps the calcium used for saturation state and the calcium used to correct the
+    # constants the same number. Culkin and RT67 remain available explicitly.
+    final_Ca = if !isnothing(Ca_in)
+        Ca_in
+    elseif Ca_method == "Culkin"
+        Culkin_Ca(; S_in)
+    elseif Ca_method == "RT67"
+        RT67_Ca(; S_in)
     else
-        final_Ca = isnothing(Ca_in) ? Culkin_Ca(; S_in) : Ca_in
+        MODERN_CALCIUM
     end
-    
+
+    final_Mg = something(Mg_in, MODERN_MAGNESIUM)
+
+
     final_ST = isnothing(ST) ? calc_ST(; S_in).ST : ST
     final_FT = isnothing(FT) ? calc_FT(; S_in).FT : FT
 
@@ -1285,32 +1299,27 @@ function K_calculator(; T_in, S_in, P_in=0.0, ST=nothing, FT=nothing,
         final_FT = isnothing(FT) ? Helpers.calc_FT(S_in) : FT
         final_BT = isnothing(BT) ? Helpers.calc_BT(S_in) : BT
         
-        Mg_val = get(kwargs, :Mg, 0.0528171) 
-        Ca_val = get(kwargs, :Ca, 0.0102821)
+        # The seawater *composition* MyAMI corrects for: the explicit Ca/Mg if given,
+        # modern otherwise. Deliberately not final_Ca, which may have been derived from
+        # Ca_method and is then salinity-scaled - that is a concentration, not a
+        # composition, and feeding it here would read dilution as a low-Ca ocean.
+        Mg_val = something(Mg_in, MODERN_MAGNESIUM)
+        Ca_val = something(Ca_in, MODERN_CALCIUM)
 
-        mode_val = get(kwargs, :MyAMI_mode, "calculate")
+        mode_val = get(kwargs, :MyAMI_mode, "approximate")
 
-        # --- AD BOUNDARY FIX ---
-        # Explicitly trap and strip Duals using Julia's multiple dispatch
-        unwrap_dual(x::ForwardDiff.Dual) = ForwardDiff.value(x)
-        unwrap_dual(x::AbstractArray) = unwrap_dual.(x) # Recursively unwrap arrays
-        unwrap_dual(x) = x # Safe fallback for standard floats and strings
-
-
-        py_ks = kgen.calc_Ks(
-            temp_c = np.asarray(T_in),
-            sal = np.asarray(S_in), 
-            p_bar = np.asarray(P_in), 
-            magnesium = np.asarray(Mg_val),
-            calcium = np.asarray(Ca_val),
-            sulphate = np.asarray(final_ST), 
-            fluorine = np.asarray(final_FT), 
+        # Positional form, in Kgen's fixed order temp_c, sal, p_bar, magnesium, calcium.
+        # Julia cannot broadcast keyword arguments, so this is the form that survives if
+        # this branch is ever handed arrays directly. sulphate/fluorine/MyAMI_mode are
+        # keyword-only in Kgen and stay that way.
+        # Kgen owns the pressure correction here, hence the P_in pass-through and the
+        # MyAMI exclusions from the correction blocks below.
+        Ks = Kgen.calc_Ks(
+            T_in, S_in, P_in, Mg_val, Ca_val;
+            sulphate = final_ST,
+            fluorine = final_FT,
             MyAMI_mode = mode_val
         )
-        
-        # Convert to Julia Dict, then to NamedTuple
-        ks_dict = pyconvert(Dict{Symbol, Any}, py_ks)
-        Ks = (; ks_dict...)
 
     else
         throw(ArgumentError("Unknown K_method: $K_method"))
@@ -1500,6 +1509,7 @@ function K_calculator(; T_in, S_in, P_in=0.0, ST=nothing, FT=nothing,
         FT = final_FT,
         BT = final_BT,
         Ca = final_Ca,
+        Mg = final_Mg,
         fH = fH_val,
         method = K_method
     )

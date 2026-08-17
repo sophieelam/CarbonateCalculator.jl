@@ -10,10 +10,7 @@ include("helpers.jl")
 using .Helpers
 include("constants.jl")
 using .Constants
-using PythonCall
-const kgen = pyimport("kgen")
 using Printf
-const np = pyimport("numpy")
 using ForwardDiff, LinearAlgebra, Roots
 include("errors.jl")
 include("display.jl")
@@ -49,10 +46,19 @@ Parameters
     (Uppstrom et al. 1974)
 * Ca, Mg: array-like
     The [Ca²⁺] and [Mg²⁺] of standard seawater (i.e. 35 salinity), in mol/kg. Used
-    to calculate MyAMI constants.
+    to correct the speciation constants for non-modern seawater composition via
+    MyAMI, and — for Ca — to calculate saturation state.
+    Both default to `nothing`, meaning modern seawater: the same composition Kgen
+    assumes for the MyAMI correction, so the Ca used for saturation state and the Ca
+    used to correct the constants agree. Set Ca_method to "Culkin" or "RT67" for a
+    salinity-scaled concentration instead; an explicit Ca overrides Ca_method entirely.
+* MyAMI_mode: str
+    How the MyAMI composition correction is evaluated. Only "approximate", the
+    polynomial approximation, is available; "calculate" (the full MyAMI model) is
+    implemented only in the Python version of Kgen and raises an error here.
 * T_in, S_in: array-like
     Temperature in Celcius and salinity in PSU for the condtions that the
-    measurments were taken in. Used in calculating MyAMI constants.
+    measurments were taken in. Used in calculating speciation constants.
 * P_in: array-like
     Pressure in Bar for the conditions that the measuremnts were taken in. Used
     in pressure-correcting constants. 
@@ -84,11 +90,11 @@ NamedTuple containing all calculated parameters
 """
 function carbon_system_core(;
     pH=nothing, pHtot=nothing, DIC=nothing, TA=nothing, CO₂=nothing, HCO₃=nothing,
-    CO₃=nothing, pCO₂=nothing, fCO₂=nothing, BT=nothing, Ca=0.0102821,
-    Mg=0.0528171, T_in=25.0, T_out=nothing, S_in=35.0, S_out=nothing,
+    CO₃=nothing, pCO₂=nothing, fCO₂=nothing, BT=nothing, Ca=nothing,
+    Mg=nothing, T_in=25.0, T_out=nothing, S_in=35.0, S_out=nothing,
     P_in=0.0, P_out=nothing, PT=0.0, SiT=0.0, H2ST=0.0, NH4T=0.0, ST=nothing, FT=nothing,
     pHsws=nothing, pHfree=nothing, pHNBS=nothing, unit="umol", scale="total", Ks=nothing,
-    pdict=nothing, ΩC=nothing, ΩA=nothing, MyAMI_mode="calculate", 
+    pdict=nothing, ΩC=nothing, ΩA=nothing, MyAMI_mode="approximate", 
     K_method="default", KSO4_method="default", BT_method="default", 
     KF_method="default", K_mode="static", KNH3_method="default",
     Ca_method="default", kwargs...
@@ -113,11 +119,18 @@ function carbon_system_core(;
         Ks_env = K_calculator(;
             T_in=T_in, S_in=S_in, P_in=P_in, ST=ST, FT=FT, BT=BT,
             K_method=K_method, KSO4_method=KSO4_method, BT_method=BT_method,
-            KF_method=KF_method, KNH3_method=KNH3_method, Ca_method=Ca_method, K_mode=K_mode
+            KF_method=KF_method, KNH3_method=KNH3_method, Ca_method=Ca_method, K_mode=K_mode,
+            MyAMI_mode=MyAMI_mode, Ca=Ca, Mg=Mg
         )
     else
         Ks_env = Ks
     end
+
+    # Ca drives both the MyAMI correction and the saturation state. K_calculator has
+    # already resolved it - the explicit value if one was given, Ca_method otherwise - so
+    # take it from there rather than re-deriving it and risking the two disagreeing.
+    Ca_val = hasproperty(Ks_env, :Ca) ? Ks_env.Ca : something(Ca, Constants.MODERN_CALCIUM)
+    Mg_val = hasproperty(Ks_env, :Mg) ? Ks_env.Mg : something(Mg, Constants.MODERN_MAGNESIUM)
 
     ST_val = Ks_env.ST
     FT_val = Ks_env.FT
@@ -172,8 +185,8 @@ function carbon_system_core(;
         BT = internal_BT,
         ST = Ks_env.ST,
         FT = Ks_env.FT,
-        Mg = Mg,
-        Ca = Ca,
+        Mg = Mg_val,
+        Ca = Ca_val,
         H2ST = clean(scale_unit(H2ST)),
         NH4T = clean(scale_unit(NH4T)),
         T_in = T_in,
@@ -297,14 +310,17 @@ function carbon_system_core(;
             P_out = nothing,
             unit = ps.unit, #"mol", # Molar units to match internal system depth
             scale = ps.scale,
-            Ca = ps.Ca,
-            Mg = ps.Mg,
+            # The original arguments, not ps.Ca: ps.Ca has been resolved through
+            # Ca_method and is salinity-scaled, so passing it here would both freeze it at
+            # the input salinity and read as a non-modern composition to MyAMI.
+            Ca = Ca,
+            Mg = Mg,
             BT = local_BT,
             FT = local_FT,
             ST = local_ST,
             PT = ps.PT,
             SiT = ps.SiT,
-            MyAMI_mode = MyAMI_mode, 
+            MyAMI_mode = MyAMI_mode,
             K_method= K_method,
             KSO4_method="default",
             BT_method="default"
@@ -361,7 +377,16 @@ Parameters
     (Kolchko, et al., 2006)
 * Ca, Mg: array-like
     The [Ca²⁺] and [Mg²⁺] of standard seawater (i.e. 35 salinity), in mol/kg. Used
-    to calculate MyAMI constants.
+    to correct the speciation constants for non-modern seawater composition via
+    MyAMI, and — for Ca — to calculate saturation state.
+    Both default to `nothing`, meaning modern seawater: the same composition Kgen
+    assumes for the MyAMI correction, so the Ca used for saturation state and the Ca
+    used to correct the constants agree. Set Ca_method to "Culkin" or "RT67" for a
+    salinity-scaled concentration instead; an explicit Ca overrides Ca_method entirely.
+* MyAMI_mode: str
+    How the MyAMI composition correction is evaluated. Only "approximate", the
+    polynomial approximation, is available; "calculate" (the full MyAMI model) is
+    implemented only in the Python version of Kgen and raises an error here.
 * T_in, S_in: array-like
     Temperature in Celcius and salinity in PSU for the condtions that the
     measurments were taken in. Used in calculating MyAMI constants.
@@ -386,9 +411,9 @@ NamedTuple containing all calculated parameters
 function boron_system(;
     pHtot=nothing, BT=nothing, BOH₃=nothing, BOH₄=nothing, ABT=nothing,
     ABOH₃=nothing, ABOH₄=nothing, δBT=nothing, δBOH₃=nothing, δBOH₄=nothing,
-    alphaB=nothing, T_in=25.0, S_in=35.0, P_in =0.0, Ca=0.0102821, Mg=0.0528171, 
+    alphaB=nothing, T_in=25.0, S_in=35.0, P_in =0.0, Ca=nothing, Mg=nothing, 
     ST=nothing, FT=nothing, pHsws=nothing, pHfree=nothing, 
-    pHNBS=nothing, Ks=nothing, pdict=nothing, MyAMI_mode="calculate", 
+    pHNBS=nothing, Ks=nothing, pdict=nothing, MyAMI_mode="approximate", 
     K_method="default", K_mode="static", KSO4_method="default", BT_method="default", 
     KF_method="default", KNH3_method="default", Ca_method="default", kwargs...)
 
@@ -437,8 +462,9 @@ ps = (
 
         new_Ks = K_calculator(; T_in, S_in, P_in=P_in, ST=nothing, FT=nothing,
         BT=nothing, K_method=K_method, KSO4_method=KSO4_method,
-        BT_method=BT_method, KF_method=KF_method, KNH3_method=KNH3_method, 
-        Ca_method=Ca_method, K_mode=K_mode, kwargs...)
+        BT_method=BT_method, KF_method=KF_method, KNH3_method=KNH3_method,
+        Ca_method=Ca_method, K_mode=K_mode, MyAMI_mode=MyAMI_mode, Ca=Ca, Mg=Mg,
+        kwargs...)
 
         ps = merge(ps, new_Ks)
 
@@ -536,7 +562,16 @@ Parameters
     (Kolchko, et al., 2006)
 * Ca, Mg: array-like
     The [Ca²⁺] and [Mg²⁺] of standard seawater (i.e. 35 salinity), in mol/kg. Used
-    to calculate MyAMI constants.
+    to correct the speciation constants for non-modern seawater composition via
+    MyAMI, and — for Ca — to calculate saturation state.
+    Both default to `nothing`, meaning modern seawater: the same composition Kgen
+    assumes for the MyAMI correction, so the Ca used for saturation state and the Ca
+    used to correct the constants agree. Set Ca_method to "Culkin" or "RT67" for a
+    salinity-scaled concentration instead; an explicit Ca overrides Ca_method entirely.
+* MyAMI_mode: str
+    How the MyAMI composition correction is evaluated. Only "approximate", the
+    polynomial approximation, is available; "calculate" (the full MyAMI model) is
+    implemented only in the Python version of Kgen and raises an error here.
 * T_in, S_in: array-like
     Temperature in Celcius and salinity in PSU for the condtions that the
     measurments were taken in. Used in calculating MyAMI constants.
@@ -561,9 +596,9 @@ NamedTuple containing all calculated parameters
 function boron_isotopes(;
     pHtot=nothing, BT=nothing, BOH₃=nothing, BOH₄=nothing, ABT=nothing, 
     ABOH₃=nothing, ABOH₄=nothing, δBT=nothing, δBOH₃=nothing, δBOH₄=nothing, 
-    alphaB=nothing, T_in=25.0,  S_in=35.0, P_in=0.0, Ca=0.0102821, Mg=0.0528171,
+    alphaB=nothing, T_in=25.0,  S_in=35.0, P_in=0.0, Ca=nothing, Mg=nothing,
     ST=nothing, FT=nothing, pHsws=nothing, pHfree=nothing, pHNBS=nothing, 
-    Ks=nothing, pdict=nothing, MyAMI_mode="calculate", 
+    Ks=nothing, pdict=nothing, MyAMI_mode="approximate", 
     K_method="default", KSO4_method="default", BT_method="default", 
     KF_method="default", KNH3_method="default", Ca_method="default",
     K_mode="static", kwargs...
@@ -599,8 +634,9 @@ ps = (
 
         new_Ks = K_calculator(; T_in, S_in, P_in=P_in, ST=nothing, FT=nothing,
         BT=nothing, K_method=K_method, KSO4_method=KSO4_method,
-        BT_method=BT_method, KF_method=KF_method, KNH3_method=KNH3_method, 
-        Ca_method=Ca_method, K_mode=K_mode, kwargs...)
+        BT_method=BT_method, KF_method=KF_method, KNH3_method=KNH3_method,
+        Ca_method=Ca_method, K_mode=K_mode, MyAMI_mode=MyAMI_mode, Ca=Ca, Mg=Mg,
+        kwargs...)
 
         ps = merge(ps, new_Ks)
 
@@ -700,7 +736,16 @@ Parameters
     (Kolchko, et al., 2006)
 * Ca, Mg: array-like
     The [Ca²⁺] and [Mg²⁺] of standard seawater (i.e. 35 salinity), in mol/kg. Used
-    to calculate MyAMI constants.
+    to correct the speciation constants for non-modern seawater composition via
+    MyAMI, and — for Ca — to calculate saturation state.
+    Both default to `nothing`, meaning modern seawater: the same composition Kgen
+    assumes for the MyAMI correction, so the Ca used for saturation state and the Ca
+    used to correct the constants agree. Set Ca_method to "Culkin" or "RT67" for a
+    salinity-scaled concentration instead; an explicit Ca overrides Ca_method entirely.
+* MyAMI_mode: str
+    How the MyAMI composition correction is evaluated. Only "approximate", the
+    polynomial approximation, is available; "calculate" (the full MyAMI model) is
+    implemented only in the Python version of Kgen and raises an error here.
 * T_in, S_in: array-like
     Temperature in Celcius and salinity in PSU for the condtions that the
     measurments were taken in. Used in calculating MyAMI constants.
@@ -738,11 +783,11 @@ function whole_system_core(;
     pH=nothing, pHtot=nothing, DIC=nothing, TA=nothing, CO₂=nothing, HCO₃=nothing,
     CO₃=nothing, pCO₂=nothing, fCO₂=nothing, BT =nothing, BOH₃=nothing,
     BOH₄=nothing, ABT=nothing, ABOH₃=nothing, ABOH₄=nothing, δBT=nothing,
-    δBOH₃=nothing, δBOH₄=nothing, alphaB=nothing, Ca=0.0102821,
-    Mg=0.0528171, T_in=25.0, T_out=nothing, S_in=35.0, S_out=nothing,
+    δBOH₃=nothing, δBOH₄=nothing, alphaB=nothing, Ca=nothing,
+    Mg=nothing, T_in=25.0, T_out=nothing, S_in=35.0, S_out=nothing,
     P_in=0.0, P_out=nothing, PT=0.0, SiT=0.0, H2ST=0.0, NH4T=0.0, ST=nothing, FT=nothing,
     pHsws=nothing, pHfree=nothing, pHNBS=nothing, unit="umol", scale="total", Ks=nothing,
-    pdict=nothing, ΩC=nothing, ΩA=nothing, MyAMI_mode="calculate",
+    pdict=nothing, ΩC=nothing, ΩA=nothing, MyAMI_mode="approximate",
     K_method="default", KSO4_method="default", BT_method="default", 
     KF_method="default", KNH3_method="default", Ca_method="default",
     K_mode="static", kwargs...
@@ -766,11 +811,18 @@ function whole_system_core(;
         Ks_env = K_calculator(;
             T_in=T_in, S_in=S_in, P_in=P_in, ST=ST, FT=FT, BT=BT,
             K_method=K_method, KSO4_method=KSO4_method, BT_method=BT_method,
-            KF_method=KF_method, KNH3_method=KNH3_method, Ca_method=Ca_method, K_mode=K_mode
+            KF_method=KF_method, KNH3_method=KNH3_method, Ca_method=Ca_method, K_mode=K_mode,
+            MyAMI_mode=MyAMI_mode, Ca=Ca, Mg=Mg
         )
     else
         Ks_env = Ks
     end
+
+    # Ca drives both the MyAMI correction and the saturation state. K_calculator has
+    # already resolved it - the explicit value if one was given, Ca_method otherwise - so
+    # take it from there rather than re-deriving it and risking the two disagreeing.
+    Ca_val = hasproperty(Ks_env, :Ca) ? Ks_env.Ca : something(Ca, Constants.MODERN_CALCIUM)
+    Mg_val = hasproperty(Ks_env, :Mg) ? Ks_env.Mg : something(Mg, Constants.MODERN_MAGNESIUM)
 
     ST_val = Ks_env.ST
     FT_val = Ks_env.FT
@@ -829,8 +881,8 @@ function whole_system_core(;
         BOH₄ = clean(scale_unit(BOH₄)),
         ST = Ks_env.ST,
         FT = Ks_env.FT,
-        Mg = Mg,
-        Ca = Ca,
+        Mg = Mg_val,
+        Ca = Ca_val,
         fH = fH_val,
         δBT = δBT,
         δBOH₃ = δBOH₃,
@@ -933,7 +985,7 @@ function whole_system_core(;
     oCa = if !isnothing(get(ps, :Ca, nothing))
         ps.Ca * ps.S_in / 35.0
     else
-        0.0102821 * ps.S_in / 35.0
+        Constants.MODERN_CALCIUM * ps.S_in / 35.0
     end
 
     ΩA = ps.CO₃ * oCa / ps.Ks.KspA
@@ -989,8 +1041,10 @@ function whole_system_core(;
             P_out = nothing,
             unit = ps.unit, #"mol",
             scale = ps.scale,
-            Ca = ps.Ca,
-            Mg = ps.Mg,
+            # The original arguments, not ps.Ca - see the equivalent call in
+            # carbon_system_core.
+            Ca = Ca,
+            Mg = Mg,
             BT = local_BT,
             FT = local_FT,
             ST = local_ST,
@@ -1051,7 +1105,16 @@ Parameters
     (Uppstrom et al. 1974)
 * Ca, Mg: array-like
     The [Ca²⁺] and [Mg²⁺] of standard seawater (i.e. 35 salinity), in mol/kg. Used
-    to calculate MyAMI constants.
+    to correct the speciation constants for non-modern seawater composition via
+    MyAMI, and — for Ca — to calculate saturation state.
+    Both default to `nothing`, meaning modern seawater: the same composition Kgen
+    assumes for the MyAMI correction, so the Ca used for saturation state and the Ca
+    used to correct the constants agree. Set Ca_method to "Culkin" or "RT67" for a
+    salinity-scaled concentration instead; an explicit Ca overrides Ca_method entirely.
+* MyAMI_mode: str
+    How the MyAMI composition correction is evaluated. Only "approximate", the
+    polynomial approximation, is available; "calculate" (the full MyAMI model) is
+    implemented only in the Python version of Kgen and raises an error here.
 * T_in, S_in: array-like
     Temperature in Celcius and salinity in PSU for the condtions that the
     measurments were taken in. Used in calculating MyAMI constants.
@@ -1080,11 +1143,11 @@ NamedTuple containing all calculated parameters
 """
 function carbon_calculator_core(;
     pH=nothing, pHtot=nothing, DIC=nothing, TA=nothing, CO₂=nothing, HCO₃=nothing,
-    CO₃=nothing, pCO₂=nothing, fCO₂=nothing, BT=nothing, Ca=0.0102821,
-    Mg=0.0528171, T_in=25.0, S_in=35.0, P_in=0.0, PT=0.0, SiT=0.0, H2ST=0.0,
+    CO₃=nothing, pCO₂=nothing, fCO₂=nothing, BT=nothing, Ca=nothing,
+    Mg=nothing, T_in=25.0, S_in=35.0, P_in=0.0, PT=0.0, SiT=0.0, H2ST=0.0,
     NH4T=0.0, ST=nothing, FT=nothing, pHsws=nothing, pHfree=nothing,
     pHNBS=nothing, unit="umol", scale="total", Ks=nothing, pdict=nothing,
-    ΩC=nothing, ΩA=nothing, MyAMI_mode="calculate", K_method="default",
+    ΩC=nothing, ΩA=nothing, MyAMI_mode="approximate", K_method="default",
     KSO4_method="default", BT_method="default", KF_method="default",
     K_mode="static", KNH3_method="default", Ca_method="default", kwargs...
 )
@@ -1108,11 +1171,18 @@ function carbon_calculator_core(;
         Ks_env = K_calculator(;
             T_in=T_in, S_in=S_in, P_in=P_in, ST=ST, FT=FT, BT=BT,
             K_method=K_method, KSO4_method=KSO4_method, BT_method=BT_method,
-            KF_method=KF_method, KNH3_method=KNH3_method, Ca_method=Ca_method, K_mode=K_mode
+            KF_method=KF_method, KNH3_method=KNH3_method, Ca_method=Ca_method, K_mode=K_mode,
+            MyAMI_mode=MyAMI_mode, Ca=Ca, Mg=Mg
         )
     else
         Ks_env = Ks
     end
+
+    # Ca drives both the MyAMI correction and the saturation state. K_calculator has
+    # already resolved it - the explicit value if one was given, Ca_method otherwise - so
+    # take it from there rather than re-deriving it and risking the two disagreeing.
+    Ca_val = hasproperty(Ks_env, :Ca) ? Ks_env.Ca : something(Ca, Constants.MODERN_CALCIUM)
+    Mg_val = hasproperty(Ks_env, :Mg) ? Ks_env.Mg : something(Mg, Constants.MODERN_MAGNESIUM)
 
     ST_val = Ks_env.ST
     FT_val = Ks_env.FT
@@ -1167,8 +1237,8 @@ function carbon_calculator_core(;
         BT = internal_BT,
         ST = Ks_env.ST,
         FT = Ks_env.FT,
-        Mg = Mg,
-        Ca = Ca,
+        Mg = Mg_val,
+        Ca = Ca_val,
         H2ST = clean(scale_unit(H2ST)),
         NH4T = clean(scale_unit(NH4T)),
         T_in = T_in,
@@ -1309,7 +1379,16 @@ Parameters
     (Kolchko, et al., 2006)
 * Ca, Mg: array-like
     The [Ca²⁺] and [Mg²⁺] of standard seawater (i.e. 35 salinity), in mol/kg. Used
-    to calculate MyAMI constants.
+    to correct the speciation constants for non-modern seawater composition via
+    MyAMI, and — for Ca — to calculate saturation state.
+    Both default to `nothing`, meaning modern seawater: the same composition Kgen
+    assumes for the MyAMI correction, so the Ca used for saturation state and the Ca
+    used to correct the constants agree. Set Ca_method to "Culkin" or "RT67" for a
+    salinity-scaled concentration instead; an explicit Ca overrides Ca_method entirely.
+* MyAMI_mode: str
+    How the MyAMI composition correction is evaluated. Only "approximate", the
+    polynomial approximation, is available; "calculate" (the full MyAMI model) is
+    implemented only in the Python version of Kgen and raises an error here.
 * T_in, S_in: array-like
     Temperature in Celcius and salinity in PSU for the condtions that the
     measurments were taken in. Used in calculating MyAMI constants.
@@ -1341,11 +1420,11 @@ function carbon_boron_calculator_core(;
     pH=nothing, pHtot=nothing, DIC=nothing, TA=nothing, CO₂=nothing, HCO₃=nothing,
     CO₃=nothing, pCO₂=nothing, fCO₂=nothing, BT =nothing, BOH₃=nothing,
     BOH₄=nothing, ABT=nothing, ABOH₃=nothing, ABOH₄=nothing, δBT=nothing,
-    δBOH₃=nothing, δBOH₄=nothing, alphaB=nothing, Ca=0.0102821,
-    Mg=0.0528171, T_in=25.0, S_in=35.0, P_in=0.0, PT=0.0, SiT=0.0, H2ST=0.0,
+    δBOH₃=nothing, δBOH₄=nothing, alphaB=nothing, Ca=nothing,
+    Mg=nothing, T_in=25.0, S_in=35.0, P_in=0.0, PT=0.0, SiT=0.0, H2ST=0.0,
     NH4T=0.0, ST=nothing, FT=nothing, pHsws=nothing, pHfree=nothing, pHNBS=nothing,
     unit="umol", scale="total", Ks=nothing, pdict=nothing, ΩC=nothing, ΩA=nothing,
-    MyAMI_mode="calculate", K_method="default", KSO4_method="default", 
+    MyAMI_mode="approximate", K_method="default", KSO4_method="default", 
     BT_method="default", KF_method="default", KNH3_method="default", 
     Ca_method="default", K_mode="static", kwargs...
 )
@@ -1368,11 +1447,18 @@ function carbon_boron_calculator_core(;
         Ks_env = K_calculator(;
             T_in=T_in, S_in=S_in, P_in=P_in, ST=ST, FT=FT, BT=BT,
             K_method=K_method, KSO4_method=KSO4_method, BT_method=BT_method,
-            KF_method=KF_method, KNH3_method=KNH3_method, Ca_method=Ca_method, K_mode=K_mode
+            KF_method=KF_method, KNH3_method=KNH3_method, Ca_method=Ca_method, K_mode=K_mode,
+            MyAMI_mode=MyAMI_mode, Ca=Ca, Mg=Mg
         )
     else
         Ks_env = Ks
     end
+
+    # Ca drives both the MyAMI correction and the saturation state. K_calculator has
+    # already resolved it - the explicit value if one was given, Ca_method otherwise - so
+    # take it from there rather than re-deriving it and risking the two disagreeing.
+    Ca_val = hasproperty(Ks_env, :Ca) ? Ks_env.Ca : something(Ca, Constants.MODERN_CALCIUM)
+    Mg_val = hasproperty(Ks_env, :Mg) ? Ks_env.Mg : something(Mg, Constants.MODERN_MAGNESIUM)
 
     ST_val = Ks_env.ST
     FT_val = Ks_env.FT
@@ -1431,8 +1517,8 @@ function carbon_boron_calculator_core(;
         BOH₄ = clean(scale_unit(BOH₄)),
         ST = Ks_env.ST,
         FT = Ks_env.FT,
-        Mg = Mg,
-        Ca = Ca,
+        Mg = Mg_val,
+        Ca = Ca_val,
         fH = fH_val,
         δBT = δBT,
         δBOH₃ = δBOH₃,
@@ -1532,7 +1618,7 @@ function carbon_boron_calculator_core(;
     oCa = if !isnothing(get(ps, :Ca, nothing))
         ps.Ca * ps.S_in / 35.0
     else
-        0.0102821 * ps.S_in / 35.0
+        Constants.MODERN_CALCIUM * ps.S_in / 35.0
     end
 
     ΩA = ps.CO₃ * oCa / ps.Ks.KspA
@@ -1581,21 +1667,15 @@ If the `errors` NamedTuple is provided, returns propagated uncertainties.
 function carbon_system(;
     errors=nothing, 
     pH=nothing, pHtot=nothing, DIC=nothing, TA=nothing, CO₂=nothing, HCO₃=nothing,
-    CO₃=nothing, pCO₂=nothing, fCO₂=nothing, BT=nothing, Ca=0.0102821,
-    Mg=0.0528171, T_in=25.0, T_out=nothing, S_in=35.0, S_out=nothing,
+    CO₃=nothing, pCO₂=nothing, fCO₂=nothing, BT=nothing, Ca=nothing,
+    Mg=nothing, T_in=25.0, T_out=nothing, S_in=35.0, S_out=nothing,
     P_in=0.0, P_out=nothing, PT=0.0, SiT=0.0, H2ST=0.0, NH4T=0.0, ST=nothing, FT=nothing,
     pHsws=nothing, pHfree=nothing, pHNBS=nothing, unit="umol", scale="total", Ks=nothing,
-    pdict=nothing, ΩC=nothing, ΩA=nothing, MyAMI_mode="calculate", 
+    pdict=nothing, ΩC=nothing, ΩA=nothing, MyAMI_mode="approximate", 
     K_method="default", KSO4_method="default", BT_method="default", 
     KF_method="default", K_mode="static", KNH3_method="default",
     Ca_method="default", kwargs...
     )
-    # --- MyAMI Error Intercept ---
-    if K_method == "MyAMI" && errors !== nothing
-        @warn "Error propagation is currently not supported for the Python-based MyAMI method. Bypassing AD and calculating values without errors."
-        errors = nothing
-    end
-    # -----------------------------
     # 1. Package all the inputs into a clean NamedTuple
     inputs_nt = (
         pH=pH, pHtot=pHtot, DIC=DIC, TA=TA, CO₂=CO₂, HCO₃=HCO₃, CO₃=CO₃, 
@@ -1637,21 +1717,15 @@ function whole_system(;
     pH=nothing, pHtot=nothing, DIC=nothing, TA=nothing, CO₂=nothing, HCO₃=nothing,
     CO₃=nothing, pCO₂=nothing, fCO₂=nothing, BT=nothing, BOH₃=nothing,
     BOH₄=nothing, ABT=nothing, ABOH₃=nothing, ABOH₄=nothing, δBT=nothing,
-    δBOH₃=nothing, δBOH₄=nothing, alphaB=nothing, Ca=0.0102821,
-    Mg=0.0528171, T_in=25.0, T_out=nothing, S_in=35.0, S_out=nothing,
+    δBOH₃=nothing, δBOH₄=nothing, alphaB=nothing, Ca=nothing,
+    Mg=nothing, T_in=25.0, T_out=nothing, S_in=35.0, S_out=nothing,
     P_in=0.0, P_out=nothing, PT=0.0, SiT=0.0, H2ST=0.0, NH4T=0.0, ST=nothing, FT=nothing,
     pHsws=nothing, pHfree=nothing, pHNBS=nothing, unit="umol", scale="total", Ks=nothing,
-    pdict=nothing, ΩC=nothing, ΩA=nothing, MyAMI_mode="calculate",
+    pdict=nothing, ΩC=nothing, ΩA=nothing, MyAMI_mode="approximate",
     K_method="default", KSO4_method="default", BT_method="default", 
     KF_method="default", KNH3_method="default", Ca_method="default",
     K_mode="static", kwargs...
 )
-    # --- MyAMI Error Intercept ---
-    if K_method == "MyAMI" && errors !== nothing
-        @warn "Error propagation is currently not supported for the Python-based MyAMI method. Bypassing AD and calculating values without errors."
-        errors = nothing
-    end
-    # -----------------------------
     
     # 1. Package all the inputs into a clean NamedTuple
     inputs_nt = (
@@ -1693,22 +1767,14 @@ end
 function carbon_calculator(;
     errors=nothing, 
     pH=nothing, pHtot=nothing, DIC=nothing, TA=nothing, CO₂=nothing, HCO₃=nothing,
-    CO₃=nothing, pCO₂=nothing, fCO₂=nothing, BT=nothing, Ca=0.0102821,
-    Mg=0.0528171, T_in=25.0, S_in=35.0, P_in=0.0, PT=0.0, SiT=0.0, H2ST=0.0,
+    CO₃=nothing, pCO₂=nothing, fCO₂=nothing, BT=nothing, Ca=nothing,
+    Mg=nothing, T_in=25.0, S_in=35.0, P_in=0.0, PT=0.0, SiT=0.0, H2ST=0.0,
     NH4T=0.0, ST=nothing, FT=nothing, pHsws=nothing, pHfree=nothing,
     pHNBS=nothing, unit="umol", scale="total", Ks=nothing, pdict=nothing,
-    ΩC=nothing, ΩA=nothing, MyAMI_mode="calculate", K_method="default",
+    ΩC=nothing, ΩA=nothing, MyAMI_mode="approximate", K_method="default",
     KSO4_method="default", BT_method="default", KF_method="default",
     K_mode="static", KNH3_method="default", Ca_method="default", kwargs...
 )
-    # --- MyAMI Error Intercept ---
-    # Python-based calculations cannot be differentiated by ForwardDiff
-    if K_method == "MyAMI" && errors !== nothing
-        @warn "Error propagation is currently not supported for the Python-based MyAMI method. Bypassing AD and calculating values without errors."
-        errors = nothing
-    end
-    # -----------------------------
-
     inputs_nt = (
         pH=pH, pHtot=pHtot, DIC=DIC, TA=TA, CO₂=CO₂, HCO₃=HCO₃, CO₃=CO₃, 
         pCO₂=pCO₂, fCO₂=fCO₂, BT=BT, Ca=Ca, Mg=Mg, T_in=T_in, S_in=S_in, 
@@ -1748,20 +1814,14 @@ function carbon_boron_calculator(;
     pH=nothing, pHtot=nothing, DIC=nothing, TA=nothing, CO₂=nothing, HCO₃=nothing,
     CO₃=nothing, pCO₂=nothing, fCO₂=nothing, BT=nothing, BOH₃=nothing,
     BOH₄=nothing, ABT=nothing, ABOH₃=nothing, ABOH₄=nothing, δBT=nothing,
-    δBOH₃=nothing, δBOH₄=nothing, alphaB=nothing, Ca=0.0102821,
-    Mg=0.0528171, T_in=25.0, S_in=35.0, P_in=0.0, PT=0.0, SiT=0.0, H2ST=0.0,
+    δBOH₃=nothing, δBOH₄=nothing, alphaB=nothing, Ca=nothing,
+    Mg=nothing, T_in=25.0, S_in=35.0, P_in=0.0, PT=0.0, SiT=0.0, H2ST=0.0,
     NH4T=0.0, ST=nothing, FT=nothing, pHsws=nothing, pHfree=nothing, pHNBS=nothing,
     unit="umol", scale="total", Ks=nothing, pdict=nothing, ΩC=nothing, ΩA=nothing,
-    MyAMI_mode="calculate", K_method="default", KSO4_method="default", 
+    MyAMI_mode="approximate", K_method="default", KSO4_method="default", 
     BT_method="default", KF_method="default", KNH3_method="default", 
     Ca_method="default", K_mode="static", kwargs...
 )
-    # --- MyAMI Error Intercept ---
-    if K_method == "MyAMI" && errors !== nothing
-        @warn "Error propagation is currently not supported for the Python-based MyAMI method. Bypassing AD and calculating values without errors."
-        errors = nothing
-    end
-    # -----------------------------
 
     # 1. Package all the inputs into a clean NamedTuple
     inputs_nt = (
