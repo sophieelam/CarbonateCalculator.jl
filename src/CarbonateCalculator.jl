@@ -14,6 +14,7 @@ using Printf
 using ForwardDiff, LinearAlgebra, Roots
 include("errors.jl")
 include("result.jl")
+include("validation.jl")
 include("display.jl")
 include("conditions.jl")
 
@@ -353,7 +354,9 @@ function boron_system(;
     K_method="default", K_mode="static", KSO4_method="default", BT_method="default", 
     KF_method="default", KNH3_method="default", Ca_method="default", kwargs...)
 
-# Check for adequate parameter input from user: 
+_reject_unknown_arguments(kwargs, boron_system)
+
+# Check for adequate parameter input from user:
 if isnothing(BT) && isnothing(BOH₃) && isnothing(BOH₄)
     throw(ArgumentError("""One of the following must be provided:
     BT, BOH₃, BOH₄"""))
@@ -396,11 +399,11 @@ ps = (
     # If not provided, equilibrium constants are claculated with K calculator:
     if isnothing(Ks)
 
+        # No `kwargs...` here: the guard above has already established it is empty.
         new_Ks = K_calculator(; temp_c, sal, pres_bar, ST=nothing, FT=nothing,
         BT=nothing, K_method=K_method, KSO4_method=KSO4_method,
         BT_method=BT_method, KF_method=KF_method, KNH3_method=KNH3_method,
-        Ca_method=Ca_method, K_mode=K_mode, MyAMI_mode=MyAMI_mode, Ca=Ca, Mg=Mg,
-        kwargs...)
+        Ca_method=Ca_method, K_mode=K_mode, MyAMI_mode=MyAMI_mode, Ca=Ca, Mg=Mg)
 
         ps = merge(ps, new_Ks)
 
@@ -977,10 +980,10 @@ function carbon_system(;
     Ca_method="default", kwargs...
     )
     # 1. Package all the inputs into a clean NamedTuple
-    _reject_retired_arguments(kwargs)
+    _reject_unknown_arguments(kwargs, carbon_system)
 
     inputs_nt = (
-        pH=pH, pHtot=pHtot, DIC=DIC, TA=TA, CO₂=CO₂, HCO₃=HCO₃, CO₃=CO₃, 
+        pH=pH, pHtot=pHtot, DIC=DIC, TA=TA, CO₂=CO₂, HCO₃=HCO₃, CO₃=CO₃,
         pCO₂=pCO₂, fCO₂=fCO₂, BT=BT, Ca=Ca, Mg=Mg, temp_c=temp_c,
         sal=sal, pres_bar=pres_bar, PT=PT, SiT=SiT,
         H2ST=H2ST, NH4T=NH4T, ST=ST, FT=FT, pHsws=pHsws, pHfree=pHfree, 
@@ -1027,11 +1030,11 @@ function whole_system(;
 )
     
     # 1. Package all the inputs into a clean NamedTuple
-    _reject_retired_arguments(kwargs)
+    _reject_unknown_arguments(kwargs, whole_system)
 
     inputs_nt = (
-        pH=pH, pHtot=pHtot, DIC=DIC, TA=TA, CO₂=CO₂, HCO₃=HCO₃, CO₃=CO₃, 
-        pCO₂=pCO₂, fCO₂=fCO₂, BT=BT, BOH₃=BOH₃, BOH₄=BOH₄, ABT=ABT, 
+        pH=pH, pHtot=pHtot, DIC=DIC, TA=TA, CO₂=CO₂, HCO₃=HCO₃, CO₃=CO₃,
+        pCO₂=pCO₂, fCO₂=fCO₂, BT=BT, BOH₃=BOH₃, BOH₄=BOH₄, ABT=ABT,
         ABOH₃=ABOH₃, ABOH₄=ABOH₄, δBT=δBT, δBOH₃=δBOH₃, δBOH₄=δBOH₄, 
         alphaB=alphaB, Ca=Ca, Mg=Mg, temp_c=temp_c, sal=sal,
         pres_bar=pres_bar, PT=PT, SiT=SiT, H2ST=H2ST,
