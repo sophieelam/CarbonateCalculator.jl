@@ -1,4 +1,11 @@
-# using .Calculator
+using Test
+using CarbonateCalculator
+
+# Individual isotope conversions, tested below the public API, so they come from the
+# Isotopes submodule directly.
+import CarbonateCalculator.Isotopes: get_alphaB, calc_ABT, ABOH3_from_H_ABT,
+                                     ABOH4_from_H_ABT, A11_to_δ11, δ11_to_A11
+
 @testset "BoronIsotopeFunctions: Test B isotope functions" begin
 
     @testset "get_alphaB" begin

@@ -1,3 +1,11 @@
+using Test
+using CarbonateCalculator
+
+# Individual speciation equations, tested below the public API, so they come from the
+# Boron submodule directly.
+import CarbonateCalculator.Boron: H_from_BT_BOH3, H_from_BT_BOH4, BT_from_pH_BOH3,
+                                  BT_from_pH_BOH4, calc_BOH3, calc_BOH4, calc_chiB
+
 @testset "BoronFunctions: Test B concentration and speciation functions" begin
 
     @testset "H_from_BT_BOH3" begin

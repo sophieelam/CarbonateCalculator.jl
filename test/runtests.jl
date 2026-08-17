@@ -1,20 +1,13 @@
 using Test
 using CarbonateCalculator
-include("check_vals.jl")
+
+# Hand-checked reference values for the speciation functions, used by
+# internal/{carbon,boron,isotope}_test.jl and nothing else. Included once here rather than
+# per-file because it defines a module: three includes would evaluate `module CheckVals`
+# three times and warn about replacing it.
+include("internal/check_vals.jl")
 using .CheckVals
 
-import .CarbonateCalculator.Carbon: CO₂_from_pH_DIC, H_from_HCO₃_CO₃, H_from_HCO₃_TA, 
-                           pH_from_HCO₃_DIC, H_from_CO₃_TA, H_from_CO₃_DIC, 
-                           pH_from_TA_DIC, calc_CO₂, calc_CO₃, calc_HCO₃, calc_TA, 
-                           fCO₂_to_CO₂, CO₂_to_fCO₂, fCO₂_to_pCO₂, pCO₂_to_fCO₂,
-                           DIC_from_CO₂_pH, H_from_CO₂_HCO₃, H_from_CO₂_CO₃,
-                           pH_from_CO₂_TA, H_from_CO₂_DIC, DIC_from_pH_HCO₃,
-                           DIC_from_pH_CO₃, DIC_from_pH_TA
-import .CarbonateCalculator.Boron: H_from_BT_BOH3, H_from_BT_BOH4, BT_from_pH_BOH3, 
-                          BT_from_pH_BOH4, calc_BOH3, calc_BOH4, calc_chiB,
-                          B_calculator
-import .CarbonateCalculator.Isotopes: get_alphaB, calc_ABT, ABOH3_from_H_ABT, ABOH4_from_H_ABT,
-                            A11_to_δ11, δ11_to_A11
 
 # The suite is in three blocks, each answering a different question and costing a different
 # amount to run. `CC_TESTS` selects how far down the list to go:
@@ -24,10 +17,17 @@ import .CarbonateCalculator.Isotopes: get_alphaB, calc_ABT, ABOH3_from_H_ABT, AB
 #   all       1, 2 and 3    — and with real-world measurements?
 #
 # Block 3 downloads published datasets, so it needs network access and a few hundred MB,
-# which is why it is opt-in rather than skip-out.
+# which is why it is opt-in rather than opt-out.
 #
 #   CC_TESTS=quick julia --project=. test/runtests.jl
 #   CC_TESTS=all CC_PLOTS=true julia --project=. test/runtests.jl
+#
+# Block 1 is ~97% Julia compilation rather than computation: re-running a test file inside
+# one session costs 1-4% of the first pass, and each distinct combination of supplied and
+# omitted keywords is a fresh specialisation (~0.4s each). So `-O0` roughly halves the
+# wall time and changes no result — worth it for the development loop:
+#
+#   CC_TESTS=quick julia -O0 --project=. test/runtests.jl     # 38s vs 72s
 const TEST_LEVEL = get(ENV, "CC_TESTS", "default")
 TEST_LEVEL in ("quick", "default", "all") ||
     error("CC_TESTS must be \"quick\", \"default\" or \"all\"; got \"$TEST_LEVEL\"")

@@ -1,3 +1,16 @@
+using Test
+using CarbonateCalculator
+
+# Individual speciation equations, tested below the public API, so they come from the
+# Carbon submodule directly.
+import CarbonateCalculator.Carbon: CO₂_from_pH_DIC, H_from_HCO₃_CO₃, H_from_HCO₃_TA,
+                                   pH_from_HCO₃_DIC, H_from_CO₃_TA, H_from_CO₃_DIC,
+                                   pH_from_TA_DIC, calc_CO₂, calc_CO₃, calc_HCO₃, calc_TA,
+                                   fCO₂_to_CO₂, CO₂_to_fCO₂, fCO₂_to_pCO₂, pCO₂_to_fCO₂,
+                                   DIC_from_CO₂_pH, H_from_CO₂_HCO₃, H_from_CO₂_CO₃,
+                                   pH_from_CO₂_TA, H_from_CO₂_DIC, DIC_from_pH_HCO₃,
+                                   DIC_from_pH_CO₃, DIC_from_pH_TA
+
 @testset "CarbonFnTestCase: Test all C functions" begin
 
     @testset "DIC_from_CO₂_pH" begin
