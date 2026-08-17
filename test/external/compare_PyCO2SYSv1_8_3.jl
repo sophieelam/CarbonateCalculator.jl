@@ -77,7 +77,9 @@ end
         p_val = row.PRESIN / 10.0
 
         # --- COMPATIBILITY FIX: Environment Setup ---
-        # Explicitly omitting legacy_GEOSECS to match PyCO2SYS 1.8.3 modern behavior
+        # K1K2 options 6 and 7 are plain Mehrbach 1973 here. The GEOSECS/Peng-era
+        # overrides that CO2SYS applies under those options were removed: they were
+        # unreachable from the public API and did not improve agreement with PyCO2SYS
         env = (temp_c=row.TEMPIN, sal=row.SAL, pres_bar=p_val, PT=row.PO4, SiT=row.SI, 
                H2ST=row.H2S, NH4T=row.NH4, unit="umol", scale=scale_name_map[scale_in], 
                K_method=k_method, KF_method=kf_method, KSO4_method=kso4_method, BT_method=b_method)

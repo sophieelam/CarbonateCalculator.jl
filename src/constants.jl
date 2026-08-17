@@ -731,20 +731,6 @@ end
 
 # Case #6/7: Mehrbach 1973: https://doi.org/10.4319/lo.1973.18.6.0897
 # Salinity between 19-43 PSU, temperature between 2-35 C
-# NBS pH scale converted to SWS, real seawater
-# NOTES FROM CO2SYS:
-# This is for GEOSECS and Peng et al.
-# Lyman, John, UCLA Thesis, 1957 fit by Li et al, JGR 74:5507-5525, 1969:
-function case67_KB(; temp_c, sal, fH, kwargs...)
-    while fH isa NamedTuple
-        fH = fH
-    end
-    logKB = -9.26 + 0.00886 * sal + 0.01 * temp_c
-    KB = (10.0^(logKB) / fH) # converted to SWS pH scale
-    return (; KB=KB)
-end
-
-
 # All other cases
 # Dickson, A. G., Deep-Sea Research 37:755-766, 1990
 function calc_KB(; temp_c, sal, kwargs...)
@@ -762,16 +748,6 @@ end
 
 # Calculate KW
 
-# Case #7: Millero, Geochemica et Cosmochemica Acta 43:1651-1661, 1979
-function case7_KW(; temp_c, sal, kwargs...)
-    TK = temp_c + 273.15
-    lnKW = (148.9802 - 13847.26 / TK - 23.6521 * log(TK) + (-79.2447 + 
-    3298.72 / TK + 12.0408 * log(TK)) * sqrt(sal) - 0.019813 * sal)
-    KW = exp(lnKW)
-    return (; KW=KW)
-end
-
-
 # Case #8: Millero, Geochemica et Cosmochemica Acta 43:1651-1661, 1979
 # NOTES FROM CO2SYS:
 # Refit data of Harned and Owen, The Physical Chemistry of Electrolyte Solutions, 1958
@@ -782,13 +758,6 @@ function case8_KW(; temp_c, sal, kwargs...)
     return (; KW=KW)
 end
 
-
-
-# Case #6: 
-function case6_KW(; temp_c, sal, kwargs...)
-    KW = 0 # GEOSECS doesn't include OH effects
-    return (; KW=KW)
-end
 
 
 # AlL other cases:
@@ -803,31 +772,6 @@ end
 
 
 # Calculate KP1, KP2, KP3, and KSi
-
-# Case #7: Millero, Geochemica et Cosmochemica Acta 43:1651-1661, 1979
-function case7_KP(; temp_c, sal, fH, kwargs...)
-    TK = temp_c + 273.15
-    KP1 = 0.02
-    # NOTE FROM CO2SYS:
-    # Peng et al don't include the contribution from this term,
-    # but it is so small it doesn't contribute. It needs to be
-    # kept so that the routines work ok.
-    # KP2, KP3 from Kester, D. R., and Pytkowicz, R. M.,
-    # Limnology and Oceanography 12:243-252, 1967
-    # these are only for salinities of 33 to 36 and are on the NBS scale
-
-    KP2 = (exp(-9.039 - 1450 / TK)) / fH # convered to SWS pH scale
-
-    KP3 = (exp(4.466 - 7276 / TK)) / fH # convered to SWS pH scale
-
-    # Sillen, Martell, and Bjerrum,  Stability Constants of metal-ion complexes,
-    # The Chemical Society (London), Special Publ. 17:751, 1964
-    KSi = (0.0000000004 / fH) # convered to SWS pH scale
-
-    return (; KP1=KP1, KP2=KP2, KP3=KP3, KSi=KSi)
-
-end
-
 
 # Cases 6 & 8:
 function case68_KP(; kwargs...)
@@ -1058,7 +1002,7 @@ end
 function K_calculator(; temp_c, sal, pres_bar=0.0, ST=nothing, FT=nothing,
     BT=nothing, K_method="default", KSO4_method="default", BT_method="default",
     KF_method="default", KNH3_method="default", Ca_method="default",
-    K_mode="static", legacy_GEOSECS=false, kwargs...)
+    K_mode="static", kwargs...)
 
     if temp_c isa AbstractArray
         
@@ -1208,30 +1152,14 @@ function K_calculator(; temp_c, sal, pres_bar=0.0, ST=nothing, FT=nothing,
     # Case 6
     elseif K_method == "Mehrbach 1973 A"
         final_BT = isnothing(BT) ? case67_BT(; sal).BT : BT
-        
-        if legacy_GEOSECS
-            # Only override these if user explicitly asks for legacy GEOSECS behavior
-            final_BT = isnothing(BT) ? case67_BT(; sal, fH=fH_val).BT : BT
-            kB = case67_KB(; temp_c, sal, fH=fH_val).KB
-            kW = case6_KW(; temp_c, sal).KW
-            kPs = case68_KP(; temp_c, sal, fH=fH_val)
-        end
-        # Always calculate K1 & K2
+
         (; K1, K2) = Mehrbach1973(; temp_c, sal, fH=fH_val)
 
     # Case 7
     elseif K_method == "Mehrbach 1973 B"
         # Calculate fH first so it can be called later
         fH_val = case7_fH(; temp_c, sal).fH
-        
-        if legacy_GEOSECS
-            # Only override these if user explicitly asks for legacy GEOSECS behavior
-            final_BT = isnothing(BT) ? case67_BT(; sal, fH=fH_val).BT : BT
-            kB = case67_KB(; temp_c, sal, fH=fH_val).KB
-            kW = case7_KW(; temp_c, sal).KW
-            kPs = case7_KP(; temp_c, sal, fH=fH_val)
-        end
-        # Always calculate K1 & K2
+
         (; K1, K2) = Mehrbach1973(; temp_c, sal, fH=fH_val)
 
 
@@ -1373,13 +1301,6 @@ function K_calculator(; temp_c, sal, pres_bar=0.0, ST=nothing, FT=nothing,
         lnK2_fact = (-deltaV2 + 0.5 * Kappa2 * P) * P / RT
 
         lnKB_fact = 0 # this doesn't matter since TB = 0 for this case
-
-    # Cases 6 & 7 (Legacy GEOSECS Pressure)
-    elseif (K_method == "Mehrbach 1973 A" || K_method == "Mehrbach 1973 B") && legacy_GEOSECS
-        # GEOSECS Pressure Effects On K1, K2, KB (on the NBS scale)
-        lnK1_fact = (24.2 - 0.085 * temp_c) * P / RT
-        lnK2_fact = (16.4 - 0.04 * temp_c) * P / RT
-        lnKB_fact = (27.5 - 0.095 * temp_c) * P / RT
 
     # For all others (besides MyAMI, which handles its own pressure corrections)
     elseif !(K_method == "MyAMI")
