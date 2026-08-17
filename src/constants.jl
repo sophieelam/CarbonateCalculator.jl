@@ -974,24 +974,53 @@ function RT67_Ca(; sal, kwargs...)
 end
 
 
-# Helper function to handle when user passes K_method="default"
+"""
+    which_K(; K_method="default", temp_c, sal, Ca=nothing, Mg=nothing)
+
+Pick the equilibrium-constant parameterisation best suited to the conditions.
+
+Tested in two stages, and the order between them is the point.
+
+**Domain first.** `sal < 1` and `sal > 50` leave the range every other parameterisation was
+fitted over, and Millero 1979 and Papadimitriou 2018 are the only ones that cover fresh
+water and brine respectively. Nothing may be preferred ahead of them.
+
+**Preference second.** Within the ordinary salinity range, the choice is between
+parameterisations that all apply, so temperature decides.
+
+The two stages used to be interleaved, with `temp_c > 35` tested before either salinity
+guard. That returned Millero 2006 for *every* sample above 35 °C whatever its salinity —
+including S = 0.5 and S = 55, both outside the range Millero 2006 was fitted over — and made
+the freshwater and brine branches unreachable for any warm sample, which is precisely where
+a hypersaline lagoon or a warm estuary lands.
+
+Note that Millero 2002 still takes precedence over GP 1989 at `34 < sal < 37`. That is a
+genuine preference between two parameterisations that both cover those conditions, not a
+domain error, so it is left alone.
+"""
 function which_K(; K_method="default", temp_c, sal, Ca=nothing,
     Mg=nothing, kwargs...)
     # An unspecified Ca/Mg is modern seawater, so it must not read as "non-modern" here.
     if something(Ca, MODERN_CALCIUM) != MODERN_CALCIUM ||
        something(Mg, MODERN_MAGNESIUM) != MODERN_MAGNESIUM
         return "MyAMI"
-    elseif temp_c > 35
+    end
+
+    # Domain guards.
+    if sal < 1.0
+        return "Millero 1979"
+    elseif sal > 50.0
+        return "Papadimitriou 2018"
+    end
+
+    # Preference guards, all within the salinity range these parameterisations share.
+    if temp_c > 35
         return "Millero 2006"
     elseif temp_c < 2 && 34.0 < sal < 37.0
         return "Millero 2002"
     elseif temp_c < 0 && 10 < sal < 50
         return "GP 1989"
-    elseif sal < 1.0
-        return "Millero 1979"
-    elseif sal > 50.0
-        return "Papadimitriou 2018"
-    else 
+    else
         return "MyAMI"
     end
 end
