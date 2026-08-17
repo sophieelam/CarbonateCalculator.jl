@@ -4,51 +4,61 @@ using ForwardDiff
 using CarbonateCalculator
 
 # --- SHARED TEST SETUP ---
-# Define standard seawater inputs AND cold/deep output conditions
+# Conditions the sample was measured at.
 inputs = (
     TA = 2300.0,
     DIC = 2000.0,
     BT = 415.7,
-    T_in = 25.0,
-    P_in = 0.0,
-    S_in = 35.0,
-    T_out = 2.0,      # Deep water temperature
-    P_out = 4000.0,   # High pressure at depth (dbar)
-    S_out = 35.0,
+    temp_c = 25.0,
+    pres_bar = 0.0,
+    sal = 35.0,
     PT = 1.0,
     SiT = 15.0,
     δBT = 39.61,       # Adding explicit isotope for whole_system
     alphaB = 1.0272
 )
 
-# Define shared uncertainties
+# Conditions the sample was collected at: cold and deep.
+const TARGET_TEMP_C = 2.0
+const TARGET_PRES_BAR = 400.0
+
+# Uncertainties on the measurements themselves.
 uncertainties = (
     TA = 2.0,
     DIC = 2.0,
-    T_out = 0.5  
 )
 
 @testset "Carbonate Error Propagation Master Suite" begin
 
-    @testset "Two-State: carbon_system" begin
-        @info "Testing carbon_system (In/Out)..."
-        result = carbon_system(; errors=uncertainties, K_method = "Lueker 2000", inputs...)
-        
-        @test hasproperty(result.err, :pHtot_in)
-        @test hasproperty(result.err, :pHtot) 
-        @test result.err.pHtot > 0.0
-        
-        # Error check: Out error should be larger due to T_out uncertainty
-        @test result.err.pHtot > result.err.pHtot_in
+    @testset "Two-stage: carbon_system then recalculate" begin
+        @info "Testing carbon_system across measured and collection conditions..."
+        measured = carbon_system(; errors=uncertainties, K_method="Lueker 2000", inputs...)
+        @test measured.err.pHtot > 0.0
 
-        # Print the fancy table you like
+        # Measurement uncertainties are carried on the result, so they are not restated -
+        # the re-solve differentiates the whole chain from the original measurements.
+        at_target = recalculate_at_target_conditions(measured;
+            temp_c=TARGET_TEMP_C, pres_bar=TARGET_PRES_BAR)
+        @test at_target.err.pHtot > 0.0
+        @test isfinite(at_target.err.pHtot)
+
+        # Adding uncertainty in the collection temperature can only widen the result.
+        with_target_err = recalculate_at_target_conditions(measured;
+            temp_c=TARGET_TEMP_C, pres_bar=TARGET_PRES_BAR, errors=(temp_c=0.5,))
+        @test with_target_err.err.pHtot > at_target.err.pHtot
+
+        # A result with no uncertainties attached stays that way.
+        no_errors = carbon_system(; K_method="Lueker 2000", inputs...)
+        @test isnothing(recalculate_at_target_conditions(no_errors; temp_c=TARGET_TEMP_C).err)
+
         println("\n" * "═"^50)
-        println("  TWO-STATE PROPAGATION RESULTS")
+        println("  TWO-STAGE PROPAGATION RESULTS")
         println("  " * "─"^46)
-        println("  Surface (In):")
-        println("    pH Total:  $(round(result.val.pHtot_in, digits=4)) ± $(round(result.err.pHtot_in, digits=4))")
-        println("\n  Deep Water (Out):")
-        println("    pH Total:  $(round(result.val.pHtot, digits=4)) ± $(round(result.err.pHtot, digits=4))")
+        println("  Measured (25 °C, 0 bar):")
+        println("    pH Total:  $(round(measured.val.pHtot, digits=4)) ± $(round(measured.err.pHtot, digits=4))")
+        println("\n  Collected ($(TARGET_TEMP_C) °C, $(TARGET_PRES_BAR) bar):")
+        println("    pH Total:  $(round(at_target.val.pHtot, digits=4)) ± $(round(at_target.err.pHtot, digits=4))")
+        println("    ...with ±0.5 °C on collection temperature: ± $(round(with_target_err.err.pHtot, digits=4))")
         println("═"^50 * "\n")
     end
 
@@ -56,9 +66,9 @@ uncertainties = (
         @info "Testing whole_system isotopic errors..."
         # Add error for isotopic fractionation factor and delta
         iso_errs = merge(uncertainties, (δBT = 0.05, alphaB = 0.0001))
-        
+
         result = whole_system(; errors=iso_errs, K_method="Lueker 2000", inputs...)
-        
+
         @test hasproperty(result.err, :δBOH₄)
         @test result.err.δBOH₄ > 0.0
         @test result.err.pHtot > 0.0
@@ -67,8 +77,8 @@ uncertainties = (
     @testset "Single-State: carbon_calculator" begin
         @info "Testing carbon_calculator..."
         result = carbon_calculator(; errors=(TA=2.0, DIC=2.0), inputs...)
-        
-        # Verify it's flat (No "_in" suffixes)
+
+        # One result describes one set of conditions, so there are no _in/_out names.
         @test hasproperty(result.err, :pHtot)
         @test !hasproperty(result.err, :pHtot_in)
         @test result.err.pHtot > 0.0

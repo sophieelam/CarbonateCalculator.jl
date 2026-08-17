@@ -3,9 +3,9 @@ using Test
 # 1. Define the baseline environmental conditions 
 # (Updated argument names to match carbon_calculator signature exactly)
 ENV_KWARGS = (
-    S_in = 33.0, 
-    T_in = 22.0, 
-    P_in = 1234.0, 
+    sal = 33.0, 
+    temp_c = 22.0, 
+    pres_bar = 1234.0, 
     SiT = 10.0,   # Was Si_in
     PT = 1.0,     # Was PO4_in
     NH4T = 2.0,   # Was NH3_in

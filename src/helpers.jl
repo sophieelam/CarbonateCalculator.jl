@@ -2,15 +2,23 @@ module Helpers
 using Printf
 using ForwardDiff, LinearAlgebra
 
-# Calculates fH; used in carbon.jl.
 """
-Taken from CO2SYS
-Takahashi et al, Chapter 3 in GEOSECS Pacific Expedition, v. 3, 1982 (p. 80)
-Note: Temperature MUST be in Celsius!
+    calc_fH(temp_c, sal)
+
+Activity coefficient ratio linking the NBS and seawater pH scales, `a(H)_NBS / m(H)_SWS`.
+
+Takahashi et al, Chapter 3 in GEOSECS Pacific Expedition, v. 3, 1982 (p. 80), via CO2SYS.
+
+Temperature is in Celsius, as everywhere else in the package; the polynomial itself is
+fitted in Kelvin and the conversion happens here, so there is one place to get it wrong
+rather than one per call site. Expect ~0.71 for seawater.
+
+This is the only definition — `Constants` reaches it through `using ..Helpers`.
 """
-function calc_fH(T_K, Salinity)
+function calc_fH(temp_c, sal)
+    temp_k = temp_c + 273.15
     a, b, c, d = (1.2948, -2.036e-3, 4.607e-4, -1.475e-6)
-    return a + b * T_K + (c + d * T_K) * Salinity^2
+    return a + b * temp_k + (c + d * temp_k) * sal^2
 end
 
 
@@ -18,7 +26,7 @@ end
 """
 Calculates pH on all scales when provided with an initial pH.
 """
-function calc_pH_scale(pHtot, pHfree, pHsws, pHNBS, ST, FT, TempC, S, Ks)
+function calc_pH_scale(pHtot, pHfree, pHsws, pHNBS, ST, FT, temp_c, sal, Ks)
     npH = count(!isnothing, (pHtot, pHfree, pHsws, pHNBS))
     if npH != 1
         return ()
@@ -29,7 +37,11 @@ function calc_pH_scale(pHtot, pHfree, pHsws, pHNBS, ST, FT, TempC, S, Ks)
     # Exact CO2SYS conversion factors
     offset_sws  = -log10(sws_to_tot_fac)
     offset_free = -log10(1 + ST / Ks.KS)
-    offset_nbs = log10(calc_fH(TempC, S)) + log10(sws_to_tot_fac)
+    # fH = a(H)_NBS / m(H)_SWS, so pHNBS = pHsws - log10(fH); since pHsws is itself
+    # pHtot - offset_sws, the SWS-to-total term subtracts here. It used to be added, which
+    # put pHNBS out by twice the SWS/total offset (0.02 pH at S=35) and disagreed with the
+    # carbon path's `final_pHsws - log10(fH_val)`.
+    offset_nbs = log10(calc_fH(temp_c, sal)) + offset_sws
 
     # 1. Base everything off pHtot
     local_pHtot = 0.0
@@ -50,71 +62,6 @@ function calc_pH_scale(pHtot, pHfree, pHsws, pHNBS, ST, FT, TempC, S, Ks)
         pHsws  = local_pHtot - offset_sws,
         pHNBS  = local_pHtot - offset_nbs
     )
-end
-
-
-"""
-Calculates total sulfur [mol/kg-sw]
-Taken from CO2SYS (From Dickson et al., 2007, Table 2)
-Note: Salinity / 1.80655 = Chlorinity
-"""
-function calc_ST(S)
-    return (0.14 * S / 1.80655 / 90.062)
-end 
-
-
-"""
-Calculates total fluorine [mol/kg-sw]
-Taken from CO2SYS (From Dickson et al., 2007, Table 2)
-Note: Salinity / 1.80655 = Chlorinity
-"""
-function calc_FT(S)
-    return (6.7e-5 * S / 1.80655 / 18.9984)
-end
-
-
-"""
-Calculates total boron [mol/kg-sw]
-Taken from CO2SYS (Uppstrom, L., Deep-Sea Research 21:161-162, 1974)
-this is 0.0004157 * Sal/35. = 0.0000119 * Sal
-TB(FF) = (0.000232 / 10.811) * (Sal / 1.80655) in mol/kg-SW
-"""
-function calc_BT(S)
-    return (0.000416 / 35.0) * S
-end
-
-
-"""
-Function to format outputs of calculator results
-"""
-function print_carbon_results(ps)
-    println("=========================================================")
-    println("                CARBON SYSTEM CALCULATOR                 ")
-    println("=========================================================")
-    @printf("%-20s | %-15s | %-15s\n", "Parameter", "Input Cond.", "Output Cond.")
-    println("---------------------------------------------------------")
-    
-    # Core Parameters
-    @printf("%-20s | %-15.2f | %-15.2f\n", "Temperature (°C)", ps.T_in, ps.T_out)
-    @printf("%-20s | %-15.2f | %-15.2f\n", "Salinity", ps.S_in, ps.S_out)
-    @printf("%-20s | %-15.2f | %-15.2f\n", "Pressure", ps.P_in, ps.P_out)
-    println("---------------------------------------------------------")
-    
-    # Carbon Species (using the unit from the bundle)
-    unit = ps.unit
-    @printf("%-20s | %-15.2f | %-15.2f\n", "DIC ($unit)", ps.DIC, ps.DIC_in)
-    @printf("%-20s | %-15.2f | %-15.2f\n", "TA ($unit)", ps.TA, ps.TA_in)
-    @printf("%-20s | %-15.2f | %-15.2f\n", "pCO₂ (uatm)", ps.pCO₂, ps.pCO₂_in)
-    @printf("%-20s | %-15.2f | %-15.2f\n", "HCO₃ ($unit)", ps.HCO₃, ps.HCO₃_in)
-    @printf("%-20s | %-15.2f | %-15.2f\n", "CO₃ ($unit)", ps.CO₃, ps.CO₃_in)
-    println("---------------------------------------------------------")
-    
-    # pH and Saturation
-    @printf("%-20s | %-15.4f | %-15.4f\n", "pH (Total Scale)", ps.pHtot, ps.pHtot_in)
-    @printf("%-20s | %-15.4f | %-15.4f\n", "Ω Aragonite", ps.ΩA, ps.ΩA_in)
-    @printf("%-20s | %-15.4f | %-15.4f\n", "Ω Calcite", ps.ΩC, ps.ΩC_in)
-    @printf("%-20s | %-15.4f | %-15.4f\n", "Revelle Factor", ps.revelle_factor, ps.revelle_factor_in)
-    println("=========================================================")
 end
 
 
@@ -164,6 +111,7 @@ function print_system_results(results::NamedTuple)
     end
     println("==============================================\n")
 end
-export calc_fH, calc_ST, calc_FT, calc_pH_scale, calc_BT
+
+export calc_fH, calc_pH_scale
 
 end # module

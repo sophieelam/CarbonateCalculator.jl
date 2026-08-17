@@ -35,6 +35,14 @@ import .CarbonateCalculator.Isotopes: get_alphaB, calc_ABT, ABOH3_from_H_ABT, AB
         include("input_output_test.jl")
     end
 
+    @testset "Conditions" begin
+        include("conditions_test.jl")
+    end
+
+    @testset "pH Scales" begin
+        include("ph_scales_test.jl")
+    end
+
     @testset "Paleo Proxies" begin
         include("paleo_proxy_test.jl")
     end

@@ -523,7 +523,7 @@ Returns everything on the total scale.
 function C_calculator(;
     pHtot=nothing, DIC=nothing, TA=nothing, CO₂=nothing, HCO₃=nothing, 
     CO₃=nothing, fCO₂=nothing, pCO₂=nothing, fH=nothing, BT=0.0, PT=0.0, SiT=0.0,
-    ST=0.0, FT=0.0, H2ST=0.0, NH4T=0.0, Ks=nothing, T_in=25.0, S_in=35.0, 
+    ST=0.0, FT=0.0, H2ST=0.0, NH4T=0.0, Ks=nothing, temp_c=25.0, sal=35.0, 
     kwargs...)
 
     # If fCO₂ is given but CO₂ is not, calculate CO₂:
@@ -532,7 +532,7 @@ function C_calculator(;
             CO₂ = fCO₂_to_CO₂(fCO₂, Ks)
         elseif !isnothing(pCO₂)
             # Calculate fCO2 once and store it!
-            fCO₂ = pCO₂_to_fCO₂(pCO₂, T_in)
+            fCO₂ = pCO₂_to_fCO₂(pCO₂, temp_c)
             CO₂ = fCO₂_to_CO₂(fCO₂, Ks)
         end
     end
@@ -609,7 +609,7 @@ function C_calculator(;
         fCO₂ = CO₂_to_fCO₂(CO₂, Ks)
     end
     if isnothing(pCO₂)
-        pCO₂ = fCO₂_to_pCO₂(fCO₂, T_in)
+        pCO₂ = fCO₂_to_pCO₂(fCO₂, temp_c)
     end
     if isnothing(HCO₃)
         HCO₃ = calc_HCO₃(H, DIC, Ks)

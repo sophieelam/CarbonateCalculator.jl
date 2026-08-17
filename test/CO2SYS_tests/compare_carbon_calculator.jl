@@ -79,7 +79,7 @@ end
             inputs = Dict{Symbol, Any}()
             is_mehrbach = row.K1K2CONSTANTS == 6 || row.K1K2CONSTANTS == 7
             
-            env = (T_in=row.TEMPIN, S_in=row.SAL, P_in=row.PRESIN/10.0, PT=row.PO4, SiT=row.SI, 
+            env = (temp_c=row.TEMPIN, sal=row.SAL, pres_bar=row.PRESIN/10.0, PT=row.PO4, SiT=row.SI, 
                    H2ST=row.H2S, NH4T=row.NH4, unit="umol", scale=current_scale_str, 
                    K_method=k_method, KF_method=kf_method, KSO4_method=kso4_method, BT_method=b_method)
 
@@ -164,7 +164,7 @@ end
             inputs = Dict{Symbol, Any}()
             is_mehrbach = row.K1K2CONSTANTS == 6 || row.K1K2CONSTANTS == 7
 
-            env = (T_in=row.TEMPIN, S_in=row.SAL, P_in=row.PRESIN/10.0, PT=row.PO4, SiT=row.SI, 
+            env = (temp_c=row.TEMPIN, sal=row.SAL, pres_bar=row.PRESIN/10.0, PT=row.PO4, SiT=row.SI, 
                    H2ST=row.H2S, NH4T=row.NH4, unit="umol", scale=scale_name_map[scale_in], 
                    K_method=k_method, KF_method=kf_method, KSO4_method=kso4_method, BT_method=b_method)
 

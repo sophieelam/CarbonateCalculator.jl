@@ -227,9 +227,9 @@ function carbon_systemGLODAPv2_comparison(figdir=".")
         try
             # 1. Calculate the constants for just THIS row
             row_K_results = CarbonateCalculator.K_calculator(
-                T_in = gd.temperature[i],
-                S_in = gd.salinity[i],
-                P_in = gd.pressure[i],
+                temp_c = gd.temperature[i],
+                sal = gd.salinity[i],
+                pres_bar = gd.pressure[i],
                 K_method = "default"
             )
 
@@ -237,9 +237,9 @@ function carbon_systemGLODAPv2_comparison(figdir=".")
             res = carbon_system(
                 TA = gd.talk[i],
                 DIC = gd.tco2[i],
-                T_in = gd.temperature[i],
-                S_in = gd.salinity[i],
-                P_in = gd.pressure[i],
+                temp_c = gd.temperature[i],
+                sal = gd.salinity[i],
+                pres_bar = gd.pressure[i],
                 PT = gd.phosphate[i],
                 SiT = gd.silicate[i],
                 BT = 415.7, 
@@ -268,9 +268,9 @@ function carbon_systemGLODAPv2_comparison(figdir=".")
         try
             # 1. Calculate the constants for just THIS row
             row_K_results = CarbonateCalculator.K_calculator(
-                T_in = gd.temperature[i],
-                S_in = gd.salinity[i],
-                P_in = gd.pressure[i],
+                temp_c = gd.temperature[i],
+                sal = gd.salinity[i],
+                pres_bar = gd.pressure[i],
                 K_method = "default"
             )
 
@@ -278,9 +278,9 @@ function carbon_systemGLODAPv2_comparison(figdir=".")
             res = carbon_system(
                 pHtot = gd.phtsinsitutp[i],
                 DIC = gd.tco2[i],
-                T_in = gd.temperature[i],
-                S_in = gd.salinity[i],
-                P_in = gd.pressure[i],
+                temp_c = gd.temperature[i],
+                sal = gd.salinity[i],
+                pres_bar = gd.pressure[i],
                 PT = gd.phosphate[i],
                 SiT = gd.silicate[i],
                 BT = 415.7, 
@@ -307,9 +307,9 @@ function carbon_systemGLODAPv2_comparison(figdir=".")
         try
             # 1. Calculate the constants for just THIS row
             row_K_results = CarbonateCalculator.K_calculator(
-                T_in = gd.temperature[i],
-                S_in = gd.salinity[i],
-                P_in = gd.pressure[i],
+                temp_c = gd.temperature[i],
+                sal = gd.salinity[i],
+                pres_bar = gd.pressure[i],
                 K_method = "default"
             )
 
@@ -317,9 +317,9 @@ function carbon_systemGLODAPv2_comparison(figdir=".")
             res = carbon_system(
                 pHtot = gd.phtsinsitutp[i],
                 TA = gd.talk[i],
-                T_in = gd.temperature[i],
-                S_in = gd.salinity[i],
-                P_in = gd.pressure[i],
+                temp_c = gd.temperature[i],
+                sal = gd.salinity[i],
+                pres_bar = gd.pressure[i],
                 PT = gd.phosphate[i],
                 SiT = gd.silicate[i],
                 BT = 415.7, 

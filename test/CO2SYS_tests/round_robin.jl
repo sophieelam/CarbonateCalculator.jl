@@ -2,9 +2,9 @@ using Test
 
 # 1. Define the baseline environmental conditions 
 ENV_KWARGS = (
-    S_in = 33.0, 
-    T_in = 22.0, 
-    P_in = 1234.0, 
+    sal = 33.0, 
+    temp_c = 22.0, 
+    pres_bar = 1234.0, 
     Si_in = 10.0,
     PO4_in = 1.0,
     NH3_in = 2.0,

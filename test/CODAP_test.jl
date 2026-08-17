@@ -188,16 +188,16 @@ function CODAP_comparison(figdir=".")
         try
             # --- 1. Calculate constants strictly for THIS row ---
             row_K_results = K_calculator(
-                T_in = df.T[i], 
-                S_in = df.S[i], 
-                P_in = df.P[i],
+                temp_c = df.T[i], 
+                sal = df.S[i], 
+                pres_bar = df.P[i],
                 K_method = "default"
             )
 
             # --- 2. Calculate pH (Inputs: TA & DIC) ---
             res_pH = carbon_system(
                 TA = df.TA[i], DIC = df.DIC[i],
-                T_in = df.T[i], S_in = df.S[i], P_in = df.P[i],
+                temp_c = df.T[i], sal = df.S[i], pres_bar = df.P[i],
                 PT = df.PT[i], SiT = df.SiT[i],
                 unit = "umol", Ks = row_K_results.Ks # Pass the extracted tuple!
             )
@@ -206,7 +206,7 @@ function CODAP_comparison(figdir=".")
             # --- 3. Calculate DIC (Inputs: TA & pH) ---
             res_DIC = carbon_system(
                 TA = df.TA[i], pHtot = df.pH_obs[i],
-                T_in = df.T[i], S_in = df.S[i], P_in = df.P[i],
+                temp_c = df.T[i], sal = df.S[i], pres_bar = df.P[i],
                 PT = df.PT[i], SiT = df.SiT[i],
                 unit = "umol", Ks = row_K_results.Ks
             )
@@ -215,7 +215,7 @@ function CODAP_comparison(figdir=".")
             # --- 4. Calculate TA (Inputs: DIC & pH) ---
             res_TA = carbon_system(
                 DIC = df.DIC[i], pHtot = df.pH_obs[i],
-                T_in = df.T[i], S_in = df.S[i], P_in = df.P[i],
+                temp_c = df.T[i], sal = df.S[i], pres_bar = df.P[i],
                 PT = df.PT[i], SiT = df.SiT[i],
                 unit = "umol", Ks = row_K_results.Ks
             )

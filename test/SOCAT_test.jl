@@ -188,9 +188,9 @@ function SOCAT_comparison(figdir=".")
             # --- 1. Calculate constants strictly for THIS row ---
             # (Assuming P=0 since SOCAT is strictly surface underway data)
             row_K_results = K_calculator(
-                T_in = df.T[i], 
-                S_in = df.S[i], 
-                P_in = 0.0,
+                temp_c = df.T[i], 
+                sal = df.S[i], 
+                pres_bar = 0.0,
                 K_method = "default"
             )
 
@@ -199,9 +199,9 @@ function SOCAT_comparison(figdir=".")
             res = carbon_system(
                 fCO₂ = df.fCO2[i],
                 TA = estimate_TA(df.S[i], df.T[i]),
-                T_in = df.T[i],
-                S_in = df.S[i],
-                P_in = 0.0,
+                temp_c = df.T[i],
+                sal = df.S[i],
+                pres_bar = 0.0,
                 unit = "umol",
                 Ks = row_K_results.Ks
             )

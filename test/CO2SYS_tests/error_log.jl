@@ -65,9 +65,9 @@ k_anomaly_log = DataFrame(
     Julia_K = Float64[],
     Abs_Difference = Float64[],
     Rel_Difference = Float64[], # Now tracking relative difference
-    T_in = Float64[], 
-    S_in = Float64[], 
-    P_in = Float64[]
+    temp_c = Float64[], 
+    sal = Float64[], 
+    pres_bar = Float64[]
 )
 
 
@@ -113,9 +113,9 @@ for (i, row) in enumerate(eachrow(df))
     end
 
     env = (
-        T_in = row.TEMPIN,
-        S_in = row.SAL,
-        P_in = row.PRESIN / 10.0, 
+        temp_c = row.TEMPIN,
+        sal = row.SAL,
+        pres_bar = row.PRESIN / 10.0, 
         PT = row.PO4,
         SiT = row.SI,
         H2ST = row.H2S,
@@ -158,7 +158,7 @@ for (i, row) in enumerate(eachrow(df))
                 push!(k_anomaly_log, (
                     i, k_method, kso4_method, b_method, k_name, 
                     exp_val, res_val, abs_diff, rel_diff, 
-                    env.T_in, env.S_in, env.P_in
+                    env.temp_c, env.sal, env.pres_bar
                 ))
             end
         end

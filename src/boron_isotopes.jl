@@ -13,6 +13,17 @@ function get_alphaB()
 end
 
 """
+δ¹¹B of modern seawater, in ‰. Used whenever the total boron isotope composition is not
+given explicitly.
+
+NEEDS CITATION - carried over from the value that was previously hard-coded at three
+separate call sites.
+"""
+function get_δBT()
+    return 39.61
+end
+
+"""
 Converts alpha (Klochko) to ϵ (which is in delta-space)
 """
 function alphaB_to_ϵ(alphaB)

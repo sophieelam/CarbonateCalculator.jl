@@ -36,7 +36,7 @@ println("=== STARTING K_CALCULATOR TESTS ===\n")
 println("Test 1: Dynamic Mode (Evaluating row-by-row)")
 try
     dynamic_results = CarbonateCalculator.K_calculator(
-        T_in = T_test, S_in = S_test, P_in = P_test, K_mode = "dynamic"
+        temp_c = T_test, sal = S_test, pres_bar = P_test, K_mode = "dynamic"
     )
     println("✅ Dynamic Mode Success!")
     
@@ -61,7 +61,7 @@ end
 println("\nTest 2: Static Mode (Averaging the dataset first)")
 try
     static_results = CarbonateCalculator.K_calculator(
-        T_in = T_test, S_in = S_test, P_in = P_test, K_mode = "static"
+        temp_c = T_test, sal = S_test, pres_bar = P_test, K_mode = "static"
     )
     println("✅ Static Mode Success!")
     
@@ -80,7 +80,7 @@ end
 println("\nTest 3: Custom Keyword Arguments (Passthrough testing)")
 try
     custom_results = CarbonateCalculator.K_calculator(
-        T_in = T_test, S_in = S_test, P_in = P_test, K_mode = "dynamic",
+        temp_c = T_test, sal = S_test, pres_bar = P_test, K_mode = "dynamic",
         KSO4_method = "Khoo", KF_method = "Perez", BT_method = "Lee", Ca = 0.02
     )
     println("✅ Custom Kwargs Success!")

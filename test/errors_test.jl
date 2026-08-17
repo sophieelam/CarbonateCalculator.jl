@@ -9,8 +9,8 @@ using CarbonateCalculator
     base_inputs = (
         TA = 2300.0,
         DIC = 2000.0,
-        T_in = 25.0,
-        S_in = 35.0,
+        temp_c = 25.0,
+        sal = 35.0,
         PT = 1.0,
         SiT = 15.0,
         unit = "umol",
@@ -56,8 +56,8 @@ using CarbonateCalculator
 
     # Variables independent of the inputs with errors should have 0 uncertainty
     # (Since temperature has no input uncertainty defined here, it shouldn't have an error)
-    if hasproperty(errs, :T_in)
-        @test isapprox(errs.T_in, 0.0, atol=1e-12)
+    if hasproperty(errs, :temp_c)
+        @test isapprox(errs.temp_c, 0.0, atol=1e-12)
     end
 
     # Print a nice summary for the terminal

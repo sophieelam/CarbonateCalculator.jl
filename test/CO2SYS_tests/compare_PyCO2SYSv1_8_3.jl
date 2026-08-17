@@ -78,7 +78,7 @@ end
 
         # --- COMPATIBILITY FIX: Environment Setup ---
         # Explicitly omitting legacy_GEOSECS to match PyCO2SYS 1.8.3 modern behavior
-        env = (T_in=row.TEMPIN, S_in=row.SAL, P_in=p_val, PT=row.PO4, SiT=row.SI, 
+        env = (temp_c=row.TEMPIN, sal=row.SAL, pres_bar=p_val, PT=row.PO4, SiT=row.SI, 
                H2ST=row.H2S, NH4T=row.NH4, unit="umol", scale=scale_name_map[scale_in], 
                K_method=k_method, KF_method=kf_method, KSO4_method=kso4_method, BT_method=b_method)
 
