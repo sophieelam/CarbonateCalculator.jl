@@ -13,7 +13,7 @@ function _settings(inputs::NamedTuple)
     return NamedTuple{present}(Tuple(inputs[k] for k in present))
 end
 
-"Condition arguments that were removed, and what to use instead."
+"Arguments that were removed, and what to use instead."
 const RETIRED_ARGUMENTS = (
     T_in  = "temp_c",
     S_in  = "sal",
@@ -21,10 +21,15 @@ const RETIRED_ARGUMENTS = (
     T_out = "recalculate_at_target_conditions(result; temp_c=...)",
     S_out = "nothing - a sample's salinity does not change between collection and measurement",
     P_out = "recalculate_at_target_conditions(result; pres_bar=...)",
+    # Accepted and documented for years, threaded through every signature, and never once
+    # applied - `carbon_system(..., pdict=Dict(:temp_c=>2.0))` returned the same answer as
+    # omitting it. Julia splatting does the job natively and composes better, so the
+    # argument is gone rather than implemented.
+    pdict = "splatting: carbon_system(; TA=2300.0, DIC=2000.0, your_parameters...)",
 )
 
 """
-Reject condition arguments that no longer exist.
+Reject arguments that no longer exist.
 
 Every calculation function ends in `kwargs...`, so an unrecognised keyword is silently
 absorbed rather than raising. Without this check, a call still written against the old API
@@ -35,11 +40,14 @@ function _reject_retired_arguments(kwargs)
     isempty(found) && return nothing
 
     lines = ["$k is no longer accepted; use $(RETIRED_ARGUMENTS[k])" for k in found]
-    throw(ArgumentError(
-        "retired condition argument(s):\n  " * join(lines, "\n  ") *
+
+    # The condition rename needs a word of explanation that the others do not.
+    conditions = [k for k in found if k in (:T_in, :S_in, :P_in, :T_out, :S_out, :P_out)]
+    note = isempty(conditions) ? "" :
         "\nConditions are now named temp_c, sal and pres_bar, and a single call describes " *
         "one set of conditions."
-    ))
+
+    throw(ArgumentError("retired argument(s):\n  " * join(lines, "\n  ") * note))
 end
 
 """

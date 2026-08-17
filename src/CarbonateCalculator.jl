@@ -96,7 +96,7 @@ function carbon_system_core(;
     Mg=nothing, temp_c=25.0, sal=35.0,
     pres_bar=0.0, PT=0.0, SiT=0.0, H2ST=0.0, NH4T=0.0, ST=nothing, FT=nothing,
     pHsws=nothing, pHfree=nothing, pHNBS=nothing, unit="umol", scale="total", Ks=nothing,
-    pdict=nothing, ΩC=nothing, ΩA=nothing, MyAMI_mode="approximate", 
+    ΩC=nothing, ΩA=nothing, MyAMI_mode="approximate",
     K_method="default", KSO4_method="default", BT_method="default", 
     KF_method="default", K_mode="static", KNH3_method="default",
     Ca_method="default", kwargs...
@@ -285,7 +285,7 @@ function carbon_system_core(;
     ps = merge(ps, rescaled_gases)
 
     # Clean up tuple before returning
-    keys_to_keep = Tuple(k for k in keys(ps) if k ∉ (:pdict, :scale))
+    keys_to_keep = Tuple(k for k in keys(ps) if k != :scale)
     ps = NamedTuple{keys_to_keep}(ps)
 
     return ps
@@ -354,7 +354,7 @@ function boron_system(;
     ABOH₃=nothing, ABOH₄=nothing, δBT=nothing, δBOH₃=nothing, δBOH₄=nothing,
     alphaB=nothing, temp_c=25.0, sal=35.0, pres_bar =0.0, Ca=nothing, Mg=nothing, 
     ST=nothing, FT=nothing, pHsws=nothing, pHfree=nothing, 
-    pHNBS=nothing, Ks=nothing, pdict=nothing, MyAMI_mode="approximate", 
+    pHNBS=nothing, Ks=nothing, MyAMI_mode="approximate",
     K_method="default", K_mode="static", KSO4_method="default", BT_method="default", 
     KF_method="default", KNH3_method="default", Ca_method="default", kwargs...)
 
@@ -474,8 +474,6 @@ ps = (
         end 
     end
 
-    rem = (:pdict,) 
-    ps = (; (k => v for (k, v) in pairs(ps) if k ∉ rem)...)
 
     return ps
 
@@ -544,7 +542,7 @@ function boron_isotopes(;
     ABOH₃=nothing, ABOH₄=nothing, δBT=nothing, δBOH₃=nothing, δBOH₄=nothing, 
     alphaB=nothing, temp_c=25.0,  sal=35.0, pres_bar=0.0, Ca=nothing, Mg=nothing,
     ST=nothing, FT=nothing, pHsws=nothing, pHfree=nothing, pHNBS=nothing, 
-    Ks=nothing, pdict=nothing, MyAMI_mode="approximate", 
+    Ks=nothing, MyAMI_mode="approximate",
     K_method="default", KSO4_method="default", BT_method="default", 
     KF_method="default", KNH3_method="default", Ca_method="default",
     K_mode="static", kwargs...
@@ -632,8 +630,6 @@ ps = (
     δBOH₄ = final_δBOH₄,
     ))
 
-    rem = (:pdict,) 
-    ps = (; (k => v for (k, v) in pairs(ps) if k ∉ rem)...)
 
     return ps
 
@@ -734,7 +730,7 @@ function whole_system_core(;
     Mg=nothing, temp_c=25.0, sal=35.0,
     pres_bar=0.0, PT=0.0, SiT=0.0, H2ST=0.0, NH4T=0.0, ST=nothing, FT=nothing,
     pHsws=nothing, pHfree=nothing, pHNBS=nothing, unit="umol", scale="total", Ks=nothing,
-    pdict=nothing, ΩC=nothing, ΩA=nothing, MyAMI_mode="approximate",
+    ΩC=nothing, ΩA=nothing, MyAMI_mode="approximate",
     K_method="default", KSO4_method="default", BT_method="default", 
     KF_method="default", KNH3_method="default", Ca_method="default",
     K_mode="static", kwargs...
@@ -962,7 +958,7 @@ function whole_system_core(;
     )
     ps = merge(ps, rescaled_gases)
 
-    keys_to_keep = Tuple(k for k in keys(ps) if k ∉ (:pdict, :scale))
+    keys_to_keep = Tuple(k for k in keys(ps) if k != :scale)
     ps = NamedTuple{keys_to_keep}(ps)
     
     return ps
@@ -984,7 +980,7 @@ function carbon_system(;
     Mg=nothing, temp_c=25.0, sal=35.0,
     pres_bar=0.0, PT=0.0, SiT=0.0, H2ST=0.0, NH4T=0.0, ST=nothing, FT=nothing,
     pHsws=nothing, pHfree=nothing, pHNBS=nothing, unit="umol", scale="total", Ks=nothing,
-    pdict=nothing, ΩC=nothing, ΩA=nothing, MyAMI_mode="approximate", 
+    ΩC=nothing, ΩA=nothing, MyAMI_mode="approximate",
     K_method="default", KSO4_method="default", BT_method="default", 
     KF_method="default", K_mode="static", KNH3_method="default",
     Ca_method="default", kwargs...
@@ -997,7 +993,7 @@ function carbon_system(;
         pCO₂=pCO₂, fCO₂=fCO₂, BT=BT, Ca=Ca, Mg=Mg, temp_c=temp_c,
         sal=sal, pres_bar=pres_bar, PT=PT, SiT=SiT,
         H2ST=H2ST, NH4T=NH4T, ST=ST, FT=FT, pHsws=pHsws, pHfree=pHfree, 
-        pHNBS=pHNBS, unit=unit, scale=scale, Ks=Ks, pdict=pdict, ΩC=ΩC, 
+        pHNBS=pHNBS, unit=unit, scale=scale, Ks=Ks, ΩC=ΩC,
         ΩA=ΩA, MyAMI_mode=MyAMI_mode, K_method=K_method, KSO4_method=KSO4_method, 
         BT_method=BT_method, KF_method=KF_method, K_mode=K_mode, 
         KNH3_method=KNH3_method, Ca_method=Ca_method
@@ -1036,7 +1032,7 @@ function whole_system(;
     Mg=nothing, temp_c=25.0, sal=35.0,
     pres_bar=0.0, PT=0.0, SiT=0.0, H2ST=0.0, NH4T=0.0, ST=nothing, FT=nothing,
     pHsws=nothing, pHfree=nothing, pHNBS=nothing, unit="umol", scale="total", Ks=nothing,
-    pdict=nothing, ΩC=nothing, ΩA=nothing, MyAMI_mode="approximate",
+    ΩC=nothing, ΩA=nothing, MyAMI_mode="approximate",
     K_method="default", KSO4_method="default", BT_method="default", 
     KF_method="default", KNH3_method="default", Ca_method="default",
     K_mode="static", kwargs...
@@ -1052,7 +1048,7 @@ function whole_system(;
         alphaB=alphaB, Ca=Ca, Mg=Mg, temp_c=temp_c, sal=sal,
         pres_bar=pres_bar, PT=PT, SiT=SiT, H2ST=H2ST,
         NH4T=NH4T, ST=ST, FT=FT, pHsws=pHsws, pHfree=pHfree, pHNBS=pHNBS, 
-        unit=unit, scale=scale, Ks=Ks, pdict=pdict, ΩC=ΩC, ΩA=ΩA, 
+        unit=unit, scale=scale, Ks=Ks, ΩC=ΩC, ΩA=ΩA,
         MyAMI_mode=MyAMI_mode, K_method=K_method, KSO4_method=KSO4_method, 
         BT_method=BT_method, KF_method=KF_method, K_mode=K_mode, 
         KNH3_method=KNH3_method, Ca_method=Ca_method
