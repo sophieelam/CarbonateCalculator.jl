@@ -1,226 +1,118 @@
-using DataFrames, CSV, Statistics, Printf, Plots, Measures
-using Base.Filesystem
-using ProgressMeter
-using Downloads
-include("../src/CarbonateCalculator.jl")
-using .CarbonateCalculator: carbon_system, K_calculator
-include("../src/helpers.jl")
-using .Helpers
-using NCDatasets
-using DataFrames
-default(
-    dpi = 300,
-    titlefont  = font(12, "Arial", :darkgray),
-    guidefont  = font(10, "Arial", :darkgray),
-    tickfont   = font(8,  "Arial", :darkgray),
-    legendfont = font(9,  "Arial", :darkgray)
-)
+# SOCCOM BGC-Argo floats — autonomous profiles from the Southern Ocean, served by NOAA
+# PolarWatch's ERDDAP.
+#
+# pH is measured in situ by an ISFET sensor; TA and DIC are the LIAR/LIN empirical estimates
+# distributed with the float data. So this checks the package against a measured pH at
+# genuine in-situ temperature *and* pressure — the only dataset here that does — but the
+# tolerance has to absorb the LIAR estimate's own error (~5-10 µmol/kg on TA), which is
+# larger than anything the calculator contributes.
+
+using Test
+using CSV, DataFrames, Statistics, Printf, Downloads
+using CarbonateCalculator
+
+const BGCARGO_FILE = "SOCCOM_BGC_Argo.csv"
+
+# One week of profiles. ERDDAP serves this as CSV with a units row beneath the header.
+#
+# ⚠️ This URL is dead. As of the last check the PolarWatch ERDDAP returns 404 for
+# `SOCCOM_BGC_Argo`, and searching that server for "SOCCOM" or "BGC Argo" returns nothing —
+# the dataset has been retired, not merely re-indexed, so adjusting the time range will not
+# revive it. `with_dataset` therefore skips this file with a warning rather than failing.
+# Replacing it means picking a new source (the SOCCOM data portal, or an Argo GDAC
+# synthetic profile index) and remapping the columns; the checks below need only in-situ
+# temperature, pressure, salinity, measured pH, and TA/DIC estimates.
+const BGCARGO_URL = "https://polarwatch.noaa.gov/erddap/tabledap/SOCCOM_BGC_Argo.csv" *
+    "?depth%2Cpressure%2Ctemperature%2Csalinity%2CpH_insitu%2CTALK_LIAR%2CDIC_LIAR" *
+    "&time%3E=2021-10-15T00%3A00%3A00Z&time%3C=2021-10-22T14%3A47%3A00Z"
+
+# `Downloads` is a stdlib, so this needs no HTTP.jl dependency the way the original did.
+fetch_BGCArgo(path) = Downloads.download(BGCARGO_URL, path)
 
 
+"Load the ERDDAP extract and reduce it to physically plausible rows."
+function load_BGCArgo(path)
+    raw = CSV.read(path, DataFrame, header = 1, skipto = 3)   # row 2 is units
+    nrow(raw) == 0 && return raw
 
-function cplot(obs, pred, var_name::String, cvar_name::String, c_data; alpha=0.4, pclims=[0.05, 0.9995], lims=nothing, diff_lims=nothing, hist_xlims=nothing)
-    
-    # Calculate difference and remove NaNs
-    diff = obs .- pred
-    valid = .!isnan.(obs) .& .!isnan.(pred)
-    obs_v, pred_v, diff_v, c_v = obs[valid], pred[valid], diff[valid], c_data[valid]
+    df = DataFrame(
+        depth = Float64.(raw[:, 1]),
+        pres_bar = Float64.(raw[:, 2]),
+        temp_c = Float64.(raw[:, 3]),
+        sal = Float64.(raw[:, 4]),
+        pH = Float64.(raw[:, 5]),
+        TA = Float64.(raw[:, 6]),
+        DIC = Float64.(raw[:, 7]),
+    )
 
-    # Limits for Measured vs Predicted (Plot 1)
-    if lims === nothing
-        ad = vcat(obs_v, pred_v)
-        mn, mx = quantile(ad, pclims)
-        pad = 0.1 * (mx - mn)
-        lims = (mn - pad, mx + pad)
-    end
+    # Floats report -999 for bad data, which would otherwise sail through as a number.
+    df.temp_c = [(-5 < x < 40) ? x : missing for x in df.temp_c]
+    df.sal = [(0 < x < 50) ? x : missing for x in df.sal]
+    df.pres_bar = [(0 <= x < 6000) ? x : missing for x in df.pres_bar]
+    df.pH = [(6 < x < 9) ? x : missing for x in df.pH]
+    df.TA = [(1000 < x < 3000) ? x : missing for x in df.TA]
+    df.DIC = [(1000 < x < 3000) ? x : missing for x in df.DIC]
 
-    # Limits for Residuals (Plots 2 & 3)
-    if diff_lims === nothing
-        diff_mn, diff_mx = quantile(diff_v, pclims)
-        diff_pad = 0.15 * (diff_mx - diff_mn)
-        diff_lims = (diff_mn - diff_pad, diff_mx + diff_pad)
-    end
+    dropmissing!(df, [:pres_bar, :temp_c, :sal, :pH, :TA, :DIC])
+    df.pres_bar .= df.pres_bar ./ 10.0   # dbar to bar
 
-    # --- AXIS 1: Measured vs Predicted ---
-    p1 = scatter(obs_v, pred_v, zcolor=c_v, markerstrokewidth=0, markersize=3,
-                 seriesalpha=alpha, legend=false, colorbar=false, 
-                 xlims=lims, ylims=lims, xlabel="BGC Argo Measured", ylabel="Julia predicted")
-    plot!(p1, [lims[1], lims[2]], [lims[1], lims[2]], color=:gray, linestyle=:dash, lw=2)
-    
-    # Add variable text in the top left
-    annotate!(p1, lims[1] + 0.05*(lims[2]-lims[1]), lims[2] - 0.05*(lims[2]-lims[1]),
-              text("BGC Argo"*var_name, :left, :top, 12, :darkgray, :bold, "Arial"))
-
-# --- AXIS 2: Measured vs Difference (Residuals) ---
-    p2 = scatter(obs_v, diff_v, zcolor=c_v, markerstrokewidth=0, markersize=3,
-                 seriesalpha=alpha, legend=false, 
-                 colorbar=false, 
-                 xlims=lims, ylims=diff_lims, xlabel="BGC Argo Measured", ylabel="measured - predicted",
-                 right_margin=2Plots.mm) 
-    hline!(p2, [0], color=:gray, linestyle=:dash, lw=2)
-
-    # Calculate Stats for Annotations
-    med_diff = median(diff_v)
-    lim95 = quantile(diff_v, [0.025, 0.975])
-    
-    fmt(val) = abs(val) < 0.01 ? @sprintf("%.1e", val) : @sprintf("%.2f", val)
-    stat_text = "Median Offset: $(fmt(med_diff))\n95% Limits: $(fmt(lim95[1] - med_diff)) / +$(fmt(lim95[2] - med_diff))"
-
-    annotate!(p2, lims[1] + 0.03*(lims[2]-lims[1]), diff_lims[2] - 0.03*(diff_lims[2]-diff_lims[1]),
-              text(stat_text, :left, :top, 9, :black, "Arial"))
-
-    # --- AXIS 3: Histogram ---
-    # 1. Generate 200 bins
-    bin_edges = range(diff_lims[1], diff_lims[2], length=200)
-
-    p3 = histogram(diff_v, orientation=:horizontal, bins=bin_edges, color=:gray,
-                   legend=false, ylims=diff_lims, xlabel="n", yticks=false,
-                   left_margin=0Plots.mm)
-
-    hline!(p3, [med_diff], color=:red, linestyle=:dash, lw=2)
-    hspan!(p3, [lim95[1], lim95[2]], color=:red, alpha=0.2)
-    hline!(p3, [0], color=:gray, linestyle=:dash, lw=2)
-
-    scatter!(p3, [0], [0], zcolor=[c_v[1]], clims=(minimum(c_v), maximum(c_v)),
-             markeralpha=0, markersize=0, label="",
-             colorbar=true, colorbar_title=cvar_name)
-
-    # Enforce y-limits to prevent Plots.jl cropping
-    ylims!(p2, diff_lims)
-    ylims!(p3, diff_lims)
-
-    # --- Combine into Layout ---
-    l = @layout [a{0.35w} b{0.40w} c{0.25w}]
-    fig = plot(p1, p2, p3, layout=l, size=(1200, 450), margin=6Plots.mm)
-    return fig
+    return df
 end
 
 
-using DataFrames, CSV, HTTP
+"""
+Compute pH from the LIAR TA and DIC estimates, at the float's in-situ conditions.
 
-function BGCArgo_comparison(figdir=".")
-    println("\n********************************************")
-    println("Generating BGC-Argo Comparison Plots")
-    println("********************************************")
+Only pH is checked against a measurement. Computing TA from pH+DIC (and vice versa) would
+be comparing the package against LIAR's regression rather than against anything measured,
+which is why the original script's three-way comparison is reduced to one here.
+"""
+function solve_BGCArgo(df)
+    pH = fill(NaN, nrow(df))
 
-    # 1. The ERDDAP API URL
-    url = "https://polarwatch.noaa.gov/erddap/tabledap/SOCCOM_BGC_Argo.csv?depth%2Cpressure%2Ctemperature%2Csalinity%2CpH_insitu%2CTALK_LIAR%2CDIC_LIAR&time%3E=2021-10-15T00%3A00%3A00Z&time%3C=2021-10-22T14%3A47%3A00Z"
+    for i in 1:nrow(df)
+        try
+            # No `Ks=`: see the note in GLODAP_test.jl.
+            pH[i] = carbon_system(TA = df.TA[i], DIC = df.DIC[i], temp_c = df.temp_c[i],
+                                  sal = df.sal[i], pres_bar = df.pres_bar[i],
+                                  unit = "umol").pHtot
+        catch
+        end
+    end
 
-    local df 
+    return pH
+end
 
-    println("Requesting data from ERDDAP...")
-    
-    try
-        resp = HTTP.get(url)
-        df_raw = CSV.read(IOBuffer(resp.body), DataFrame, header=1, skipto=3)
-        
-        if nrow(df_raw) == 0
-            println("Server returned 0 rows. Try widening the time range!")
+
+@testset "SOCCOM BGC-Argo" begin
+    with_dataset("SOCCOM BGC-Argo", BGCARGO_FILE, fetch_BGCArgo) do path
+        df = load_BGCArgo(path)
+
+        if nrow(df) == 0
+            @warn "BGC-Argo extract has no usable rows — skipping. See the note on " *
+                  "BGCARGO_URL: the SOCCOM dataset has been retired from PolarWatch and " *
+                  "needs replacing with a live source."
             return
         end
 
-        # Map the columns and add blank nutrient columns for the calculator
-        df = DataFrame(
-            depth  = Float64.(df_raw[:, 1]),
-            P      = Float64.(df_raw[:, 2]),
-            T      = Float64.(df_raw[:, 3]),
-            S      = Float64.(df_raw[:, 4]),
-            pH_obs = Float64.(df_raw[:, 5]),
-            TA     = Float64.(df_raw[:, 6]),
-            DIC    = Float64.(df_raw[:, 7]),
-            SiT    = zeros(Float64, nrow(df_raw)), # Placeholder for Silicate
-            PT     = zeros(Float64, nrow(df_raw))  # Placeholder for Phosphate
-        )
-        
-    catch e
-        println("An unexpected error occurred during download: ", e)
-        return
-    end
+        @info "BGC-Argo: $(nrow(df)) profiles points, $(round(minimum(df.temp_c), digits=1)) " *
+              "to $(round(maximum(df.temp_c), digits=1)) °C, to " *
+              "$(round(maximum(df.pres_bar) * 10)) dbar"
 
-    println("Success! Captured $(nrow(df)) data points.")
-    
-    # 2. Clean the Data
-    # Standardize missing values (Argo often uses -999 for bad data)
-    df.T .= [ (x < -5 || x > 40) ? missing : x for x in df.T ]
-    df.S .= [ (x < 0 || x > 50) ? missing : x for x in df.S ]
-    df.P .= [ (x < 0 || x > 6000) ? missing : x for x in df.P ]
+        computed = solve_BGCArgo(df)
 
-    dropmissing!(df, [:P, :T, :S, :pH_obs, :DIC, :TA])
-    
-    # Convert Pressure from dbar to bar 
-    df.P .= df.P ./ 10.0
+        # Tolerance is set by the LIAR TA/DIC estimates, not by the calculator: a ~6 µmol/kg
+        # TA error alone moves computed pH by ~0.01.
+        check_agreement("pH from LIAR TA and DIC", df.pH, computed;
+                        max_median = 0.05, max_iqr = 0.05)
 
-    println("Cleaned data down to $(nrow(df)) valid points. Ready for calculations!")
-
-    # 3. Create Figures directory
-    fig_folder = joinpath(figdir, "Figures_BGCArgo")
-    isdir(fig_folder) || mkdir(fig_folder)
-
-    # 5. Execute Calculations
-    println("Calculating pH, DIC, and TA from different input pairs...")
-    
-    n_obs    = nrow(df)
-    calc_pH  = zeros(Float64, n_obs)
-    calc_DIC = zeros(Float64, n_obs)
-    calc_TA  = zeros(Float64, n_obs)
-
-    @showprogress for i in 1:nrow(df)
-        try
-            # --- 1. Calculate constants strictly for THIS row ---
-            row_K_results = K_calculator(
-                temp_c = df.T[i], 
-                sal = df.S[i], 
-                pres_bar = df.P[i],
-                K_method = "default"
-            )
-
-            # --- 2. Calculate pH ---
-            res_pH = carbon_system(
-                TA = df.TA[i], DIC = df.DIC[i],
-                temp_c = df.T[i], sal = df.S[i], pres_bar = df.P[i],
-                PT = df.PT[i], SiT = df.SiT[i],
-                unit = "umol", Ks = row_K_results.Ks # Pass the extracted tuple!
-            )
-            calc_pH[i] = res_pH.pHtot
-
-            # --- 3. Calculate DIC ---
-            res_DIC = carbon_system(
-                TA = df.TA[i], pHtot = df.pH_obs[i],
-                temp_c = df.T[i], sal = df.S[i], pres_bar = df.P[i],
-                PT = df.PT[i], SiT = df.SiT[i],
-                unit = "umol", Ks = row_K_results.Ks
-            )
-            calc_DIC[i] = res_DIC.DIC
-
-            # --- 4. Calculate TA ---
-            res_TA = carbon_system(
-                DIC = df.DIC[i], pHtot = df.pH_obs[i],
-                temp_c = df.T[i], sal = df.S[i], pres_bar = df.P[i],
-                PT = df.PT[i], SiT = df.SiT[i],
-                unit = "umol", Ks = row_K_results.Ks
-            )
-            calc_TA[i] = res_TA.TA
-
-        catch
-            calc_pH[i]  = NaN
-            calc_DIC[i] = NaN
-            calc_TA[i]  = NaN
+        if FIELD_PLOTS
+            figures = joinpath(FIGURE_DIR, "BGCArgo")
+            mkpath(figures)
+            savefig(comparison_figure(df.pH, computed, "pH", "Depth", df.depth;
+                                      dataset = "BGC-Argo"),
+                    joinpath(figures, "BGCArgo_pH_Comparison.png"))
+            @info "BGC-Argo: figures written to $figures"
         end
     end
-
-    # 6. Validation Plots
-    println("Making validation plots...")
-    
-    fig_pH = cplot(df.pH_obs, calc_pH, "pH", "Depth (m)", df.depth,
-                 lims=(7.4, 8.2), diff_lims=(-0.1, 0.1))
-    savefig(fig_pH, joinpath(fig_folder, "BGCArgo_pH_Comparison.png"))
-
-    fig_DIC = cplot(df.DIC, calc_DIC, "DIC", "Depth (m)", df.depth,
-                 lims=(1900, 2400), diff_lims=(-30, 30))
-    savefig(fig_DIC, joinpath(fig_folder, "BGCArgo_DIC_Comparison.png"))
-
-    fig_TA = cplot(df.TA, calc_TA, "TA", "Depth (m)", df.depth,
-                 lims=(2200, 2500), diff_lims=(-30, 30))
-    savefig(fig_TA, joinpath(fig_folder, "BGCArgo_TA_Comparison.png"))
-    
-    println("Finished! Check the Figures_BGCArgo folder for your deep-water plots.")
 end

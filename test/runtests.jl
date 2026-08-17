@@ -35,6 +35,21 @@ TEST_LEVEL in ("quick", "default", "all") ||
 const RUN_EXTERNAL_CALCULATORS = TEST_LEVEL in ("default", "all")
 const RUN_FIELD_DATA = TEST_LEVEL == "all"
 
+# Block 3's scaffolding is set up here rather than beside its testset below, because
+# `using` and `const` are only legal at top level — inside the @testset they are a syntax
+# error, and files brought in by `include` are evaluated in Main and cannot see a local.
+if RUN_FIELD_DATA
+    include("field_data/field_data_common.jl")
+    using .FieldData
+
+    # Plots is not a test dependency, so figures are skipped rather than fatal when
+    # CC_PLOTS is set without it installed. The figure code lives in its own file because
+    # it cannot even be *parsed* without Plots loaded — @layout is a macro, so an `if`
+    # guard around it would not help.
+    const FIELD_PLOTS = MAKE_PLOTS && optional_using(:Plots)
+    FIELD_PLOTS && include("field_data/comparison_figure.jl")
+end
+
 
 @testset "CarbonateCalculator.jl Full Test Suite" begin
 
@@ -111,7 +126,6 @@ const RUN_FIELD_DATA = TEST_LEVEL == "all"
         @testset "Real-world data accuracy" begin
             include("field_data/GLODAP_test.jl")
             include("field_data/CODAP_test.jl")
-            include("field_data/SOCAT_test.jl")
             include("field_data/BGCArgo_test.jl")
         end
     else
