@@ -168,6 +168,54 @@ end
 
 
 """
+    _non_carbonate_alkalinity(H, BT, PT, SiT, ST, FT, H2ST, NH4T, Ks)
+
+Every contribution to alkalinity except the carbonate one, at a given [H⁺].
+
+These ten formulas were written out four times over — in the residuals for `CO₂+TA` and
+`TA+DIC`, in the `DIC`-from-`pH`-and-`TA` rearrangement, and in `calc_TA_components`. All four
+agree on the non-carbonate terms and differ only in where CAlk comes from and which way the
+sum runs, so this is the part worth having once: a change to how borate or phosphate is
+handled now lands everywhere rather than in three places out of four.
+
+Returned as a NamedTuple because `calc_TA_components` reports the breakdown, not just the sum.
+"""
+function _non_carbonate_alkalinity(H, BT, PT, SiT, ST, FT, H2ST, NH4T, Ks)
+    PhosNum = Ks.KP1 * Ks.KP2 * H + 2 * Ks.KP1 * Ks.KP2 * Ks.KP3 - H^3
+    PhosDenom = H^3 + Ks.KP1 * H^2 + Ks.KP1 * Ks.KP2 * H + Ks.KP1 * Ks.KP2 * Ks.KP3
+    Hfree = H / (1 + ST / Ks.KS)
+
+    return (BAlk = BT * Ks.KB / (Ks.KB + H),
+            OH = Ks.KW / H,
+            PAlk = PT * PhosNum / PhosDenom,
+            SiAlk = SiT * Ks.KSi / (Ks.KSi + H),
+            Alk_H2S = H2ST * Ks.KH2S / (Ks.KH2S + H),
+            Alk_NH3 = NH4T * Ks.KNH3 / (Ks.KNH3 + H),
+            Hfree = Hfree,
+            HSO₄ = ST / (1 + Ks.KS / Hfree),
+            HF = FT / (1 + Ks.KF / Hfree))
+end
+
+"""
+    _alkalinity_residual(TA, CAlk, contributions)
+
+What is left of `TA` once carbonate and every other contribution is taken out. Zero at the
+solution, which is what the iterative solves search for.
+
+The term order is load-bearing: it is the order CO2SYS sums in, and changing it moves results
+in the last bits. Passing `CAlk = 0` gives the carbonate alkalinity implied by a `TA` — the
+rearrangement `DIC_from_pH_TA` needs.
+"""
+_alkalinity_residual(TA, CAlk, a) =
+    TA - CAlk - a.BAlk - a.OH - a.PAlk - a.SiAlk - a.Alk_H2S - a.Alk_NH3 +
+    a.Hfree + a.HSO₄ + a.HF
+
+"Carbonate alkalinity, HCO₃⁻ + 2CO₃²⁻, from DIC and [H⁺]."
+_carbonate_alkalinity(H, DIC, Ks) =
+    DIC * Ks.K1 * (H + 2 * Ks.K2) / (H^2 + Ks.K1 * H + Ks.K1 * Ks.K2)
+
+
+"""
 #4: Calculating pH from CO₂ and TA
 Taken from MatLab CO2SYS (which originally used a Newton-Raphson method) and
 adapted to be solved more efficiently with the Julia ForwardDiff auto-grad capabilites.
@@ -175,23 +223,17 @@ adapted to be solved more efficiently with the Julia ForwardDiff auto-grad capab
 function solve_pH_from_CO₂_TA(pH, CO₂, TA, BT, PT, SiT, ST, FT, H2ST, NH4T, Ks)
 
     H = 10.0^(-pH)
+
+    # CAlk comes from CO₂ here rather than from DIC, which is the only thing distinguishing
+    # this residual from `solve_pH_from_TA_DIC`. The round trip through K0 is CO2SYS's and is
+    # kept because dropping it moves the last bits.
     fCO₂ = CO₂ / Ks.K0
     HCO₃ = Ks.K0 * Ks.K1 * fCO₂ / H
     CO₃ = Ks.K0 * Ks.K1 * Ks.K2 * fCO₂ / H^2
     CAlk = HCO₃ + 2 * CO₃
-    BAlk = BT * Ks.KB / (Ks.KB + H)
-    OH = Ks.KW / H
-    PhosNum = Ks.KP1 * Ks.KP2 * H + 2 * Ks.KP1 * Ks.KP2 * Ks.KP3 - H^3
-    PhosDenom = H^3 + Ks.KP1 * H^2 + Ks.KP1 * Ks.KP2 * H + Ks.KP1 * Ks.KP2 * Ks.KP3
-    PAlk = PT * PhosNum / PhosDenom
-    SiAlk = SiT * Ks.KSi / (Ks.KSi + H)
-    Alk_H2S = H2ST * Ks.KH2S / (Ks.KH2S + H)
-    Alk_NH3 = NH4T * Ks.KNH3 / (Ks.KNH3 + H)
-    Hfree = H / (1 + ST / Ks.KS)
-    HSO₄ = ST / (1 + Ks.KS / Hfree)
-    HF = FT / (1 + Ks.KF / Hfree)
 
-    return TA - CAlk - BAlk - OH - PAlk - SiAlk - Alk_H2S - Alk_NH3 + Hfree + HSO₄ + HF
+    return _alkalinity_residual(TA, CAlk,
+        _non_carbonate_alkalinity(H, BT, PT, SiT, ST, FT, H2ST, NH4T, Ks))
 end
 
 function pH_from_CO₂_TA(CO₂, TA, BT, PT, SiT, ST, FT, H2ST, NH4T, Ks)
@@ -250,19 +292,14 @@ end
 Taken from MatLab CO2SYS
 """
 function DIC_from_pH_TA(pH, TA, BT, PT, SiT, ST, FT, H2ST, NH4T, Ks)
-   H = 10 ^(-pH)
-   BAlk = BT * Ks.KB / (Ks.KB + H)
-    OH = Ks.KW / H
-    PhosNum = Ks.KP1 * Ks.KP2 * H + 2 * Ks.KP1 * Ks.KP2 * Ks.KP3 - H^3
-    PhosDenom = H^3 + Ks.KP1 * H^2 + Ks.KP1 * Ks.KP2 * H + Ks.KP1 * Ks.KP2 * Ks.KP3
-    PAlk = PT * PhosNum / PhosDenom
-    SiAlk = SiT * Ks.KSi / (Ks.KSi + H)
-    Alk_H2S = H2ST * Ks.KH2S / (Ks.KH2S + H)
-    Alk_NH3 = NH4T * Ks.KNH3 / (Ks.KNH3 + H)
-    Hfree = H / (1 + ST / Ks.KS)
-    HSO₄ = ST / (1 + Ks.KS / Hfree)
-    HF = FT / (1 + Ks.KF / Hfree)
-    CAlk = TA - BAlk - OH - PAlk - SiAlk - Alk_H2S - Alk_NH3 + Hfree + HSO₄ + HF
+    H = 10.0^(-pH)
+
+    # Carbonate alkalinity is whatever is left of TA once everything else is accounted for,
+    # which is the residual with no carbonate term subtracted.
+    CAlk = _alkalinity_residual(TA, zero(TA),
+        _non_carbonate_alkalinity(H, BT, PT, SiT, ST, FT, H2ST, NH4T, Ks))
+
+    # `_carbonate_alkalinity` inverted for DIC.
     return CAlk * (H^2 + Ks.K1 * H + Ks.K1 * Ks.K2) / (Ks.K1 * (H + 2.0 * Ks.K2))
 end
 
@@ -363,28 +400,6 @@ function H_from_CO₃_TA(CO₃, TA, BT, PT, SiT, ST, FT, H2ST, NH4T, Ks)
     return 10.0^(-sol_pH)
 end
 
-# function solve_H_from_CO₃_TA(H, CO₃, TA, BT, Ks)
-#     LH = TA * (Ks.KB + H) * (H^3 + Ks.K1 * H^2 + Ks.K1 * Ks.K2 * H)
-#     RH = (
-#         CO₃ * (H + H^2 / Ks.K2 + H^3 / (Ks.K1 * Ks.K2))
-#         * (Ks.K1 * H^2 + Ks.K1 * H * (Ks.KB + 2 * Ks.K2) + 2 * Ks.KB * Ks.K1 * Ks.K2)
-#     ) + (
-#         (H^2 + Ks.K1 * H + Ks.K1 * Ks.K2)
-#         * (Ks.KB * BT * H + Ks.KW * Ks.KB + Ks.KW * H - Ks.KB * H^2 - H^3) 
-#     )
-    
-#     return LH - RH
-# end
-
-# function H_from_CO₃_TA(CO₃, TA, BT, Ks)
-#     f(H) = solve_H_from_CO₃_TA(H, CO₃, TA, BT, Ks)
-    
-#     # Expanded bracket for GLODAP, and explicitly matching Python's algorithm
-#     return find_zero(f, (1e-10, 1e-5), Roots.Brent()) 
-# end
-
-
-
 """
 #14: Calculating H⁺ from CO₃ and DIC
 Zeebe & Wolf-Gladrow, 2001, Appendix B
@@ -408,23 +423,10 @@ Taken from MatLab CO2SYS (which originally used a Newton-Raphson method) and
 adapted to be solved more efficiently with Julia ForwardDiff autograd capabilites.
 """
 function solve_pH_from_TA_DIC(pH, TA, DIC, BT, PT, SiT, ST, FT, H2ST, NH4T, Ks)
-
     H = 10.0^(-pH)
-    Denom = H^2 + Ks.K1 * H + Ks.K1 * Ks.K2
-    CAlk = DIC * Ks.K1 * (H + 2 * Ks.K2) / Denom
-    BAlk = BT * Ks.KB / (Ks.KB + H)
-    OH = Ks.KW / H
-    PhosNum = Ks.KP1 * Ks.KP2 * H + 2 * Ks.KP1 * Ks.KP2 * Ks.KP3 - H^3
-    PhosDenom = H^3 + Ks.KP1 * H^2 + Ks.KP1 * Ks.KP2 * H + Ks.KP1 * Ks.KP2 * Ks.KP3
-    PAlk = PT * PhosNum / PhosDenom
-    SiAlk = SiT * Ks.KSi / (Ks.KSi + H)
-    Alk_H2S = H2ST * Ks.KH2S / (Ks.KH2S + H)
-    Alk_NH3 = NH4T * Ks.KNH3 / (Ks.KNH3 + H)
-    Hfree = H / (1 + ST / Ks.KS)
-    HSO₄ = ST / (1 + Ks.KS / Hfree)
-    HF = FT / (1 + Ks.KF / Hfree)
 
-    return TA - CAlk - BAlk - OH - PAlk - SiAlk - Alk_H2S - Alk_NH3 + Hfree + HSO₄ + HF
+    return _alkalinity_residual(TA, _carbonate_alkalinity(H, DIC, Ks),
+        _non_carbonate_alkalinity(H, BT, PT, SiT, ST, FT, H2ST, NH4T, Ks))
 end
 
 
@@ -470,19 +472,9 @@ Calculating TA components
 Equation 1.5.80 from Zeebe & Wolf-Gladrow, 2001, Chapter 1
 """
 function calc_TA_components(H, DIC, BT, PT, SiT, ST, FT, H2ST, NH4T, Ks)
-    Denom = H^2 + Ks.K1 * H + Ks.K1 * Ks.K2
-    CAlk = DIC * Ks.K1 * (H + 2 * Ks.K2) / Denom
-    BAlk = BT * Ks.KB / (Ks.KB + H)
-    OH = Ks.KW / H
-    PhosNum = Ks.KP1 * Ks.KP2 * H + 2 * Ks.KP1 * Ks.KP2 * Ks.KP3 - H^3
-    PhosDenom = H^3 + Ks.KP1 * H^2 + Ks.KP1 * Ks.KP2 * H + Ks.KP1 * Ks.KP2 * Ks.KP3
-    PAlk = PT * PhosNum / PhosDenom
-    SiAlk = SiT * Ks.KSi / (Ks.KSi + H)
-    Alk_H2S = H2ST * Ks.KH2S / (Ks.KH2S + H)
-    Alk_NH3 = NH4T * Ks.KNH3 / (Ks.KNH3 + H)
-    Hfree = H / (1 + ST / Ks.KS)
-    HSO₄ = ST / (1 + Ks.KS / Hfree)
-    HF = FT / (1 + Ks.KF / Hfree)
+    CAlk = _carbonate_alkalinity(H, DIC, Ks)
+    (; BAlk, OH, PAlk, SiAlk, Alk_H2S, Alk_NH3, Hfree, HSO₄, HF) =
+        _non_carbonate_alkalinity(H, BT, PT, SiT, ST, FT, H2ST, NH4T, Ks)
 
     TA = CAlk + BAlk + OH + PAlk + SiAlk + Alk_H2S + Alk_NH3 - Hfree - HSO₄ - HF
 
@@ -564,9 +556,31 @@ function fCO₂_to_pCO₂(fCO₂, T)
 end
 
 
+"""
+What to tell someone whose input reaches the carbonate solver without determining it.
+
+Reachable from `whole_system`, whose scope includes carbon but which only requires *two*
+constraints overall — so `whole_system(pHtot = 8.1, δBOH₄ = 16.0)` determines boron and its
+isotopes while leaving carbon with pH alone. Every branch below then falls through, and
+without this the failure surfaced as `UndefVarError: H not defined in local scope`, naming an
+internal variable rather than the missing input.
+"""
+function _underdetermined_carbon(pHtot, DIC, TA, CO₂, HCO₃, CO₃)
+    supplied = [name for (name, value) in (("pH", pHtot), ("DIC", DIC), ("TA", TA),
+                                           ("CO₂", CO₂), ("HCO₃", HCO₃), ("CO₃", CO₃))
+                if !isnothing(value)]
+
+    return "the carbonate system needs two of TA, DIC, pH, CO₂ (or pCO₂/fCO₂), HCO₃, CO₃, " *
+           "but was given $(isempty(supplied) ? "none" : join(supplied, " and ")).\n" *
+           "A scope that includes :carbon computes the carbonate system, so it has to be " *
+           "determined too. To solve boron and its isotopes alone, use boron_system or " *
+           "boron_isotopes, whose scope leaves carbon out."
+end
+
+
 # The Carbon Calculator
 """
-Calculates carbon system from any two of the following: 
+Calculates carbon system from any two of the following:
 CO₂, HCO₃⁻, CO₃²⁻, DIC, TA, pH
 Returns everything on the total scale.
 """
@@ -650,6 +664,8 @@ function C_calculator(;
     elseif !isnothing(TA) && !isnothing(DIC)
         pHtot = pH_from_TA_DIC(TA, DIC, BT, PT, SiT, ST, FT, H2ST, NH4T, Ks)
         H = 10.0^(-pHtot)
+    else
+        throw(ArgumentError(_underdetermined_carbon(pHtot, DIC, TA, CO₂, HCO₃, CO₃)))
     end
 
     if isnothing(CO₂)
