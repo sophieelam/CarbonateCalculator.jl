@@ -79,6 +79,10 @@ end
             include("internal/method_selection_test.jl")
         end
 
+        @testset "Core Consistency" begin
+            include("internal/core_consistency_test.jl")
+        end
+
         @testset "Input/Output Consistency" begin
             include("internal/input_output_test.jl")
         end
