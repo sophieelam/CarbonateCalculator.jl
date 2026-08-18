@@ -7,6 +7,63 @@ using .Helpers
 export C_calculator, calc_revelle_factor, calc_buffer_capacity, fCO₂_to_CO₂,
 CO₂_to_fCO₂, fCO₂_to_pCO₂, pCO₂_to_fCO₂
 
+# One knob for the iterative solves below. `const` matters: an untyped global would make
+# every `ROOT_METHOD()` a dynamic dispatch on the hot path.
+const ROOT_METHOD = Roots.Newton
+
+"""
+    _newton_state_type(Ks, concentrations...)
+
+The type the Newton solver's internal state has to hold.
+
+The equilibrium constants are part of this and not an afterthought. Promoting over the
+concentrations alone is right only when the derivative is taken with respect to one of
+*them*; differentiate with respect to `temp_c` or `sal` instead and the constants become
+`Dual` while the concentrations stay `Float64`, so a `Float64` initial guess meets a `Dual`
+residual and `Roots` fails as `MethodError: no method matching Float64(::Dual)` raised from
+inside `init_state` — naming neither the input responsible nor uncertainty propagation.
+
+Resolved at compile time: every argument's type is known, so this folds to a constant.
+"""
+_newton_state_type(Ks::NamedTuple, concentrations...) =
+    promote_type(map(typeof, concentrations)..., map(typeof, Tuple(values(Ks)))...)
+
+"""
+    _quadratic_roots(a, b, c) -> (root, root)
+
+Both roots of `a*x^2 + b*x + c`, in no particular order.
+
+Uses the cancellation-avoiding form rather than the textbook quadratic formula. One of
+`-b ± sqrt(b^2 - 4ac)` always subtracts two nearly equal numbers when `b^2 ≫ 4ac`, losing
+precision in exactly one of the two roots. Forming `q` with the signs aligned and taking
+`q/a` and `c/q` makes both of them quotients of well-conditioned quantities.
+
+The carbonate pairs that reduce to a quadratic use this instead of a root-finder. That is
+not only faster — it is what makes them differentiable. `find_zero(f, (1e-14, 1))` returns a
+`Float64` whatever `f` does, so a `Dual` going in loses its partials without error, and an
+uncertainty propagated through such a path used to come back as exactly zero.
+
+Callers pick the root they want by its sign or magnitude; which of the pair is which depends
+on `sign(b)`, so do not rely on the order.
+"""
+function _quadratic_roots(a, b, c)
+    q = -(b + sign(b) * sqrt(b^2 - 4a * c)) / 2
+    return (q / a, c / q)
+end
+
+"""
+    _positive_root(a, b, c)
+
+The positive root of `a*H^2 + b*H + c`, for the case where `a > 0` and `c < 0`.
+
+Those signs put the product of the roots (`c/a`) below zero, so the two straddle zero and
+exactly one is physical — which is why `max` is enough to identify it. Callers whose
+constant term is *positive* have two positive roots and no such shortcut; they take
+`_quadratic_roots` directly and choose on magnitude.
+"""
+_positive_root(a, b, c) = max(_quadratic_roots(a, b, c)...)
+
+
 """
 #1: Calculating DIC from CO₂ and pH
 Zeebe & Wolf-Gladrow, 2001, Appendix B
@@ -21,23 +78,7 @@ end
 """
 #2: Calculating H⁺ from CO₂ and HCO₃⁻
 Zeebe & Wolf-Gladrow, 2001, Appendix B
-Solved using autograd
 """
-# function solve_H_from_CO₂_HCO₃(H, CO₂, HCO₃, Ks)
-#     LH = CO₂ * (H^2 + Ks.K1 * H + Ks.K1 * Ks.K2)
-#     RH = HCO₃ * (H^2 + H^3 / Ks.K1 + Ks.K2 * H)
-#     return LH - RH
-# end
-
-
-# function H_from_CO₂_HCO₃(CO₂, HCO₃, Ks)
-#     f(H) = solve_H_from_CO₂_HCO₃(H, CO₂, HCO₃, Ks)
-#     df(H) = ForwardDiff.derivative(f, H)
-    
-#     initial_guess = 1e-8 + + zero(CO₂) + zero(HCO₃) # Standard starting guess (~pH 8)
-#     return find_zero((f, df), initial_guess, Roots.Newton())
-# end
-
 function H_from_CO₂_HCO₃(CO₂, HCO₃, Ks)
     return (Ks.K1 * CO₂) / HCO₃
 end
@@ -46,27 +87,11 @@ end
 """
 #3: Calculating H⁺ from CO₂ and CO₃
 Zeebe & Wolf-Gladrow, 2001, Appendix B
-Solved using autograd
 """
-# function solve_H_from_CO₂_CO₃(H, CO₂, CO₃, Ks)
-#     LH = CO₂ * (H^2 + Ks.K1 * H + Ks.K1 * Ks.K2)
-#     RH = CO₃ * (H^2 + H^3 / Ks.K2 + H^4 / (Ks.K1 * Ks.K2))
-#     return LH - RH
-# end
-
-# function H_from_CO₂_CO₃(CO₂, CO₃, Ks)
-#     f(H) = solve_H_from_CO₂_CO₃(H, CO₂, CO₃, Ks)
-#     df(H) = ForwardDiff.derivative(f, H)
-    
-#     initial_guess = 1e-8 + zero(CO₂) + zero(CO₃)
-#     return find_zero((f, df), initial_guess, Roots.Newton())
-# end
-
 function H_from_CO₂_CO₃(CO₂, CO₃, Ks)
     # Using abs() just as a safety net against tiny floating-point noise around zero
     return sqrt(abs((Ks.K1 * Ks.K2 * CO₂) / CO₃))
 end
-
 
 
 """
@@ -97,46 +122,34 @@ function solve_pH_from_CO₂_TA(pH, CO₂, TA, BT, PT, SiT, ST, FT, H2ST, NH4T, 
 end
 
 function pH_from_CO₂_TA(CO₂, TA, BT, PT, SiT, ST, FT, H2ST, NH4T, Ks)
-    # Promote type to handle Dual numbers or Float64
-    T = promote_type(typeof(CO₂), typeof(TA), typeof(BT))
-    
+    T = _newton_state_type(Ks, CO₂, TA, BT)
+
     f(pH) = solve_pH_from_CO₂_TA(pH, CO₂, TA, BT, PT, SiT, ST, FT, H2ST, NH4T, Ks)
     df(pH) = ForwardDiff.derivative(f, pH)
-    
-    # Use convert(T, ...) to ensure the Newton state is type-generic
+
     initial_guess = convert(T, 8.0)
-    return find_zero((f, df), initial_guess, Roots.Newton())
+    return find_zero((f, df), initial_guess, ROOT_METHOD())
 end
-
-
-# function H_from_HCO₃_CO₃(HCO₃, CO₃, Ks)
-#     f(H) = solve_H_from_HCO₃_CO₃(H, HCO₃, CO₃, Ks)
-#     df(H) = ForwardDiff.derivative(f, H)
-    
-#     initial_guess = 1e-8 + zero(HCO₃) + zero(CO₃)
-#     return find_zero((f, df), initial_guess, Roots.Newton())
-# end
-
-# function H_from_HCO₃_CO₃(HCO₃, CO₃, Ks)
-#     return (Ks.K2 * HCO₃) / CO₃
-# end
 
 
 """
 #5: Calculating H⁺ from CO₂ and DIC
 Zeebe & Wolf-Gladrow, 2001, Appendix B
 
+`DIC·H² = CO₂·(H² + K₁H + K₁K₂)` rearranges to `(DIC − CO₂)H² − CO₂K₁H − CO₂K₁K₂ = 0`, so
+the answer is a quadratic root rather than a search. `DIC > CO₂` always, which makes the
+leading coefficient positive and the constant negative — one positive root, no ambiguity.
+
+Solved in closed form because iterating on this residual does not work: it is of order 1e-19
+near the root, so any absolute convergence test is satisfied before the iteration has done
+anything.
 """
-function solve_H_from_CO₂_DIC(H, CO₂, DIC, Ks)
-    LH = DIC * H^2
-    RH = CO₂ * (H^2 + Ks.K1 * H + Ks.K1 * Ks.K2)
-    return LH - RH
-end
-
-
-function H_from_CO₂_DIC(CO₂, DIC, Ks)
-    f(H) = solve_H_from_CO₂_DIC(H, CO₂, DIC, Ks)
-    return find_zero(f, (1e-14, 1))
+function H_from_CO₂_DIC(CO₂, DIC, Ks) 
+    return _positive_root(
+        DIC - CO₂, 
+        -CO₂ * Ks.K1, 
+        -CO₂ * Ks.K1 * Ks.K2
+    )
 end
 
 
@@ -192,24 +205,13 @@ function CO₂_from_pH_DIC(pH, DIC, Ks)
 end
 
 
-
 """
 #10: Calculating H⁺ from HCO₃ and CO₃
 Zeebe & Wolf-Gladrow, 2001, Appendix B
 """
-function solve_H_from_HCO₃_CO₃(H, HCO₃, CO₃, Ks)
-    LH = HCO₃ * (H + H^2 / Ks.K1 + Ks.K2)
-    RH = CO₃ * (H + H ^2 / Ks.K2 + H^3 / (Ks.K1 * Ks.K2))
-    return LH - RH
+function H_from_HCO₃_CO₃(HCO₃, CO₃, Ks) 
+    return Ks.K2 * HCO₃ / CO₃
 end
-
-
-function H_from_HCO₃_CO₃(HCO₃, CO₃, Ks)
-    f(H) = solve_H_from_HCO₃_CO₃(H, HCO₃, CO₃, Ks)
-    return find_zero(f, (1e-14, 1))
-end 
-
-
 
 
 """
@@ -223,33 +225,15 @@ function solve_H_from_HCO₃_TA(H, HCO₃, TA, BT, PT, SiT, ST, FT, H2ST, NH4T, 
 end
 
 function H_from_HCO₃_TA(HCO₃, TA, BT, PT, SiT, ST, FT, H2ST, NH4T, Ks)
-    T = promote_type(typeof(HCO₃), typeof(TA), typeof(BT))
-    
+    T = _newton_state_type(Ks, HCO₃, TA, BT)
+
     f(pH) = solve_H_from_HCO₃_TA(10.0^(-pH), HCO₃, TA, BT, PT, SiT, ST, FT, H2ST, NH4T, Ks)
     df(pH) = ForwardDiff.derivative(f, pH)
     
     initial_guess = convert(T, 8.0)
-    sol_pH = find_zero((f, df), initial_guess, Roots.Newton())
+    sol_pH = find_zero((f, df), initial_guess, ROOT_METHOD())
     return 10.0^(-sol_pH)
 end
-
-# function solve_H_from_HCO₃_TA(H, HCO₃, TA, BT, Ks)
-#     LH = TA * (Ks.KB + H) * (H^3 + Ks.K1 * H^2 + Ks.K1 * Ks.K2 * H)
-#     RH = (
-#         HCO₃ * (H + H^2 / Ks.K1 + Ks.K2) 
-#         * ((Ks.KB + 2 * Ks.K2) * Ks.K1 * H + 2 * Ks.KB * Ks.K1 * Ks.K2 + Ks.K1 * H^2)
-#         + ((H^2 + Ks.K1 * H + Ks.K1 * Ks.K2)
-#         *(Ks.KB * BT * H + Ks.KW * Ks.KB + Ks.KW * H - Ks.KB * H^2 - H^3))
-#     )
-#     return LH - RH
-# end
-
-# function H_from_HCO₃_TA(HCO₃, TA, BT, Ks)
-#     f(H) = solve_H_from_HCO₃_TA(H, HCO₃, TA, BT, Ks)
-#     return find_zero(f, (1e-14, 1))
-# end 
-
-
 
 """
 #12: Calculating pH from HCO₃ and DIC
@@ -262,24 +246,21 @@ function pH_from_HCO₃_DIC(HCO₃, DIC, Ks)
     a = HCO₃ / Ks.K1
     b = HCO₃ - DIC
     c = HCO₃ * Ks.K2
-    
-    discriminant = b^2 - 4 * a * c
-    
-    if discriminant < 0
-        return NaN
-    end
-    
-    # Calculate both mathematical roots
-    H_1 = (-b + sqrt(discriminant)) / (2 * a)
-    H_2 = (-b - sqrt(discriminant)) / (2 * a)
-    
-    larger_H = maximum([H_1, H_2])
-    smaller_H = minimum([H_1, H_2])
-    
-    # Returns the smaller H⁺ concentration of two roots found (higher pH)
+
+    # Unlike the other quadratics here the constant term is *positive*, so both roots are
+    # positive and `_positive_root` does not apply — there is no sign to choose on. HCO₃
+    # close to DIC leaves no real root at all, which is a physically inconsistent pair
+    # rather than a failure of the algebra.
+    b^2 - 4a * c < 0 && return NaN
+
+    # The smaller root, i.e. the higher pH. Taken from `_quadratic_roots` rather than
+    # written out because the smaller one is precisely the root the textbook formula
+    # computes badly: it comes from -b - sqrt(disc), a subtraction of two close numbers
+    # once 4ac is small next to b². At HCO₃ = 400, DIC = 2400 µmol that costs four digits.
+    smaller_H = min(_quadratic_roots(a, b, c)...)
+
     return -log10(smaller_H) # This doesn't match CBsyst, but matches test suite
 end
-
 
 
 """
@@ -295,13 +276,13 @@ function solve_H_from_CO₃_TA(H, CO₃, TA, BT, PT, SiT, ST, FT, H2ST, NH4T, Ks
 end
 
 function H_from_CO₃_TA(CO₃, TA, BT, PT, SiT, ST, FT, H2ST, NH4T, Ks)
-    T = promote_type(typeof(CO₃), typeof(TA), typeof(BT))
-    
+    T = _newton_state_type(Ks, CO₃, TA, BT)
+
     f(pH) = solve_H_from_CO₃_TA(10.0^(-pH), CO₃, TA, BT, PT, SiT, ST, FT, H2ST, NH4T, Ks)
     df(pH) = ForwardDiff.derivative(f, pH)
     
     initial_guess = convert(T, 8.0)
-    sol_pH = find_zero((f, df), initial_guess, Roots.Newton())
+    sol_pH = find_zero((f, df), initial_guess, ROOT_METHOD())
     
     return 10.0^(-sol_pH)
 end
@@ -331,18 +312,18 @@ end
 """
 #14: Calculating H⁺ from CO₃ and DIC
 Zeebe & Wolf-Gladrow, 2001, Appendix B
+
+`CO₃·(1 + H/K₂ + H²/(K₁K₂)) = DIC` is a quadratic in H with coefficients
+`CO₃/(K₁K₂)`, `CO₃/K₂` and `CO₃ − DIC`. `DIC > CO₃` always, so the constant term is negative
+and the positive root is the physical one.
 """
-function solve_H_from_CO₃_DIC(H, CO₃, DIC, Ks)
-    LH = CO₃ * (1 + H / Ks.K2 + H^2 / (Ks.K1 * Ks.K2))
-    RH = DIC
-    return LH - RH
-end
-
 function H_from_CO₃_DIC(CO₃, DIC, Ks)
-    f(H) = solve_H_from_CO₃_DIC(H, CO₃, DIC, Ks)
-    return find_zero(f, (1e-14, 1))
+    return _positive_root(
+        CO₃ / (Ks.K1 * Ks.K2), 
+        CO₃ / Ks.K2, 
+        CO₃ - DIC
+    )
 end
-
 
 
 """
@@ -372,21 +353,14 @@ end
 
 
 function pH_from_TA_DIC(TA, DIC, BT, PT, SiT, ST, FT, H2ST, NH4T, Ks)
-    # Ensure we capture the "best" type (could be Float64 or Dual)
-    T = promote_type(typeof(TA), typeof(DIC), typeof(BT))
+    T = _newton_state_type(Ks, TA, DIC, BT)
 
-    # 1. Create a temporary function where pH is the only input
     f(pH) = solve_pH_from_TA_DIC(pH, TA, DIC, BT, PT, SiT, ST, FT, H2ST, NH4T, Ks)
-    
-    # 2. Use ForwardDiff for the derivative
     df(pH) = ForwardDiff.derivative(f, pH)
-    
-    # 3. Create a guess that is explicitly the correct type
-    # Using convert(T, 8.0) ensures the solver's internal state starts 
-    # as a Dual number if the inputs are Dual numbers.
+
     initial_guess = convert(T, 8.0)
-    
-    return find_zero((f, df), initial_guess, Roots.Newton())
+
+    return find_zero((f, df), initial_guess, ROOT_METHOD())
 end
 
 
@@ -446,7 +420,6 @@ function calc_TA(H, DIC, BT, PT, SiT, ST, FT, H2ST, NH4T, Ks; mode="multi")
 end
 
 
-
 """
 Calculating CO₂ from fugacity
 Equation C.4.14 from Zeebe & Wolf-Gladrow, 2001, Appendix C
@@ -454,7 +427,6 @@ Equation C.4.14 from Zeebe & Wolf-Gladrow, 2001, Appendix C
 function fCO₂_to_CO₂(fCO₂, Ks)
     return fCO₂ * Ks.K0
 end 
-
 
 
 """
@@ -466,7 +438,6 @@ function CO₂_to_fCO₂(CO₂, Ks)
 end 
 
 
-# pCO₂ --> fCO₂
 """
 Calculating fCO₂ from pCO₂
 Taken from MatLab CO2SYS
@@ -490,7 +461,6 @@ function pCO₂_to_fCO₂(pCO₂, T)
 end
 
 
-# fCO₂ --> pCO₂
 """
 Calculating pCO₂ from fCO₂
 Taken from MatLab CO2SYS
