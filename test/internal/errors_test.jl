@@ -14,7 +14,6 @@ using CarbonateCalculator
         PT = 1.0,
         SiT = 15.0,
         unit = "umol",
-        scale = "total"
     )
 
     # 2. Define realistic measurement uncertainties
