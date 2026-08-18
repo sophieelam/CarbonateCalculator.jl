@@ -3,8 +3,6 @@ uuid = "a2b7c4d9-8e12-4f33-b1a9-9c8d7e6f5a4b"
 version = "0.1.0"
 
 [deps]
-CSV = "336ed68f-0bac-5ca0-87d4-7b16caf5d00b"
-DataFrames = "a93c6f00-e57d-5684-b7b6-d8193f3e46c0"
 ForwardDiff = "f6369f11-7733-5829-9624-2563aa707210"
 Kgen = "7a1a6138-c38b-48a7-84f8-c88177c60335"
 LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
