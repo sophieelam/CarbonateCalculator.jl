@@ -9,16 +9,21 @@ First-Order Taylor Series expansion (Automatic Differentiation).
 """
 function propagate_errors(target_func; inputs::NamedTuple, errors::NamedTuple)
     error_keys = keys(errors)
+
+    # Checked *before* the conversion below, not after. This guard used to sit underneath it,
+    # so it could never fire: `Float64[...]` hit the `nothing` first and raised
+    # `MethodError: Cannot convert an object of type Nothing to an object of type Float64`,
+    # which says nothing about which parameter or why.
+    for key in error_keys
+        isnothing(getproperty(inputs, key)) && throw(ArgumentError(
+            "an uncertainty was given for $key, but no value for $key was supplied.\n" *
+            "Uncertainties propagate from the inputs you measured, so $key needs a value " *
+            "before it can have an error."))
+    end
+
     # Ensure we are working with Floats for the AD process
     base_values = Float64[getproperty(inputs, k) for k in error_keys]
     uncertainties = Float64[getproperty(errors, k) for k in error_keys]
-
-    for key in keys(errors)
-    if getproperty(inputs, key) === nothing
-        error("Parameter '$key' was given an error/uncertainty, but its input value is 'nothing'. " *
-              "Please provide a numerical value for '$key' in your inputs.")
-    end
-end
 
     # 1. Define the AD-compatible wrapper
     function wrapped_math(x_vec)

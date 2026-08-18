@@ -1,12 +1,13 @@
 # The solver: one type, callable two ways.
 
 """
-    CarbonateSystem{scope, varying}
+    CarbonateSystem{scope, varying, varying_errors}
 
 A carbonate system solver.
 
-`scope` names the subsystems it computes, and `varying` the parameters supplied positionally
-(empty for the keyword form). Both are type parameters, so the branches on them resolve
+`scope` names the subsystems it computes, `varying` the parameters supplied positionally,
+and `varying_errors` the measurement uncertainties supplied positionally after them (both
+empty for the keyword form). All three are type parameters, so the branches on them resolve
 during specialisation.
 
 Two ways to call one object:
@@ -19,16 +20,16 @@ fast = CarbonateSystem(:carbon; varying = (:TA, :DIC, :temp_c))
 fast.(df.talk, df.tco2, df.temperature)             # positional, so it broadcasts
 ```
 
-[`carbon_system`](@ref) and [`whole_system`](@ref) are presets over the first form;
-[`carbon_solver`](@ref) and [`whole_solver`](@ref) over the second.
+[`carbon_system`](@ref), [`whole_system`](@ref), [`boron_system`](@ref) and
+[`boron_isotopes`](@ref) are presets over the keyword form.
 """
-struct CarbonateSystem{scope, varying, D<:NamedTuple, S<:NamedTuple}
+struct CarbonateSystem{scope, varying, varying_errors, D<:NamedTuple, S<:NamedTuple}
     defaults::D
     settings::S
 end
 
 """
-    CarbonateSystem(scope::Symbol...; varying = (), settings...)
+    CarbonateSystem(scope::Symbol...; varying = (), varying_errors = (), settings...)
 
 Build a solver.
 
@@ -36,11 +37,24 @@ Build a solver.
 parameters that will be given positionally, in order; everything else is a fixed `setting`,
 stated once and unable to drift between calls.
 
+`varying_errors` names measurement uncertainties supplied the same way, positionally after
+the varying parameters. Every uncertainty is varying because a scalar broadcasts against a
+vector, so a σ that is the same for every sample needs no separate mechanism — just pass the
+number:
+
+```julia
+solve = CarbonateSystem(:carbon; varying = (:TA, :DIC), varying_errors = (:DIC, :TA))
+
+solve.(TA, DIC, σ_DIC, σ_TA)   # a σ column per sample
+solve.(TA, DIC, 2.0, 2.0)      # or one σ for all of them
+```
+
 Everything knowable from names alone is checked here rather than per call — an unrecognised
-parameter, a scope that cannot use it, a set that does not determine the system. A broadcast
-over a million rows therefore fails at construction, not on row 700,000.
+parameter, a scope that cannot use it, a set that does not determine the system, an
+uncertainty named for a value the solver does not have. A broadcast over a million rows
+therefore fails at construction, not on row 700,000.
 """
-function CarbonateSystem(scope::Symbol...; varying = (), settings...)
+function CarbonateSystem(scope::Symbol...; varying = (), varying_errors = (), settings...)
     known = (:carbon, :boron, :isotopes)
     for s in scope
         s in known || throw(ArgumentError("unknown scope :$s; expected some of $known"))
@@ -48,19 +62,29 @@ function CarbonateSystem(scope::Symbol...; varying = (), settings...)
     isempty(scope) && throw(ArgumentError("name at least one scope, e.g. :carbon"))
 
     varying = Tuple(varying)
+    varying_errors = Tuple(varying_errors)
     fixed = NamedTuple(settings)
 
-    duplicates = unique(n for n in varying if count(==(n), varying) > 1)
-    isempty(duplicates) || throw(ArgumentError(
-        "$(join(duplicates, ", ")) named more than once in `varying`"))
+    for (names, what) in ((varying, "varying"), (varying_errors, "varying_errors"))
+        repeated = unique(n for n in names if count(==(n), names) > 1)
+        isempty(repeated) || throw(ArgumentError(
+            "$(join(repeated, ", ")) named more than once in `$what`"))
+    end
 
     overlap = [n for n in varying if haskey(fixed, n)]
     isempty(overlap) || throw(ArgumentError(
         "$(join(overlap, ", ")) given both as a varying parameter and as a fixed setting; " *
         "it has to be one or the other"))
 
+    # An uncertainty propagates from a measurement, so it needs a value to attach to.
+    for name in varying_errors
+        name in varying || haskey(fixed, name) || throw(ArgumentError(
+            "$name is in `varying_errors`, but this solver has no value for it. Put $name " *
+            "in `varying`, or give it as a fixed setting."))
+    end
+
     _reject_unknown_parameters(
-        (varying..., keys(fixed)...), 
+        (varying..., varying_errors..., keys(fixed)...),
         _accepted_parameters(scope),
         scope
         )
@@ -79,7 +103,8 @@ function CarbonateSystem(scope::Symbol...; varying = (), settings...)
             _check_determinacy(prototype, scope; require_two = scope === (:carbon,))
     end
 
-    return CarbonateSystem{scope, varying, typeof(defaults), typeof(fixed)}(defaults, fixed)
+    return CarbonateSystem{scope, varying, varying_errors, typeof(defaults),
+                           typeof(fixed)}(defaults, fixed)
 end
 
 scope_of(::CarbonateSystem{scope}) where {scope} = scope
@@ -88,11 +113,41 @@ varying_of(::CarbonateSystem{scope, varying}) where {scope, varying} = varying
 """
 Solve, given parameters by keyword.
 
-The whole user-facing path in one place, for every scope: validate, fill in defaults,
-compute, package.
+There is no `errors` keyword here. Uncertainty propagation is reached by building a solver
+with `varying_errors` and calling it positionally, which keeps the everyday call — the one
+`carbon_system` and friends wrap — to just the chemistry.
 """
-function (sys::CarbonateSystem{scope})(; errors = nothing, kwargs...) where {scope}
-    supplied = merge(sys.settings, NamedTuple(kwargs))
+(sys::CarbonateSystem)(; kwargs...) = _run(sys, NamedTuple(kwargs), nothing)
+
+"""
+Solve, given the `varying` parameters positionally, then the `varying_errors`.
+
+This is the form that broadcasts, because Julia will not broadcast over keyword arguments,
+and the only form that propagates uncertainties.
+"""
+function (sys::CarbonateSystem{scope, varying, varying_errors})(
+        values::Vararg{Any, N}) where {scope, varying, varying_errors, N}
+    # `varying_errors` alone is legitimate: fixed water, varying uncertainty.
+    isempty(varying) && isempty(varying_errors) && throw(ArgumentError(
+        "this solver takes keyword parameters; build it with `varying = (:TA, :DIC)` or " *
+        "`varying_errors = (:DIC,)` to call it positionally"))
+
+    expected = length(varying) + length(varying_errors)
+    N == expected || throw(ArgumentError(
+        "this solver takes $expected values, in the order " *
+        join((string.(varying)..., ("σ($e)" for e in varying_errors)...), ", ") *
+        "; got $N"))
+
+    parameters = NamedTuple{varying}(values[1:length(varying)])
+    errors = isempty(varying_errors) ? nothing :
+             NamedTuple{varying_errors}(values[length(varying) + 1:end])
+
+    return _run(sys, parameters, errors)
+end
+
+"Validate, fill in defaults, compute and package — the one path both call forms take."
+function _run(sys::CarbonateSystem{scope}, supplied_parameters, errors) where {scope}
+    supplied = merge(sys.settings, supplied_parameters)
     _reject_retired_arguments(supplied)
     _reject_unknown_parameters(keys(supplied), keys(sys.defaults), scope)
 
@@ -100,25 +155,8 @@ function (sys::CarbonateSystem{scope})(; errors = nothing, kwargs...) where {sco
 
     _check_determinacy(inputs, scope; require_two = scope === (:carbon,))
     _check_conditions(inputs.temp_c, inputs.sal, inputs.pres_bar)
-    _check_error_names(errors, inputs, scope)
 
     return _solve(scope, inputs, errors)
-end
-
-"""
-Solve, given the `varying` parameters positionally.
-
-This is the form that broadcasts, because Julia will not broadcast over keyword arguments.
-"""
-function (sys::CarbonateSystem{scope, varying})(values::Vararg{Any, N}) where {scope, varying, N}
-    isempty(varying) && throw(ArgumentError(
-        "this solver takes keyword parameters; build it with `varying = (:TA, :DIC)` to " *
-        "call it positionally"))
-    N == length(varying) || throw(ArgumentError(
-        "this solver takes $(length(varying)) values, in the order " *
-        "$(join(varying, ", ")); got $N"))
-
-    return sys(; NamedTuple{varying}(values)...)
 end
 
 "Run the pipeline for `scope` and package the result."
@@ -141,12 +179,20 @@ end
 "Which carbonate parameters `show` treats as inputs rather than results."
 const CARBONATE_PARAMETERS = (:TA, :DIC, :pHtot, :pCO₂, :fCO₂, :CO₃, :HCO₃)
 
-"Reject parameter names this scope does not accept, naming why."
+"""
+Reject parameter names this scope does not accept, naming why.
+
+Uncertainties are checked by the same call, because `varying_errors` names parameters: a σ
+for something that is not a parameter is a typo, and fails when the solver is built. There
+is no exception for a name called `errors`. An earlier version excluded it, which meant
+`CarbonateSystem(:carbon; errors = (TA = 2.0,))` was accepted, stored as a *parameter*, and
+then silently propagated nothing — asking for uncertainties and getting none.
+"""
 function _reject_unknown_parameters(names, accepted, scope::Tuple{Vararg{Symbol}})
     # Allocation-free on the success path; message detail is built only when it is needed.
-    all(n -> n in accepted || n === :errors, names) && return nothing
+    all(n -> n in accepted, names) && return nothing
 
-    lines = map(collect(n for n in names if !(n in accepted) && n !== :errors)) do name
+    lines = map(collect(n for n in names if !(n in accepted))) do name
         if haskey(PARAMETER_DEFAULTS, name)
             "$name needs the :$(getproperty(PARAMETER_SCOPE, name)) system, " *
             "but this solver's scope is $scope"

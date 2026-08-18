@@ -100,13 +100,18 @@ using CarbonateCalculator
 
     @testset "uncertainty names" begin
         # Used to die inside propagate_errors as `type NamedTuple has no field tempc`.
-        @test_throws ArgumentError carbon_system(TA=2300.0, DIC=2000.0,
-                                                 errors=(tempc=0.5,))
-        @test_throws ArgumentError carbon_system(TA=2300.0, DIC=2000.0,
-                                                 errors=(nonsense=1.0,))
+        # Now the name is checked when the solver is built, before any row is computed.
+        sigma(name) = CarbonateSystem(:carbon; varying=(:TA, :DIC), varying_errors=(name,))
+        @test_throws ArgumentError sigma(:tempc)
+        @test_throws ArgumentError sigma(:nonsense)
 
         # ...while a correctly named one still propagates.
-        @test carbon_system(TA=2300.0, DIC=2000.0, errors=(TA=2.0,)).err.pHtot > 0
+        @test sigma(:TA)(2300.0, 2000.0, 2.0).err.pHtot > 0
+
+        # `errors` is not a parameter of the keyword API: propagation is reached by building
+        # a solver with `varying_errors`, so a NamedTuple of σ passed here is a plain typo
+        # rather than a silently-ignored request for uncertainties.
+        @test_throws ArgumentError carbon_system(TA=2300.0, DIC=2000.0, errors=(TA=2.0,))
     end
 
     @testset "valid input is unaffected" begin

@@ -34,11 +34,18 @@ uncertainties = (
     DIC = 2.0,
 )
 
+# Propagation is reached by building a solver that names its uncertainties, then calling it
+# positionally — the plain keyword API has no `errors` argument. These tests hold every
+# parameter fixed and vary only the σ, so `varying` stays empty and the positional values
+# are the uncertainties alone.
+solve_with(σ::NamedTuple; scope=(:carbon,), settings...) =
+    CarbonateSystem(scope...; varying_errors=keys(σ), settings...)(values(σ)...)
+
 @testset "Carbonate Error Propagation Master Suite" begin
 
     @testset "Two-stage: carbon_system then recalculate" begin
         @info "Testing carbon_system across measured and collection conditions..."
-        measured = carbon_system(; errors=uncertainties, K_method="Lueker 2000", inputs...)
+        measured = solve_with(uncertainties; K_method="Lueker 2000", inputs...)
         @test measured.err.pHtot > 0.0
 
         # Measurement uncertainties are carried on the result, so they are not restated -
@@ -73,7 +80,8 @@ uncertainties = (
         # Add error for isotopic fractionation factor and delta
         iso_errs = merge(uncertainties, (δBT = 0.05, alphaB = 0.0001))
 
-        result = whole_system(; errors=iso_errs, K_method="Lueker 2000", boron_inputs...)
+        result = solve_with(iso_errs; scope=(:carbon, :boron, :isotopes),
+                            K_method="Lueker 2000", boron_inputs...)
 
         @test hasproperty(result.err, :δBOH₄)
         @test result.err.δBOH₄ > 0.0
@@ -82,7 +90,7 @@ uncertainties = (
 
     @testset "Single-State: carbon_calculator" begin
         @info "Testing carbon_calculator..."
-        result = carbon_system(; errors=(TA=2.0, DIC=2.0), inputs...)
+        result = solve_with((TA=2.0, DIC=2.0); inputs...)
 
         # One result describes one set of conditions, so there are no _in/_out names.
         @test hasproperty(result.err, :pHtot)
@@ -92,7 +100,7 @@ uncertainties = (
 
     @testset "Boron Species: carbon_boron_calculator" begin
         @info "Testing carbon_boron_calculator..."
-        result = whole_system(; errors=(BT=0.01,), boron_inputs...)
+        result = solve_with((BT=0.01,); scope=(:carbon, :boron, :isotopes), boron_inputs...)
         
         @test hasproperty(result.err, :BOH₃)
         @test result.err.BOH₃ > 0.0
@@ -104,16 +112,17 @@ uncertainties = (
         # through it. The Python implementation could not, and this path used to warn and
         # silently discard the requested errors.
 
-        for (f, args) in ((carbon_system, inputs), (whole_system, boron_inputs))
-            result = f(; K_method="MyAMI", errors=(TA=2.0,), args...)
+        for (scope, args) in (((:carbon,), inputs),
+                              ((:carbon, :boron, :isotopes), boron_inputs))
+            result = solve_with((TA=2.0,); scope=scope, K_method="MyAMI", args...)
             @test hasproperty(result, :err)
             @test result.err.pHtot > 0.0
             @test isfinite(result.err.pHtot)
         end
 
         # No warning should be emitted any more.
-        @test_logs min_level=Logging.Warn carbon_system(;
-            K_method="MyAMI", errors=(TA=2.0,), inputs...
+        @test_logs min_level=Logging.Warn solve_with((TA=2.0,);
+            K_method="MyAMI", inputs...
         )
     end
 

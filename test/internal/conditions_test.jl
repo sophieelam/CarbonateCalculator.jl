@@ -135,7 +135,12 @@ const δBT_MODERN = 39.61
     end
 
     @testset "Uncertainties" begin
-        m = carbon_system(; measured_kw..., errors=(TA=2.0, DIC=2.0))
+        # A measurement with uncertainties is a solver built with `varying_errors`; the
+        # plain keyword API deliberately has no `errors` argument.
+        measured(errs...; kw...) =
+            CarbonateSystem(:carbon; varying_errors=errs, measured_kw..., kw...)
+
+        m = measured(:TA, :DIC)(2.0, 2.0)
 
         # Carried on the result, so not restated.
         r = recalculate_at_target_conditions(m; temp_c=2.0)
@@ -143,7 +148,8 @@ const δBT_MODERN = 39.61
 
         # Differentiating the whole chain must agree with solving directly at the target,
         # because TA and DIC are conserved.
-        direct = carbon_system(; measured_kw..., temp_c=2.0, errors=(TA=2.0, DIC=2.0))
+        direct = CarbonateSystem(:carbon; varying_errors=(:TA, :DIC),
+                                 merge(measured_kw, (temp_c=2.0,))...)(2.0, 2.0)
         @test r.err.pHtot ≈ direct.err.pHtot rtol=1e-8
 
         # Uncertainty in the collection conditions widens the result.
@@ -151,7 +157,7 @@ const δBT_MODERN = 39.61
                 errors=(temp_c=0.5,)).err.pHtot > r.err.pHtot
 
         # Salinity uncertainty reaches the target state through the constants.
-        ms = carbon_system(; measured_kw..., errors=(TA=2.0, DIC=2.0, sal=0.05))
+        ms = measured(:TA, :DIC, :sal)(2.0, 2.0, 0.05)
         @test recalculate_at_target_conditions(ms; temp_c=2.0).err.pHtot > r.err.pHtot
 
         # No uncertainties in, none out.

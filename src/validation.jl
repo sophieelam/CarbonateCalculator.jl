@@ -220,33 +220,3 @@ function _check_conditions(temp_c, sal, pres_bar)
 
     return nothing
 end
-
-
-# --- Uncertainties ---------------------------------------------------------------------
-
-"""
-    _check_error_names(errors, inputs, entry_point)
-
-Reject an uncertainty named for something the function does not take.
-
-`errors=(tempc=0.5,)` used to reach `propagate_errors` and die as `type NamedTuple has no
-field tempc`, naming the internal container rather than the mistake. Same typo class as the
-keyword sink, so it belongs in the same place.
-"""
-function _check_error_names(errors, inputs::NamedTuple, entry_point)
-    isnothing(errors) && return nothing
-    errors isa NamedTuple || throw(ArgumentError(
-        "errors must be a NamedTuple of uncertainties, e.g. (TA=2.0, DIC=2.0); " *
-        "got $(typeof(errors))"))
-
-    unknown = [k for k in keys(errors) if !haskey(inputs, k)]
-    isempty(unknown) && return nothing
-
-    lines = map(unknown) do name
-        suggestions = _similar_keywords(name, entry_point)
-        isempty(suggestions) ? "$name" : "$name (did you mean $(join(suggestions, " or "))?)"
-    end
-    throw(ArgumentError(
-        "uncertainty given for argument(s) $(_entry_name(entry_point)) does not take:\n  " *
-        join(lines, "\n  ")))
-end
