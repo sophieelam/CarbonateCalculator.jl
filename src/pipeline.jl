@@ -291,17 +291,18 @@ function _solve_core(scope, inputs)
     m = _unit_multiplier(inputs.unit)
 
     # BT is converted with the other concentrations rather than inside the environment: it is
-    # input sanitisation, and it matches K_calculator's own convention, whose BT_method
-    # fallbacks all return mol/kg.
+    # input sanitisation, and it matches calculate_constants's own convention, whose
+    # BT_method fallbacks all return mol/kg.
     BT = _clean(_to_mol(inputs.BT, m))
 
-    # K_calculator returns the complete environment — constants, totals and the pH-scale
-    # factors together — so a supplied `Ks` is used as-is and nothing is recombined.
+    # calculate_constants returns the complete environment — constants, totals and the
+    # pH-scale factors together — so a supplied `Ks` is used as-is and nothing is recombined.
     env = isnothing(inputs.Ks) ?
-        K_calculator(; inputs.temp_c, inputs.sal, inputs.pres_bar, inputs.ST, inputs.FT, BT,
-                     inputs.Ca, inputs.Mg, inputs.K_method, inputs.KSO4_method,
-                     inputs.BT_method, inputs.KF_method, inputs.KNH3_method,
-                     inputs.Ca_method, inputs.MyAMI_mode) : inputs.Ks
+        calculate_constants(; inputs.temp_c, inputs.sal, inputs.pres_bar, inputs.ST,
+                              inputs.FT, BT, inputs.Ca, inputs.Mg, inputs.K_method,
+                              inputs.KSO4_method, inputs.BT_method, inputs.KF_method,
+                              inputs.KNH3_method, inputs.Ca_method, inputs.MyAMI_mode) :
+        inputs.Ks
 
     pHtot = _to_total_scale(inputs.pHtot, inputs.pHsws, inputs.pHfree, inputs.pHNBS, env)
 

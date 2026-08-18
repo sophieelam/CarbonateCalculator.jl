@@ -32,8 +32,9 @@ const RETIRED_ARGUMENTS = (
     # argument is gone rather than implemented.
     pdict = "splatting: carbon_system(; TA=2300.0, DIC=2000.0, your_parameters...)",
     # Chose between one K_method for a whole array and one per sample - but only inside
-    # K_calculator's array branch, which the public entry points could never reach because
-    # they reject arrays first. Both are gone; process many samples with a solver instead.
+    # calculate_constants's array branch, which the public entry points could never reach
+    # because they reject arrays first. Both are gone; process many samples with a solver
+    # instead.
     K_mode = "CarbonateSystem(:carbon; varying=(:TA, :DIC)), which builds a scalar " *
              "solver you can broadcast",
     # A generic pH plus `scale` said exactly what the scale-specific arguments already say,
