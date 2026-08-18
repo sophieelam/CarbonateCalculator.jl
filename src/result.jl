@@ -5,7 +5,7 @@ Keys carried in `CarbonateResult.settings`: everything that determines *how* the
 were calculated, as opposed to the conditions or the chemistry.
 """
 const SETTING_KEYS = (:K_method, :KSO4_method, :BT_method, :KF_method, :KNH3_method,
-                      :Ca_method, :MyAMI_mode, :K_mode, :unit, :scale)
+                      :Ca_method, :MyAMI_mode, :unit, :scale)
 
 "Pick out the `SETTING_KEYS` that are actually present in a call's inputs."
 function _settings(inputs::NamedTuple)
@@ -26,6 +26,10 @@ const RETIRED_ARGUMENTS = (
     # omitting it. Julia splatting does the job natively and composes better, so the
     # argument is gone rather than implemented.
     pdict = "splatting: carbon_system(; TA=2300.0, DIC=2000.0, your_parameters...)",
+    # Chose between one K_method for a whole array and one per sample - but only inside
+    # K_calculator's array branch, which the public entry points could never reach because
+    # they reject arrays first. Both are gone; process many samples with a solver instead.
+    K_mode = "carbon_solver, which builds a scalar solver you can broadcast",
 )
 
 """

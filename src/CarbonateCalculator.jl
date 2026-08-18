@@ -14,6 +14,7 @@ using Printf
 using ForwardDiff, LinearAlgebra, Roots
 include("errors.jl")
 include("result.jl")
+include("core.jl")
 include("validation.jl")
 include("display.jl")
 include("conditions.jl")
@@ -98,99 +99,35 @@ function carbon_system_core(;
     pHsws=nothing, pHfree=nothing, pHNBS=nothing, unit="umol", scale="total", Ks=nothing,
     ΩC=nothing, ΩA=nothing, MyAMI_mode="approximate",
     K_method="default", KSO4_method="default", BT_method="default", 
-    KF_method="default", K_mode="static", KNH3_method="default",
+    KF_method="default", KNH3_method="default",
     Ca_method="default", kwargs...
 )
-    # Assigning scaling factors to units:
-    udict = Dict(
-        "mol" => 1.0,
-        "mmol" => 1.0e3,
-        "umol" => 1.0e6,
-        "nmol" => 1.0e9,
-        "pmol" => 1.0e12,
-        "fmol" => 1.0e15
-    )
+    m = _unit_multiplier(unit)
 
-    m = get(udict, unit, 1.0)
-    scale_unit(v) = isnothing(v) ? nothing : v / m
-    scale_gas(v) = isnothing(v) ? nothing : v / 1e6 
-    clean(x) = isnothing(x) ? nothing : (x < 0.0 ? NaN : x)
+    env = _resolve_environment(; Ks, temp_c, sal, pres_bar, ST, FT, BT, Ca, Mg, m,
+                               K_method, KSO4_method, BT_method, KF_method, KNH3_method,
+                               Ca_method, MyAMI_mode)
 
-    # 1. Pre-calculate Ks_env using direct function arguments
-    if isnothing(Ks)
-        Ks_env = K_calculator(;
-            temp_c=temp_c, sal=sal, pres_bar=pres_bar, ST=ST, FT=FT, BT=BT,
-            K_method=K_method, KSO4_method=KSO4_method, BT_method=BT_method,
-            KF_method=KF_method, KNH3_method=KNH3_method, Ca_method=Ca_method, K_mode=K_mode,
-            MyAMI_mode=MyAMI_mode, Ca=Ca, Mg=Mg
-        )
-    else
-        Ks_env = Ks
-    end
-
-    # Ca drives both the MyAMI correction and the saturation state. K_calculator has
-    # already resolved it - the explicit value if one was given, Ca_method otherwise - so
-    # take it from there rather than re-deriving it and risking the two disagreeing.
-    Ca_val = hasproperty(Ks_env, :Ca) ? Ks_env.Ca : something(Ca, Constants.MODERN_CALCIUM)
-    Mg_val = hasproperty(Ks_env, :Mg) ? Ks_env.Mg : something(Mg, Constants.MODERN_MAGNESIUM)
-
-    ST_val = Ks_env.ST
-    FT_val = Ks_env.FT
-    KS_val = Ks_env.Ks.KS
-    KF_val = Ks_env.Ks.KF
-    
-    BT_from_env = hasproperty(Ks_env, :BT) ? Ks_env.BT : 
-                  (hasproperty(Ks_env.Ks, :BT) ? Ks_env.Ks.BT : 0.0)
-
-    internal_BT = !isnothing(BT) ? clean(scale_unit(BT)) : 
-                  (BT_from_env > 1.0 ? BT_from_env / 1e6 : BT_from_env)
-
-    fH_val = Ks_env.fH isa AbstractArray ? Ks_env.fH[1] : Ks_env.fH
-    
-    tf_fac = (1.0 + ST_val / KS_val) 
-    ts_fac = tf_fac / (1.0 + ST_val / KS_val + FT_val / KF_val)
-    
-    # --- THE WAY IN: Map generic pH, then strictly convert to pHtot ---
-    if !isnothing(pH) && isnothing(pHtot) && isnothing(pHsws) && isnothing(pHfree) && isnothing(pHNBS)
-        if lowercase(scale) == "total"
-            pHtot = pH
-        elseif lowercase(scale) == "sws"
-            pHsws = pH
-        elseif lowercase(scale) == "free"
-            pHfree = pH
-        elseif lowercase(scale) == "nbs"
-            pHNBS = pH
-        end
-    end
-
-    if isnothing(pHtot)
-        if !isnothing(pHsws)
-            pHtot = pHsws - log10(ts_fac)
-        elseif !isnothing(pHfree)
-            pHtot = pHfree - log10(tf_fac)
-        elseif !isnothing(pHNBS)
-            pHtot = pHNBS + log10(fH_val) - log10(ts_fac)
-        end
-    end
+    pHtot = _to_total_scale(pH, pHtot, pHsws, pHfree, pHNBS, scale, env)
 
     ps = (;
         kwargs...,
-        DIC = clean(scale_unit(DIC)),
-        TA = scale_unit(TA),
-        CO₂ = clean(scale_unit(CO₂)),
-        HCO₃ = clean(scale_unit(HCO₃)),
-        CO₃ = clean(scale_unit(CO₃)),
-        PT = clean(scale_unit(PT)),
-        SiT = clean(scale_unit(SiT)),
-        pCO₂ = clean(scale_gas(pCO₂)),
-        fCO₂ = clean(scale_gas(fCO₂)),
-        BT = internal_BT,
-        ST = Ks_env.ST,
-        FT = Ks_env.FT,
-        Mg = Mg_val,
-        Ca = Ca_val,
-        H2ST = clean(scale_unit(H2ST)),
-        NH4T = clean(scale_unit(NH4T)),
+        DIC = _clean(_to_mol(DIC, m)),
+        TA = _to_mol(TA, m),
+        CO₂ = _clean(_to_mol(CO₂, m)),
+        HCO₃ = _clean(_to_mol(HCO₃, m)),
+        CO₃ = _clean(_to_mol(CO₃, m)),
+        PT = _clean(_to_mol(PT, m)),
+        SiT = _clean(_to_mol(SiT, m)),
+        pCO₂ = _clean(_to_atm(pCO₂)),
+        fCO₂ = _clean(_to_atm(fCO₂)),
+        BT = env.BT,
+        ST = env.ST,
+        FT = env.FT,
+        Mg = env.Mg,
+        Ca = env.Ca,
+        H2ST = _clean(_to_mol(H2ST, m)),
+        NH4T = _clean(_to_mol(NH4T, m)),
         temp_c = temp_c,
         pres_bar = pres_bar,
         sal = sal,
@@ -201,94 +138,25 @@ function carbon_system_core(;
         pHNBS = nothing,
         scale = "total",  # Force the internal scale to be total
         unit = unit,
-        Ks = Ks_env.Ks
+        Ks = env.Ks
     )
 
-    # --- Gas Conversion Logic ---
-    local_fCO2 = ps.fCO₂
-    local_pCO2 = ps.pCO₂
-    local_CO2  = ps.CO₂
+    ps = merge(ps, _resolve_gases(ps))
+    ps = merge(ps, _omega_to_CO₃(ps, ΩA, ΩC))
 
-    if isnothing(local_CO2)
-        if !isnothing(local_fCO2)
-            local_CO2  = local_fCO2 * ps.Ks.K0
-            local_pCO2 = isnothing(local_pCO2) ? fCO₂_to_pCO₂(local_fCO2, ps.temp_c) : local_pCO2
-        elseif !isnothing(local_pCO2)
-            local_fCO2 = pCO₂_to_fCO₂(local_pCO2, ps.temp_c)
-            local_CO2  = local_fCO2 * ps.Ks.K0
-            local_pCO2 = local_pCO2
-        end
-    end
+    ps = merge(ps, C_calculator(; ps...))
 
-    ps = merge(ps, (CO₂ = local_CO2, fCO₂ = local_fCO2, pCO₂ = local_pCO2))
+    ps = merge(ps, _from_total_scale(ps.pHtot, env))
 
-    # If ΩA or ΩC are provided, use them to calculate CO₃:
-    if !isnothing(ΩA)
-        new_CO₃ = ΩA * ps.Ks.KspA / (ps.Ca * ps.sal / 35.0)
-        ps = merge(ps, (CO₃ = new_CO₃,)) 
-    elseif !isnothing(ΩC)
-        new_CO₃ = ΩC * ps.Ks.KspC / (ps.Ca * ps.sal / 35.0)
-        ps = merge(ps, (CO₃ = new_CO₃,))
-    end 
-
-    # Calculate all of the carbon chemistry for input conditions: 
-    C_calculations = C_calculator(; ps...)
-    ps = merge(ps, C_calculations)
-
-    # --- THE WAY OUT: Calculate other pH scales from the finished Total pH ---
-    solved_pHtot = ps.pHtot
-    final_pHsws  = solved_pHtot + log10(ts_fac)
-    final_pHfree = solved_pHtot + log10(tf_fac)
-    final_pHNBS  = final_pHsws - log10(fH_val) 
-
-    ps = merge(ps, (;
-        pHfree = final_pHfree,
-        pHsws  = final_pHsws,
-        pHNBS  = final_pHNBS
-    ))
-
-    # Calculate the Revelle Factor for input conditions:
-    rf = calc_revelle_factor(ps.TA, ps.DIC, ps.BT, ps.PT, ps.SiT, ps.ST, 
+    rf = calc_revelle_factor(ps.TA, ps.DIC, ps.BT, ps.PT, ps.SiT, ps.ST,
                              ps.FT, ps.H2ST, ps.NH4T, ps.Ks)
     ps = merge(ps, (revelle_factor = rf,))
+    ps = merge(ps, _saturation_states(ps))
 
-    # Re-calculate Ω values:
-    oCa = ps.Ca * ps.sal / 35.0
-    ΩA = ps.CO₃ * oCa / ps.Ks.KspA
-    ΩC = ps.CO₃ * oCa / ps.Ks.KspC
-    ps = merge(ps, (ΩA = ΩA, ΩC = ΩC))
+    ps = _rescale_to_unit(ps, m)
+    ps = merge(ps, _rescale_gases(ps))
 
-    # Converting values back into their original units:
-    if m ≠ 1
-        target_keys = (:DIC, :TA, :BT, :CO₂, :HCO₃, :CO₃, :PT, :SiT, :CAlk, :BAlk, :PAlk, :OH, :SiAlk, :HSO₄, :Hfree, :HF)
-        
-        rescaled_concs = (; [
-            begin
-                val = getfield(ps, k)
-                if isnothing(val)
-                    k => nothing
-                elseif (k === :BT || k === :DIC || k === :TA) && val > 1.0
-                    k => val
-                else
-                    k => val * m
-                end
-            end for k in target_keys if hasproperty(ps, k)
-        ]...)
-        
-        ps = merge(ps, rescaled_concs)
-    end
-
-    rescaled_gases = (
-        pCO₂ = ps.pCO₂ * 1e6,
-        fCO₂ = ps.fCO₂ * 1e6
-    )
-    ps = merge(ps, rescaled_gases)
-
-    # Clean up tuple before returning
-    keys_to_keep = Tuple(k for k in keys(ps) if k != :scale)
-    ps = NamedTuple{keys_to_keep}(ps)
-
-    return ps
+    return _finalise(ps)
 end
 
 
@@ -355,7 +223,7 @@ function boron_system(;
     alphaB=nothing, temp_c=25.0, sal=35.0, pres_bar =0.0, Ca=nothing, Mg=nothing, 
     ST=nothing, FT=nothing, pHsws=nothing, pHfree=nothing, 
     pHNBS=nothing, Ks=nothing, MyAMI_mode="approximate",
-    K_method="default", K_mode="static", KSO4_method="default", BT_method="default", 
+    K_method="default", KSO4_method="default", BT_method="default",
     KF_method="default", KNH3_method="default", Ca_method="default", kwargs...)
 
 _reject_unknown_arguments(kwargs, boron_system)
@@ -407,7 +275,7 @@ ps = (
         new_Ks = K_calculator(; temp_c, sal, pres_bar, ST=nothing, FT=nothing,
         BT=nothing, K_method=K_method, KSO4_method=KSO4_method,
         BT_method=BT_method, KF_method=KF_method, KNH3_method=KNH3_method,
-        Ca_method=Ca_method, K_mode=K_mode, MyAMI_mode=MyAMI_mode, Ca=Ca, Mg=Mg)
+        Ca_method=Ca_method, MyAMI_mode=MyAMI_mode, Ca=Ca, Mg=Mg)
 
         ps = merge(ps, new_Ks)
 
@@ -545,7 +413,7 @@ function boron_isotopes(;
     Ks=nothing, MyAMI_mode="approximate",
     K_method="default", KSO4_method="default", BT_method="default", 
     KF_method="default", KNH3_method="default", Ca_method="default",
-    K_mode="static", kwargs...
+    kwargs...
 )
 
 clean(x) = isnothing(x) ? nothing : (x < 0.0 ? NaN : x)
@@ -579,7 +447,7 @@ ps = (
         new_Ks = K_calculator(; temp_c, sal, pres_bar, ST=nothing, FT=nothing,
         BT=nothing, K_method=K_method, KSO4_method=KSO4_method,
         BT_method=BT_method, KF_method=KF_method, KNH3_method=KNH3_method,
-        Ca_method=Ca_method, K_mode=K_mode, MyAMI_mode=MyAMI_mode, Ca=Ca, Mg=Mg,
+        Ca_method=Ca_method, MyAMI_mode=MyAMI_mode, Ca=Ca, Mg=Mg,
         kwargs...)
 
         ps = merge(ps, new_Ks)
@@ -733,109 +601,45 @@ function whole_system_core(;
     ΩC=nothing, ΩA=nothing, MyAMI_mode="approximate",
     K_method="default", KSO4_method="default", BT_method="default", 
     KF_method="default", KNH3_method="default", Ca_method="default",
-    K_mode="static", kwargs...
+    kwargs...
 )
 
-    udict = Dict(
-        "mol" => 1.0,
-        "mmol" => 1.0e3,
-        "umol" => 1.0e6,
-        "nmol" => 1.0e9,
-        "pmol" => 1.0e12,
-        "fmol" => 1.0e15
-    )
+    m = _unit_multiplier(unit)
 
-    m = get(udict, unit, 1.0)
-    scale_unit(v) = isnothing(v) ? nothing : v / m
-    scale_gas(v) = isnothing(v) ? nothing : v / 1e6 
-    clean(x) = isnothing(x) ? nothing : (x < 0.0 ? NaN : x)
+    env = _resolve_environment(; Ks, temp_c, sal, pres_bar, ST, FT, BT, Ca, Mg, m,
+                               K_method, KSO4_method, BT_method, KF_method, KNH3_method,
+                               Ca_method, MyAMI_mode)
 
-    if isnothing(Ks)
-        Ks_env = K_calculator(;
-            temp_c=temp_c, sal=sal, pres_bar=pres_bar, ST=ST, FT=FT, BT=BT,
-            K_method=K_method, KSO4_method=KSO4_method, BT_method=BT_method,
-            KF_method=KF_method, KNH3_method=KNH3_method, Ca_method=Ca_method, K_mode=K_mode,
-            MyAMI_mode=MyAMI_mode, Ca=Ca, Mg=Mg
-        )
-    else
-        Ks_env = Ks
-    end
-
-    # Ca drives both the MyAMI correction and the saturation state. K_calculator has
-    # already resolved it - the explicit value if one was given, Ca_method otherwise - so
-    # take it from there rather than re-deriving it and risking the two disagreeing.
-    Ca_val = hasproperty(Ks_env, :Ca) ? Ks_env.Ca : something(Ca, Constants.MODERN_CALCIUM)
-    Mg_val = hasproperty(Ks_env, :Mg) ? Ks_env.Mg : something(Mg, Constants.MODERN_MAGNESIUM)
-
-    ST_val = Ks_env.ST
-    FT_val = Ks_env.FT
-    KS_val = Ks_env.Ks.KS
-    KF_val = Ks_env.Ks.KF
-    
-    BT_from_env = hasproperty(Ks_env, :BT) ? Ks_env.BT : 
-                  (hasproperty(Ks_env.Ks, :BT) ? Ks_env.Ks.BT : 0.0)
-
-    internal_BT = !isnothing(BT) ? clean(scale_unit(BT)) : 
-                  (BT_from_env > 1.0 ? BT_from_env / 1e6 : BT_from_env)
-
-    fH_val = Ks_env.fH isa AbstractArray ? Ks_env.fH[1] : Ks_env.fH
-    
-    tf_fac = (1.0 + ST_val / KS_val) 
-    ts_fac = tf_fac / (1.0 + ST_val / KS_val + FT_val / KF_val)
-    
-    # --- THE WAY IN: Map generic pH, then strictly convert to pHtot ---
-    if !isnothing(pH) && isnothing(pHtot) && isnothing(pHsws) && isnothing(pHfree) && isnothing(pHNBS)
-        if lowercase(scale) == "total"
-            pHtot = pH
-        elseif lowercase(scale) == "sws"
-            pHsws = pH
-        elseif lowercase(scale) == "free"
-            pHfree = pH
-        elseif lowercase(scale) == "nbs"
-            pHNBS = pH
-        end
-    end
-
-    if isnothing(pHtot)
-        if !isnothing(pHsws)
-            pHtot = pHsws - log10(ts_fac)
-        elseif !isnothing(pHfree)
-            pHtot = pHfree - log10(tf_fac)
-        elseif !isnothing(pHNBS)
-            pHtot = pHNBS + log10(fH_val) - log10(ts_fac)
-        end
-    end
-    
-    local_H = !isnothing(pHtot) ? 10.0^(-pHtot) : nothing
+    pHtot = _to_total_scale(pH, pHtot, pHsws, pHfree, pHNBS, scale, env)
 
     ps = (;
         kwargs...,
-        DIC = clean(scale_unit(DIC)),
-        TA = scale_unit(TA),
-        CO₂ = clean(scale_unit(CO₂)),
-        HCO₃ = clean(scale_unit(HCO₃)),
-        CO₃ = clean(scale_unit(CO₃)),
-        PT = clean(scale_unit(PT)),
-        SiT = clean(scale_unit(SiT)),
-        pCO₂ = clean(scale_gas(pCO₂)),
-        fCO₂ = clean(scale_gas(fCO₂)),
-        BT = internal_BT,
-        BOH₃ = clean(scale_unit(BOH₃)),
-        BOH₄ = clean(scale_unit(BOH₄)),
-        ST = Ks_env.ST,
-        FT = Ks_env.FT,
-        Mg = Mg_val,
-        Ca = Ca_val,
-        fH = fH_val,
+        DIC = _clean(_to_mol(DIC, m)),
+        TA = _to_mol(TA, m),
+        CO₂ = _clean(_to_mol(CO₂, m)),
+        HCO₃ = _clean(_to_mol(HCO₃, m)),
+        CO₃ = _clean(_to_mol(CO₃, m)),
+        PT = _clean(_to_mol(PT, m)),
+        SiT = _clean(_to_mol(SiT, m)),
+        pCO₂ = _clean(_to_atm(pCO₂)),
+        fCO₂ = _clean(_to_atm(fCO₂)),
+        BT = env.BT,
+        BOH₃ = _clean(_to_mol(BOH₃, m)),
+        BOH₄ = _clean(_to_mol(BOH₄, m)),
+        ST = env.ST,
+        FT = env.FT,
+        Mg = env.Mg,
+        Ca = env.Ca,
+        fH = env.fH,
         δBT = δBT,
         δBOH₃ = δBOH₃,
         δBOH₄ = δBOH₄,
-        ABT = ABT, 
+        ABT = ABT,
         ABOH₃ = ABOH₃,
         ABOH₄ = ABOH₄,
         alphaB = alphaB,
-        H2ST = clean(scale_unit(H2ST)),
-        NH4T = clean(scale_unit(NH4T)),
+        H2ST = _clean(_to_mol(H2ST, m)),
+        NH4T = _clean(_to_mol(NH4T, m)),
         temp_c = temp_c,
         pres_bar = pres_bar,
         sal = sal,
@@ -846,7 +650,7 @@ function whole_system_core(;
         pHNBS = nothing,
         scale = "total", # Force the internal scale to be total
         unit = unit,
-        Ks = Ks_env.Ks
+        Ks = env.Ks
     )
 
     alphaB   = !isnothing(get(ps, :alphaB, nothing))   ? ps.alphaB   : Isotopes.get_alphaB()
@@ -856,24 +660,9 @@ function whole_system_core(;
     ABOH₄_val = !isnothing(δBOH₄) ? Isotopes.δ11_to_A11(δBOH₄) : ABOH₄
 
     ps = merge(ps, (δBT = δBT_val, ABT = ABT_val, ABOH₃ = ABOH₃_val, ABOH₄ = ABOH₄_val))
-    nBiso = count(!isnothing, (ABT,)) + count(!isnothing, (ABOH₃, ABOH₄))
 
-    local_fCO2 = ps.fCO₂
-    local_pCO2 = ps.pCO₂
-    local_CO2  = ps.CO₂
-
-    if isnothing(local_CO2)
-        if !isnothing(local_fCO2)
-            local_CO2  = local_fCO2 * ps.Ks.K0
-            local_pCO2 = isnothing(local_pCO2) ? fCO₂_to_pCO₂(local_fCO2, ps.temp_c) : local_pCO2
-        elseif !isnothing(local_pCO2)
-            local_fCO2 = pCO₂_to_fCO₂(local_pCO2, ps.temp_c)
-            local_CO2  = local_fCO2 * ps.Ks.K0
-            local_pCO2 = local_pCO2
-        end
-    end
-
-    ps = merge(ps, (CO₂ = local_CO2, fCO₂ = local_fCO2, pCO₂ = local_pCO2))
+    ps = merge(ps, _resolve_gases(ps))
+    ps = merge(ps, _omega_to_CO₃(ps, ΩA, ΩC))
 
     C_count = count(!isnothing, (ps.DIC, ps.CO₂, ps.HCO₃, ps.CO₃))
     B_count = count(!isnothing, (ps.BT, ps.BOH₃, ps.BOH₄))
@@ -900,17 +689,7 @@ function whole_system_core(;
                 - Two of [dBT, dBO3, dBO4] and one of [DIC, CO2, HCO3, CO3]"""))
     end
 
-    # --- THE WAY OUT: Calculate other pH scales from the finished Total pH ---
-    solved_pHtot = ps.pHtot
-    final_pHsws  = solved_pHtot + log10(ts_fac)
-    final_pHfree = solved_pHtot + log10(tf_fac)
-    final_pHNBS  = final_pHsws - log10(fH_val) 
-
-    ps = merge(ps, (;
-        pHfree = final_pHfree,
-        pHsws  = final_pHsws,
-        pHNBS  = final_pHNBS
-    ))
+    ps = merge(ps, _from_total_scale(ps.pHtot, env))
 
     final_δBT   = !isnothing(δBT) ? δBT : A11_to_δ11(ps.ABT)
     final_δBOH₃ = !isnothing(δBOH₃) ? δBOH₃ : A11_to_δ11(ps.ABOH₃)
@@ -918,50 +697,15 @@ function whole_system_core(;
 
     ps = merge(ps, (; δBT = final_δBT, δBOH₃ = final_δBOH₃, δBOH₄ = final_δBOH₄))
 
-    rf = calc_revelle_factor(ps.TA, ps.DIC, ps.BT, ps.PT, ps.SiT, ps.ST, 
+    rf = calc_revelle_factor(ps.TA, ps.DIC, ps.BT, ps.PT, ps.SiT, ps.ST,
                              ps.FT, ps.H2ST, ps.NH4T, ps.Ks)
     ps = merge(ps, (revelle_factor = rf,))
+    ps = merge(ps, _saturation_states(ps))
 
-    oCa = if !isnothing(get(ps, :Ca, nothing))
-        ps.Ca * ps.sal / 35.0
-    else
-        Constants.MODERN_CALCIUM * ps.sal / 35.0
-    end
+    ps = _rescale_to_unit(ps, m)
+    ps = merge(ps, _rescale_gases(ps))
 
-    ΩA = ps.CO₃ * oCa / ps.Ks.KspA
-    ΩC = ps.CO₃ * oCa / ps.Ks.KspC
-    ps = merge(ps, (ΩA = ΩA, ΩC = ΩC))
-
-    if m ≠ 1
-        #target_keys = (:DIC, :TA, :BT, :CO₂, :HCO₃, :CO₃, :PT, :SiT, :BOH₃, :BOH₄, :CAlk, :BAlk, :PAlk, :OH, :SiAlk, :HSO₄, :Hfree, :HF)
-        target_keys = (:DIC, :TA, :BT, :CO₂, :HCO₃, :CO₃, :PT, :SiT, :BOH₃, :BOH₄, :CAlk, :BAlk, :PAlk, :OH, :SiAlk, :HSO₄, :Hfree, :HF, :Alk_H2S, :Alk_NH3)
-
-        rescaled_concs = (; [
-            begin
-                val = getfield(ps, k)
-                if isnothing(val)
-                    k => nothing
-                elseif (k === :BT || k === :DIC || k === :TA) && val > 1.0
-                    k => val
-                else
-                    k => val * m
-                end
-            end for k in target_keys if hasproperty(ps, k)
-        ]...)
-        
-        ps = merge(ps, rescaled_concs)
-    end
-
-    rescaled_gases = (
-        pCO₂ = ps.pCO₂ * 1e6,
-        fCO₂ = ps.fCO₂ * 1e6
-    )
-    ps = merge(ps, rescaled_gases)
-
-    keys_to_keep = Tuple(k for k in keys(ps) if k != :scale)
-    ps = NamedTuple{keys_to_keep}(ps)
-    
-    return ps
+    return _finalise(ps)
 end
 
 
@@ -982,7 +726,7 @@ function carbon_system(;
     pHsws=nothing, pHfree=nothing, pHNBS=nothing, unit="umol", scale="total", Ks=nothing,
     ΩC=nothing, ΩA=nothing, MyAMI_mode="approximate",
     K_method="default", KSO4_method="default", BT_method="default", 
-    KF_method="default", K_mode="static", KNH3_method="default",
+    KF_method="default", KNH3_method="default",
     Ca_method="default", kwargs...
     )
     # 1. Package all the inputs into a clean NamedTuple
@@ -995,7 +739,7 @@ function carbon_system(;
         H2ST=H2ST, NH4T=NH4T, ST=ST, FT=FT, pHsws=pHsws, pHfree=pHfree, 
         pHNBS=pHNBS, unit=unit, scale=scale, Ks=Ks, ΩC=ΩC,
         ΩA=ΩA, MyAMI_mode=MyAMI_mode, K_method=K_method, KSO4_method=KSO4_method, 
-        BT_method=BT_method, KF_method=KF_method, K_mode=K_mode, 
+        BT_method=BT_method, KF_method=KF_method,
         KNH3_method=KNH3_method, Ca_method=Ca_method
     )
 
@@ -1035,7 +779,7 @@ function whole_system(;
     ΩC=nothing, ΩA=nothing, MyAMI_mode="approximate",
     K_method="default", KSO4_method="default", BT_method="default", 
     KF_method="default", KNH3_method="default", Ca_method="default",
-    K_mode="static", kwargs...
+    kwargs...
 )
     
     # 1. Package all the inputs into a clean NamedTuple
@@ -1050,7 +794,7 @@ function whole_system(;
         NH4T=NH4T, ST=ST, FT=FT, pHsws=pHsws, pHfree=pHfree, pHNBS=pHNBS, 
         unit=unit, scale=scale, Ks=Ks, ΩC=ΩC, ΩA=ΩA,
         MyAMI_mode=MyAMI_mode, K_method=K_method, KSO4_method=KSO4_method, 
-        BT_method=BT_method, KF_method=KF_method, K_mode=K_mode, 
+        BT_method=BT_method, KF_method=KF_method,
         KNH3_method=KNH3_method, Ca_method=Ca_method
     )
 

@@ -9,7 +9,6 @@ const MODERN_CALCIUM = Kgen.MODERN_CALCIUM
 const MODERN_MAGNESIUM = Kgen.MODERN_MAGNESIUM
 
 using ..Helpers
-using Statistics
 
 
 # Helper function:
@@ -978,13 +977,13 @@ end
 # "CW 2003", "Lueker 2000", "MPM 2002", "Millero 2002", "Millero 2006",
 # "Millero 2010", "Waters 2014", "SB 2020", "Papadimitriou 2018", "Sulpis 2020"
 # "MyAMI", or "default".
-# If left as "default", user can specify K_mode as "dynamic" or "static". If
-# left as default, helper function "which_K" will be called to assess which
-# K_method is most appropriate for calculations based on input temperature and
-# salinity values. If K_mode="static", then one K_method will be used for the
-# entire set of inputs based on average temperature and salinity values.
-# Alternatively, if K_mode="dynamic", then which_K will determine the best
-# K_method for each sample based on individual salinity and temperature values.
+# If left as "default", helper function "which_K" is called to assess which K_method is
+# most appropriate for the given temperature and salinity.
+#
+# K_calculator is scalar. It used to carry an array branch, and a `K_mode` option choosing
+# between one method for a whole array ("static") and one per sample ("dynamic"), but
+# neither was reachable: the public entry points reject arrays before ever getting here.
+# To process many samples, build a solver once and broadcast it - see `carbon_solver`.
 #
 # Possible options for KSO4_method are "Dickson", "Khoo", "WM13" or "default".
 # Default will be calculated as "Dickson" (reccomended by CO2SYS).
@@ -1001,58 +1000,7 @@ end
 # An explicitly supplied Ca overrides Ca_method entirely.
 function K_calculator(; temp_c, sal, pres_bar=0.0, ST=nothing, FT=nothing,
     BT=nothing, K_method="default", KSO4_method="default", BT_method="default",
-    KF_method="default", KNH3_method="default", Ca_method="default",
-    K_mode="static", kwargs...)
-
-    if temp_c isa AbstractArray
-        
-        # If static, determine ONE method for the whole array before calculating
-        if K_mode == "static" && K_method == "default"
-            T_rep = mean(temp_c)
-            S_rep = mean(sal)
-            chosen_method = which_K(K_method=K_method, temp_c=T_rep, sal=S_rep; kwargs...)
-
-            raw_results = ((t, s, p) -> K_calculator(
-                temp_c=t, sal=s, pres_bar=p, K_method=chosen_method, K_mode=K_mode; kwargs...
-            )).(temp_c, sal, pres_bar)
-            
-        else # if dynamic
-            raw_results = ((t, s, p) -> K_calculator(
-                temp_c=t, sal=s, pres_bar=p, K_method=K_method, K_mode=K_mode; kwargs...
-            )).(temp_c, sal, pres_bar)
-        end
-
-        ##################################
-        packed_Ks = (
-            K1 = [r.Ks.K1 for r in raw_results],
-            K2 = [r.Ks.K2 for r in raw_results],
-            K0 = [r.Ks.K0 for r in raw_results],
-            KB = [r.Ks.KB for r in raw_results],
-            KW = [r.Ks.KW for r in raw_results],
-            KS = [r.Ks.KS for r in raw_results],
-            KF = [r.Ks.KF for r in raw_results],
-            KspA = [r.Ks.KspA for r in raw_results],
-            KspC = [r.Ks.KspC for r in raw_results],
-            KP1 = [r.Ks.KP1 for r in raw_results],
-            KP2 = [r.Ks.KP2 for r in raw_results],
-            KP3 = [r.Ks.KP3 for r in raw_results],
-            KSi = [r.Ks.KSi for r in raw_results],
-            KH2S = [r.Ks.KH2S for r in raw_results],
-            KNH3 = [r.Ks.KNH3 for r in raw_results],
-        )
-
-        return (
-            Ks = packed_Ks,
-            ST = [r.ST for r in raw_results],
-            FT = [r.FT for r in raw_results],
-            BT = [r.BT for r in raw_results],
-            Ca = [r.Ca for r in raw_results],
-            Mg = [r.Mg for r in raw_results],
-            fH = [r.fH for r in raw_results],
-            method = [r.method for r in raw_results] # Changed 'methods' to 'method' for consistency
-        )
-        #######################################
-    end
+    KF_method="default", KNH3_method="default", Ca_method="default", kwargs...)
 
 
     if K_method =="default"
