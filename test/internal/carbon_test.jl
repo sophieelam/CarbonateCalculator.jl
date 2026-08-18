@@ -5,7 +5,7 @@ using CarbonateCalculator
 # Carbon submodule directly.
 import CarbonateCalculator.Carbon: CO₂_from_pH_DIC, H_from_HCO₃_CO₃, H_from_HCO₃_TA,
                                    pH_from_HCO₃_DIC, H_from_CO₃_TA, H_from_CO₃_DIC,
-                                   pH_from_TA_DIC, calc_CO₂, calc_CO₃, calc_HCO₃, calc_TA,
+                                   pH_from_TA_DIC, calc_CO₂, calc_CO₃, calc_HCO₃, calc_TA, calc_TA_components,
                                    fCO₂_to_CO₂, CO₂_to_fCO₂, fCO₂_to_pCO₂, pCO₂_to_fCO₂,
                                    DIC_from_CO₂_pH, H_from_CO₂_HCO₃, H_from_CO₂_CO₃,
                                    pH_from_CO₂_TA, H_from_CO₂_DIC, DIC_from_pH_HCO₃,
@@ -144,7 +144,7 @@ import CarbonateCalculator.Carbon: CO₂_from_pH_DIC, H_from_HCO₃_CO₃, H_fro
     end
 
     @testset "calc_TA" begin
-        TA, CAlk, BAlk, PAlk, SiAlk, OH, Hfree, HSO₄, HF, Alk_H2S, Alk_NH3 = calc_TA(
+        TA, CAlk, BAlk, PAlk, SiAlk, OH, Hfree, HSO₄, HF, Alk_H2S, Alk_NH3 = calc_TA_components(
             carbon_ref.H,
             carbon_ref.DIC / carbon_ref.unit,
             carbon_ref.BT / carbon_ref.unit,
@@ -154,8 +154,7 @@ import CarbonateCalculator.Carbon: CO₂_from_pH_DIC, H_from_HCO₃_CO₃, H_fro
             carbon_ref.TF,
             0.0, # H2ST
             0.0, # NH4T
-            carbon_ref.Ks;
-            mode="multi" # Pass this as a keyword argument now!
+            carbon_ref.Ks
         )
 
         @test TA * carbon_ref.unit ≈ carbon_ref.TA atol=1e-6
@@ -185,4 +184,51 @@ import CarbonateCalculator.Carbon: CO₂_from_pH_DIC, H_from_HCO₃_CO₃, H_fro
         @test pCO₂_to_fCO₂(carbon_ref.pCO₂, carbon_ref.T) ≈ carbon_ref.fCO₂ atol=1e-5
     end
 
+end
+
+
+@testset "iterative solves converge away from pH 8" begin
+    # Every iterative solve used to start at pH 8.0 and stay there, so an answer far from
+    # seawater diverged: TA+DIC raised ConvergenceFailed above pH 10.5, CO₂+TA above pH 9.5,
+    # HCO₃+TA above pH 10. Nothing caught it, because every existing case sits near pH 8.
+    #
+    # Each case here is generated from (pH, DIC), which is analytic and unambiguous, and then
+    # solved back from the derived pair. The three pairs below have residuals that are
+    # monotonic in pH, so there is exactly one root to find and the expected answer is not in
+    # question. CO₃+TA and HCO₃+DIC are deliberately absent: both are genuinely ambiguous over
+    # part of this range and are recorded as open items rather than pinned here.
+    env = CarbonateCalculator.Constants.calculate_constants(temp_c = 25.0, sal = 35.0)
+    Ks = env.Ks
+    totals = (BT = env.BT, PT = 0.0, SiT = 0.0, ST = env.ST, FT = env.FT,
+              H2ST = 0.0, NH4T = 0.0)
+
+    "Everything implied by a (pH, DIC) pair, in mol/kg."
+    function reference(pH, DIC)
+        H = 10.0^(-pH)
+        TA = calc_TA(H, DIC, totals.BT, totals.PT, totals.SiT, totals.ST, totals.FT,
+                      totals.H2ST, totals.NH4T, Ks)
+        return (TA = TA, CO₂ = calc_CO₂(H, DIC, Ks), HCO₃ = calc_HCO₃(H, DIC, Ks))
+    end
+
+    # DIC low enough that the corresponding pH is far above the old fixed starting point.
+    for (pH, DIC) in ((9.5, 500e-6), (10.0, 500e-6), (10.5, 2000e-6), (11.0, 200e-6))
+        state = reference(pH, DIC)
+
+        @test pH_from_CO₂_TA(state.CO₂, state.TA, totals.BT, totals.PT, totals.SiT,
+                             totals.ST, totals.FT, totals.H2ST, totals.NH4T, Ks) ≈ pH atol=1e-6
+
+        @test pH_from_TA_DIC(state.TA, DIC, totals.BT, totals.PT, totals.SiT, totals.ST,
+                             totals.FT, totals.H2ST, totals.NH4T, Ks) ≈ pH atol=1e-6
+
+        H = H_from_HCO₃_TA(state.HCO₃, state.TA, totals.BT, totals.PT, totals.SiT, totals.ST,
+                           totals.FT, totals.H2ST, totals.NH4T, Ks)
+        @test -log10(H) ≈ pH atol=1e-3
+    end
+
+    # The fallback must not cost the partials. A bracketing `find_zero` would return a plain
+    # Float64 here and σ would come back as exactly zero — see `_solve_pH`.
+    solve = CarbonateSystem(:carbon; varying = (:TA, :DIC), varying_errors = (:TA, :DIC))
+    high_pH = solve(2300.0, 180.0, 2.0, 2.0)
+    @test high_pH.pHtot > 10.0
+    @test high_pH.err.pHtot > 0.0
 end

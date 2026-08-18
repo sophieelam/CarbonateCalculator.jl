@@ -11,6 +11,15 @@ CO₂_to_fCO₂, fCO₂_to_pCO₂, pCO₂_to_fCO₂
 # every `ROOT_METHOD()` a dynamic dispatch on the hot path.
 const ROOT_METHOD = Roots.Newton
 
+"Where the iterative solves start. Seawater sits near here, so most inputs converge at once."
+const DEFAULT_PH_GUESS = 8.0
+
+"The pH range searched when `DEFAULT_PH_GUESS` fails. Wider than any solvable input."
+const PH_SEARCH_RANGE = (2.0, 13.0)
+
+"Resolution of that search, in pH units. Fine enough to leave Newton well inside the basin."
+const PH_SEARCH_STEP = 0.5
+
 """
     _newton_state_type(Ks, concentrations...)
 
@@ -27,6 +36,70 @@ Resolved at compile time: every argument's type is known, so this folds to a con
 """
 _newton_state_type(Ks::NamedTuple, concentrations...) =
     promote_type(map(typeof, concentrations)..., map(typeof, Tuple(values(Ks)))...)
+
+"""
+    _bracketed_guess(residual, T) -> pH
+
+A starting point inside the root's basin, found by scanning [`PH_SEARCH_RANGE`](@ref) for a
+sign change and taking the midpoint of the interval that has one.
+
+Only ever reached once the default start has failed, so the scan's cost falls on the inputs
+that need it rather than on every call.
+
+Comparisons work directly on `ForwardDiff.Dual`s — Julia orders them by their value — so
+nothing has to be stripped. The result is converted to `T` because a `Float64` start meeting a
+`Dual` residual is exactly the failure [`_newton_state_type`](@ref) exists to prevent. Its
+partials do not matter: this is only where Newton begins, and Newton recovers them from the
+residual itself.
+
+Returns the default guess unchanged when no sign change is found, leaving the caller to fail
+the way it would have anyway.
+"""
+function _bracketed_guess(residual, ::Type{T}) where {T}
+    low, high = PH_SEARCH_RANGE
+    steps = round(Int, (high - low) / PH_SEARCH_STEP)
+
+    left = convert(T, low)
+    f_left = residual(left)
+
+    for step in 1:steps
+        right = convert(T, low + step * PH_SEARCH_STEP)
+        f_right = residual(right)
+        (f_left > 0) == (f_right > 0) || return (left + right) / 2
+        left, f_left = right, f_right
+    end
+
+    return convert(T, DEFAULT_PH_GUESS)
+end
+
+"""
+    _solve_pH(residual, derivative, T) -> pH
+
+Newton from [`DEFAULT_PH_GUESS`](@ref), falling back to a bracketed start when that diverges.
+
+Starting every search at pH 8 is right for seawater and costs nothing, but it diverges once
+the answer is far away: measured over DIC 50-10000 µmol/kg, `TA+DIC` failed with
+`ConvergenceFailed` above pH 10.5 and `CO₂+TA` above pH 9.5. The first attempt therefore uses
+`Roots.solve`, which reports failure as `NaN` rather than throwing, so the retry is ordinary
+control flow. A genuinely unsolvable input still raises from the second attempt.
+
+**Newton does the converging in both cases, deliberately.** `find_zero` given an *interval*
+returns a plain `Float64` whatever it is handed, so a `Dual` passed in comes back stripped of
+its partials and an uncertainty propagated through this path arrives as exactly zero. Newton's
+iteration is ordinary arithmetic, so `Dual`s survive it — the bracketing is used to place the
+starting point, never to find the root.
+
+Only for residuals that are monotonic in pH. `H_from_CO₃_TA` is not, and keeps its own solve.
+"""
+function _solve_pH(residual, derivative, ::Type{T}) where {T}
+    from_default = Roots.solve(
+        Roots.ZeroProblem((residual, derivative), convert(T, DEFAULT_PH_GUESS)),
+        ROOT_METHOD()
+    )
+    isnan(from_default) || return from_default
+
+    return find_zero((residual, derivative), _bracketed_guess(residual, T), ROOT_METHOD())
+end
 
 """
     _quadratic_roots(a, b, c) -> (root, root)
@@ -127,8 +200,7 @@ function pH_from_CO₂_TA(CO₂, TA, BT, PT, SiT, ST, FT, H2ST, NH4T, Ks)
     f(pH) = solve_pH_from_CO₂_TA(pH, CO₂, TA, BT, PT, SiT, ST, FT, H2ST, NH4T, Ks)
     df(pH) = ForwardDiff.derivative(f, pH)
 
-    initial_guess = convert(T, 8.0)
-    return find_zero((f, df), initial_guess, ROOT_METHOD())
+    return _solve_pH(f, df, T)
 end
 
 
@@ -220,7 +292,7 @@ Zeebe & Wolf-Gladrow, 2001, Appendix B
 """
 function solve_H_from_HCO₃_TA(H, HCO₃, TA, BT, PT, SiT, ST, FT, H2ST, NH4T, Ks)
     temp_DIC = HCO₃ * (H / Ks.K1 + 1.0 + Ks.K2 / H)
-    (calc_TA_val, _, _, _, _, _, _, _, _) = calc_TA(H, temp_DIC, BT, PT, SiT, ST, FT, H2ST, NH4T, Ks; mode="multi")
+    calc_TA_val = calc_TA(H, temp_DIC, BT, PT, SiT, ST, FT, H2ST, NH4T, Ks)
     return calc_TA_val - TA
 end
 
@@ -229,10 +301,8 @@ function H_from_HCO₃_TA(HCO₃, TA, BT, PT, SiT, ST, FT, H2ST, NH4T, Ks)
 
     f(pH) = solve_H_from_HCO₃_TA(10.0^(-pH), HCO₃, TA, BT, PT, SiT, ST, FT, H2ST, NH4T, Ks)
     df(pH) = ForwardDiff.derivative(f, pH)
-    
-    initial_guess = convert(T, 8.0)
-    sol_pH = find_zero((f, df), initial_guess, ROOT_METHOD())
-    return 10.0^(-sol_pH)
+
+    return 10.0^(-_solve_pH(f, df, T))
 end
 
 """
@@ -271,7 +341,7 @@ root finding. However, this only works for pH values 5 < pH < 10.
 """
 function solve_H_from_CO₃_TA(H, CO₃, TA, BT, PT, SiT, ST, FT, H2ST, NH4T, Ks)
     temp_DIC = CO₃ * (H^2 / (Ks.K1 * Ks.K2) + H / Ks.K2 + 1)
-    (calc_TA_val, _, _, _, _, _, _, _, _) = calc_TA(H, temp_DIC, BT, PT, SiT, ST, FT, H2ST, NH4T, Ks; mode="multi")
+    calc_TA_val = calc_TA(H, temp_DIC, BT, PT, SiT, ST, FT, H2ST, NH4T, Ks)
     return calc_TA_val - TA
 end
 
@@ -280,10 +350,16 @@ function H_from_CO₃_TA(CO₃, TA, BT, PT, SiT, ST, FT, H2ST, NH4T, Ks)
 
     f(pH) = solve_H_from_CO₃_TA(10.0^(-pH), CO₃, TA, BT, PT, SiT, ST, FT, H2ST, NH4T, Ks)
     df(pH) = ForwardDiff.derivative(f, pH)
-    
-    initial_guess = convert(T, 8.0)
+
+    # Deliberately not `_solve_pH`. This residual is *not* monotonic in pH — at fixed CO₃ the
+    # implied DIC grows as H² while the free-proton terms eventually pull TA back down, so it
+    # has up to three sign changes over pH 3-13 and a sign-change scan would pick an arbitrary
+    # one of several roots. Measured, this pair is already wrong outside roughly pH 7-9; that
+    # is a question about which root is meant, not about where the search starts, and giving it
+    # a better starting point here would only move which wrong answer comes back.
+    initial_guess = convert(T, DEFAULT_PH_GUESS)
     sol_pH = find_zero((f, df), initial_guess, ROOT_METHOD())
-    
+
     return 10.0^(-sol_pH)
 end
 
@@ -358,9 +434,7 @@ function pH_from_TA_DIC(TA, DIC, BT, PT, SiT, ST, FT, H2ST, NH4T, Ks)
     f(pH) = solve_pH_from_TA_DIC(pH, TA, DIC, BT, PT, SiT, ST, FT, H2ST, NH4T, Ks)
     df(pH) = ForwardDiff.derivative(f, pH)
 
-    initial_guess = convert(T, 8.0)
-
-    return find_zero((f, df), initial_guess, ROOT_METHOD())
+    return _solve_pH(f, df, T)
 end
 
 
@@ -392,10 +466,10 @@ end
 
 
 """
-Calculating TA
+Calculating TA components
 Equation 1.5.80 from Zeebe & Wolf-Gladrow, 2001, Chapter 1
 """
-function calc_TA(H, DIC, BT, PT, SiT, ST, FT, H2ST, NH4T, Ks; mode="multi")
+function calc_TA_components(H, DIC, BT, PT, SiT, ST, FT, H2ST, NH4T, Ks)
     Denom = H^2 + Ks.K1 * H + Ks.K1 * Ks.K2
     CAlk = DIC * Ks.K1 * (H + 2 * Ks.K2) / Denom
     BAlk = BT * Ks.KB / (Ks.KB + H)
@@ -412,11 +486,17 @@ function calc_TA(H, DIC, BT, PT, SiT, ST, FT, H2ST, NH4T, Ks; mode="multi")
 
     TA = CAlk + BAlk + OH + PAlk + SiAlk + Alk_H2S + Alk_NH3 - Hfree - HSO₄ - HF
 
-    if mode == "multi"
-        return TA, CAlk, BAlk, PAlk, SiAlk, OH, Hfree, HSO₄, HF, Alk_H2S, Alk_NH3
-    else
-        return TA
-    end
+    return TA, CAlk, BAlk, PAlk, SiAlk, OH, Hfree, HSO₄, HF, Alk_H2S, Alk_NH3
+end
+
+"""
+Calculating TA
+Equation 1.5.80 from Zeebe & Wolf-Gladrow, 2001, Chapter 1
+"""
+function calc_TA(H, DIC, BT, PT, SiT, ST, FT, H2ST, NH4T, Ks)
+    (TA, _, _, _, _, _, _, _, _, _, _) = calc_TA_components(H, DIC, BT, PT, SiT, ST, FT, H2ST, NH4T, Ks)
+
+    return TA
 end
 
 
@@ -588,8 +668,8 @@ function C_calculator(;
         CO₃ = calc_CO₃(H, DIC, Ks)
     end
     
-    (TA, CAlk, BAlk, PAlk, SiAlk, OH, Hfree, HSO₄, HF, Alk_H2S, Alk_NH3) = calc_TA(
-        H, DIC, BT, PT, SiT, ST, FT, H2ST, NH4T, Ks; mode="multi"
+    (TA, CAlk, BAlk, PAlk, SiAlk, OH, Hfree, HSO₄, HF, Alk_H2S, Alk_NH3) = calc_TA_components(
+        H, DIC, BT, PT, SiT, ST, FT, H2ST, NH4T, Ks
     )
 
     if isnothing(pHtot)
@@ -631,15 +711,11 @@ end
 Calculates the TA Buffer Capacity (∂TA / ∂pH) using Automatic Differentiation
 """
 function calc_buffer_capacity(pH, DIC, BT, PT, SiT, ST, FT, H2ST, NH4T, Ks)
-    # 1. Create a temporary function where pH is the ONLY input
-    # Note: Pass "single" so it only returns the TA value, not the breakdown
-    f_TA(p) = calc_TA(10.0^(-p), DIC, BT, PT, SiT, ST, FT, H2ST, NH4T, Ks; mode="multi")
+    # `calc_TA`, not `calc_TA_components`: differentiating the eleven-value breakdown raised
+    # `MethodError: no method matching extract_derivative`, so this threw for every input.
+    f_TA(p) = calc_TA(10.0^(-p), DIC, BT, PT, SiT, ST, FT, H2ST, NH4T, Ks)
 
-    
-    # 2. Get the exact derivative!
-    dTA_dpH = ForwardDiff.derivative(f_TA, pH)
-    
-    return dTA_dpH
+    return ForwardDiff.derivative(f_TA, pH)
 end
 
 end # module
