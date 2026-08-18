@@ -82,7 +82,7 @@ uncertainties = (
 
     @testset "Single-State: carbon_calculator" begin
         @info "Testing carbon_calculator..."
-        result = carbon_calculator(; errors=(TA=2.0, DIC=2.0), inputs...)
+        result = carbon_system(; errors=(TA=2.0, DIC=2.0), inputs...)
 
         # One result describes one set of conditions, so there are no _in/_out names.
         @test hasproperty(result.err, :pHtot)
@@ -92,7 +92,7 @@ uncertainties = (
 
     @testset "Boron Species: carbon_boron_calculator" begin
         @info "Testing carbon_boron_calculator..."
-        result = carbon_boron_calculator(; errors=(BT=0.01,), boron_inputs...)
+        result = whole_system(; errors=(BT=0.01,), boron_inputs...)
         
         @test hasproperty(result.err, :BOH₃)
         @test result.err.BOH₃ > 0.0

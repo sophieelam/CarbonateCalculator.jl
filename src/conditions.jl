@@ -16,10 +16,14 @@ const DERIVED_PARAMETERS = (:pH, :pHtot, :pHsws, :pHfree, :pHNBS,
                             :CO₂, :HCO₃, :CO₃, :pCO₂, :fCO₂,
                             :ΩC, :ΩA, :Ks)
 
-_core_for(system::Symbol) =
-    system === :carbon ? carbon_system_core :
-    system === :whole  ? whole_system_core  :
-    throw(ArgumentError("unknown system $system; expected :carbon or :whole"))
+"""
+The calculation that produced a result, as a keyword function.
+
+A result records the *scope* it was solved with, so re-solving it needs no guesswork about
+which entry point it came from — and works for any scope, not just the two that used to have
+their own cores.
+"""
+_core_for(scope::Tuple{Vararg{Symbol}}) = (; kwargs...) -> _solve_core(scope, NamedTuple(kwargs))
 
 """
 Build the argument list that re-solves `result` at the target conditions.

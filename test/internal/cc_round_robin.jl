@@ -13,14 +13,14 @@ ENV_KWARGS = (
     K_method = "Lueker 2000"
 )
 
-@testset "carbon_calculator Round-Robin Internal Consistency" begin
+@testset "carbon_system Round-Robin Internal Consistency" begin
 
     # 2. Solve the base system using TA and DIC
     base_TA = 2300.0
     base_DIC = 2100.0
     
     # Calculate the baseline truth using the new carbon_calculator
-    baseline = carbon_calculator(TA=base_TA, DIC=base_DIC; ENV_KWARGS...)
+    baseline = carbon_system(TA=base_TA, DIC=base_DIC; ENV_KWARGS...)
 
     # 3. Map out the parameter names EXACTLY as Calculator.jl returns them
     calculated_vars = Dict(
@@ -62,7 +62,7 @@ ENV_KWARGS = (
                 input_kwargs = Dict(p1_sym => val1, p2_sym => val2)
 
                 # Solve the system using the new pair and new function
-                rr_results = carbon_calculator(; input_kwargs..., ENV_KWARGS...)
+                rr_results = carbon_system(; input_kwargs..., ENV_KWARGS...)
 
                 # Assert that all major parameters match the baseline
                 # Using an absolute tolerance of 1e-3

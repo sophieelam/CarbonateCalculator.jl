@@ -32,10 +32,17 @@ implementation for the sake of it.
 """
 _normalise_keyword(name::Symbol) = lowercase(replace(String(name), "_" => ""))
 
-"Declared keywords whose normalised form matches `name`, for a 'did you mean' hint."
+"""
+Parameter names whose normalised form matches `name`, for a 'did you mean' hint.
+
+Reads `PARAMETER_DEFAULTS` when the entry point is a solver, and the method signature when it
+is a plain function, so both paths get the same suggestion.
+"""
 function _similar_keywords(name::Symbol, entry_point)
     target = _normalise_keyword(name)
-    return [k for k in _declared_keywords(entry_point) if _normalise_keyword(k) == target]
+    candidates = entry_point isa Tuple ? collect(keys(PARAMETER_DEFAULTS)) :
+                                         _declared_keywords(entry_point)
+    return [k for k in candidates if _normalise_keyword(k) == target]
 end
 
 """
@@ -60,7 +67,7 @@ function _reject_unknown_arguments(kwargs, entry_point)
     end
 
     throw(ArgumentError(
-        "unrecognised argument(s) to $(nameof(entry_point)):\n  " * join(lines, "\n  ") *
+        "unrecognised argument(s) to $(_entry_name(entry_point)):\n  " * join(lines, "\n  ") *
         "\nUnrecognised keywords used to be absorbed silently, which meant a typo returned " *
         "a plausible result computed at the defaults."
     ))
@@ -134,7 +141,7 @@ function _check_determinacy(inputs::NamedTuple, entry_point; require_two::Bool)
         if supplied > 1
             present = _supplied_names(inputs, members)
             throw(ArgumentError(
-                "$(nameof(entry_point)) was given $(join(present, ", ")), which all " *
+                "$(_entry_name(entry_point)) was given $(join(present, ", ")), which all " *
                 "describe $group. Supply one of them.\nThese are the same quantity " *
                 "expressed differently rather than independent measurements, so all but " *
                 "one would be silently ignored."
@@ -146,7 +153,7 @@ function _check_determinacy(inputs::NamedTuple, entry_point; require_two::Bool)
 
     if groups > 2
         throw(ArgumentError(
-            "$(nameof(entry_point)) was given $groups parameters " *
+            "$(_entry_name(entry_point)) was given $groups parameters " *
             "($(join(_supplied_names(inputs), ", "))); two determine the system.\n" *
             "Drop one: the extra value would be discarded and recomputed, with nothing in " *
             "the result to show that the supplied measurement disagreed."
@@ -156,7 +163,7 @@ function _check_determinacy(inputs::NamedTuple, entry_point; require_two::Bool)
     if require_two && groups < 2
         names = _supplied_names(inputs)
         throw(ArgumentError(
-            "$(nameof(entry_point)) needs two parameters to solve the system, but was " *
+            "$(_entry_name(entry_point)) needs two parameters to solve the system, but was " *
             "given $(isempty(names) ? "none" : "only $(only(names))").\nSupply two of: " *
             "TA, DIC, pH (or pHtot/pHsws/pHfree/pHNBS), CO₂ (or pCO₂/fCO₂), HCO₃, " *
             "CO₃ (or ΩA/ΩC)."
@@ -240,6 +247,6 @@ function _check_error_names(errors, inputs::NamedTuple, entry_point)
         isempty(suggestions) ? "$name" : "$name (did you mean $(join(suggestions, " or "))?)"
     end
     throw(ArgumentError(
-        "uncertainty given for argument(s) $(nameof(entry_point)) does not take:\n  " *
+        "uncertainty given for argument(s) $(_entry_name(entry_point)) does not take:\n  " *
         join(lines, "\n  ")))
 end

@@ -75,13 +75,16 @@ const δBT_MODERN = 39.61
         @test m.settings.K_method == "Lueker 2000"
         @test m.settings.KSO4_method == "Khoo"
         @test m.inputs.temp_c == 20.0
-        @test m.system === :carbon
-        @test whole_system(; measured_kw..., δBT=δBT_MODERN).system === :whole
+        # A result records the *scope* it was solved with, so a re-solve needs no guesswork
+        # about which entry point produced it.
+        @test m.system === (:carbon,)
+        @test whole_system(; measured_kw..., δBT=δBT_MODERN).system ===
+              (:carbon, :boron, :isotopes)
 
         # ...and survive a recalculation, or the second hop would lose them.
         r = recalculate_at_target_conditions(m; temp_c=2.0)
         @test r.settings.KSO4_method == "Khoo"
-        @test r.system === :carbon
+        @test r.system === (:carbon,)
     end
 
     @testset "Inputs the old recursion dropped are now carried" begin
@@ -156,11 +159,14 @@ const δBT_MODERN = 39.61
             carbon_system(; measured_kw...); temp_c=2.0).err)
     end
 
-    @testset "Aliases" begin
-        @test carbon_calculator(; measured_kw...).val.pHtot ==
-              carbon_system(; measured_kw...).val.pHtot
-        @test carbon_boron_calculator(; measured_kw..., δBT=δBT_MODERN).val.pHtot ==
-              whole_system(; measured_kw..., δBT=δBT_MODERN).val.pHtot
+    @testset "Presets agree with the solver they wrap" begin
+        # `carbon_calculator` / `carbon_boron_calculator` are gone; the four entry points are
+        # now presets over CarbonateSystem, and must match calling it directly.
+        @test carbon_system(; measured_kw...).val.pHtot ==
+              CarbonateSystem(:carbon)(; measured_kw...).val.pHtot
+        @test whole_system(; measured_kw..., δBT=δBT_MODERN).val.pHtot ==
+              CarbonateSystem(:carbon, :boron, :isotopes)(; measured_kw...,
+                                                          δBT=δBT_MODERN).val.pHtot
     end
 
 end

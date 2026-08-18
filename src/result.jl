@@ -109,7 +109,7 @@ struct CarbonateResult{V<:NamedTuple, E<:Union{NamedTuple, Nothing}}
     input_keys::Vector{Symbol}
     settings::NamedTuple
     inputs::NamedTuple
-    system::Symbol
+    system::Tuple{Vararg{Symbol}}
     input_errors::Union{NamedTuple, Nothing}
     Ks::NamedTuple
     unit::String

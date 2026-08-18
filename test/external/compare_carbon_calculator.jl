@@ -43,7 +43,7 @@ end
 # 1. UNIFIED TEST SUITE
 # =========================================================================
 
-@testset "carbon_calculator Global Validation Suite" begin
+@testset "carbon_system Global Validation Suite" begin
 
     # -------------------------------------------------------------------------
     # PART A: MATLAB CO2SYS v3.2.0 VALIDATION
@@ -54,7 +54,7 @@ end
         genuine_passes, noise_passes, bulk_passes, total_comparisons = 0, 0, 0, 0
         known_upstream_bugs, true_failures = 0, 0
 
-        @info "Starting carbon_calculator validation against MATLAB CO2SYS..."
+        @info "Starting carbon_system validation against MATLAB CO2SYS..."
 
         for row in eachrow(df)
             k_method    = get(k1k2_map, row.K1K2CONSTANTS, missing)
@@ -88,7 +88,7 @@ end
             
             try
                 # CALLING THE NEW FUNCTION HERE
-                res = CarbonateCalculator.carbon_calculator(; inputs..., env...)
+                res = CarbonateCalculator.carbon_system(; inputs..., env...)
                 
                 unpack(x) = x isa Tuple ? x[1] : x
                 calc_vals = (
@@ -144,7 +144,7 @@ end
         genuine_passes, noise_passes, bulk_passes, total_comparisons = 0, 0, 0, 0
         known_upstream_bugs, true_failures = 0, 0
 
-        @info "Starting carbon_calculator validation against PyCO2SYS..."
+        @info "Starting carbon_system validation against PyCO2SYS..."
 
         for row in eachrow(df)
             k_method    = get(k1k2_map, row.K1K2CONSTANTS, missing)
@@ -173,7 +173,7 @@ end
             
             try
                 # CALLING THE NEW FUNCTION HERE
-                res = CarbonateCalculator.carbon_calculator(; inputs..., env...)
+                res = CarbonateCalculator.carbon_system(; inputs..., env...)
                 
                 unpack(x) = x isa Tuple ? x[1] : x
                 calc_vals = (
