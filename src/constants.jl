@@ -562,8 +562,8 @@ end
 function KSK18_BT(; sal, kwargs...)
     BT = (10.838 * sal + 13.821) / 1e6
 
-    # NamedTuple, like the other *_BT functions - the call site in K_calculator does `.BT`,
-    # so returning a bare number made BT_method="KSK18" throw a FieldError.
+    # NamedTuple, like the other *_BT functions - the call site in calculate_constants
+    # does `.BT`, so returning a bare number made BT_method="KSK18" throw a FieldError.
     return (; BT=BT) # in mol/kg-SW
 end
 
@@ -655,7 +655,10 @@ function WM13_KS(; temp_c, sal, kwargs...)
     (-0.00291179 + 0.0000209968 * TK) * sal^1.5 -0.0000403724 * sal^2)
 
     kSO4 = (1 - 0.001005109 * sal) * 10^(logKS0 + logKSK0)
-    return kSO4 # in mol/kg-SW
+
+    # NamedTuple, like Dickson_KS and Khoo_KS. Returning a bare number made the three
+    # disagree, which the call site papered over with an `isa Number` test on every call.
+    return (; KS=kSO4) # in mol/kg-SW
 end
 
 # Calculate KF
@@ -968,53 +971,336 @@ function which_K(; K_method="default", temp_c, sal, Ca=nothing,
     end
 end
 
+# --- Option lookup table ------------------------------------------------------------------
 
-# Function will be called in calculator.jl in carbon_system, boron_system,
-# boron_isotopes, and whole_system to calculate the constants used in ensuing
-# calculations.
-# Possible options for K_method are "Roy 1993", "GP 1989", "Hansson 1973",
-# "DM 1987", "HM 1973", "Mehrbach 1973 A", "Merhbach 1973 B", "Millero 1979",
-# "CW 2003", "Lueker 2000", "MPM 2002", "Millero 2002", "Millero 2006",
-# "Millero 2010", "Waters 2014", "SB 2020", "Papadimitriou 2018", "Sulpis 2020"
-# "MyAMI", or "default".
-# If left as "default", helper function "which_K" is called to assess which K_method is
-# most appropriate for the given temperature and salinity.
-#
-# K_calculator is scalar. It used to carry an array branch, and a `K_mode` option choosing
-# between one method for a whole array ("static") and one per sample ("dynamic"), but
-# neither was reachable: the public entry points reject arrays before ever getting here.
-# To process many samples, build a solver once and broadcast it - see `CarbonateSystem`.
-#
-# Possible options for KSO4_method are "Dickson", "Khoo", "WM13" or "default".
-# Default will be calculated as "Dickson" (reccomended by CO2SYS).
-# Possible options for BT_method are "Uppstrom", "Lee", "KSK18" or "default".
-# Default will be calculated as "Uppstrom" (reccomended by CO2SYS).
-# Possible options for KF_method are "Dickson", "Perez" or "default".
-# Default will be calculated as "Dickson" (reccomended by CO2SYS).
-# Possible options for KNH3_method are "Millero", "Clegg" or "default".
-# Default will be calculated as "Millero".
-# Possible options for Ca_method are "Culkin", "RT67" or "default".
-# Default is modern seawater Ca (MODERN_CALCIUM), the same composition Kgen assumes for
-# the MyAMI correction, so that the Ca used for saturation state and the Ca used to
-# correct the constants agree. "Culkin" and "RT67" give salinity-scaled concentrations.
-# An explicitly supplied Ca overrides Ca_method entirely.
-function K_calculator(; temp_c, sal, pres_bar=0.0, ST=nothing, FT=nothing,
+"""
+Modern seawater calcium, as a parameterisation so that `Ca_method` has three interchangeable
+options rather than two plus a fallback. Independent of salinity by definition: this is the
+composition Kgen assumes for the MyAMI correction, not a concentration to be diluted.
+"""
+Modern_Ca(; kwargs...) = MODERN_CALCIUM
+
+"""
+How much of each dissolved species the water holds, by the name `*_method` selects.
+
+Composition, not speciation: these parameterisations give a *concentration* from salinity, so
+none of them is on a pH scale. That is the whole reason they live apart from
+[`SPECIATION`](@ref) — a table where half the rows carried a scale and half did not would
+invite reading the absence as an oversight.
+
+Rows are `(fn = …)`. See [`SPECIATION`](@ref) for what the shared `default`/`options` shape
+is for.
+"""
+const COMPOSITION = (
+    BT_method = (
+        default = "Uppstrom",
+        options = Dict(
+            "Uppstrom" => (fn = Uppstrom_BT,),
+            "Lee" => (fn = Lee_BT,),
+            "KSK18" => (fn = KSK18_BT,))
+        ),
+    Ca_method = (
+        default = "modern",
+        options = Dict(
+            "modern" => (fn = Modern_Ca,),
+            "Culkin" => (fn = Culkin_Ca,),
+            "RT67" => (fn = RT67_Ca,))
+        ),
+)
+
+"""
+The equilibrium constants, by the name `*_method` selects, each with the pH scale it is
+fitted on.
+
+Rows are `(fn = …, scale = …)`. **The scale is the fact these tables exist to hold.** It used
+to live ~250 lines away from the function, in a list of method names beside the conversion,
+so a parameterisation could be added to the `if/elseif` and forgotten in the list — which
+returns constants on the wrong pH scale without raising anything. `KNH3_method`'s multiplier
+had a second version of the same bug, written as `KNH3_method == "Millero" ? sws_factor : 1.0`
+so that `"default"` selected Millero's seawater-scale fit and then declined to convert it.
+
+`:free` on KS and KF is recorded but never acted on: the free-scale values are exactly what
+`SWStoTOT` and `FREEtoTOT` are built from. It is here so the assumption sits with the
+parameterisation rather than in a comment beside a pressure correction.
+
+Together with [`COMPOSITION`](@ref) these replace six `if/elseif` chains. Five ended in a
+bare `else`, so an unrecognised name silently selected the default and `BT_method = "Uppstom"`
+returned a plausible wrong number — the trap `validation.jl` closes on keyword *names*, left
+open on their *values*. [`_apply`](@ref) closes it, and builds the list of valid names from
+the table so it cannot go stale.
+
+The call site for each argument is shared, so every row within one entry must take the same
+arguments and return the same shape. That works because every parameterisation in this file
+ends in `kwargs...`: one argument set calls all of them and each takes what it needs. The
+`*_KS`, `*_KF` and K1/K2 functions return a NamedTuple; the `*_KNH3` functions a bare number.
+"""
+const SPECIATION = (
+    KSO4_method = (
+        default = "Dickson",
+        options = Dict(
+            "Dickson" => (fn = Dickson_KS, scale = :free),
+            "Khoo" => (fn = Khoo_KS, scale = :free),
+            "WM13" => (fn = WM13_KS, scale = :free))
+        ),
+    KF_method   = (
+        default = "Dickson",
+        options = Dict(
+            "Dickson" => (fn = Dickson_KF, scale = :free),
+            "Perez" => (fn = Perez_KF, scale = :free))
+        ),
+    KNH3_method = (
+        default = "Millero",
+        options = Dict(
+            "Millero" => (fn = Millero_KNH3, scale = :sws),
+            "Clegg" => (fn = Clegg_KNH3, scale = :total))
+        ),
+    # `default = nothing` because K_method's default is not a fixed name: `which_K` picks it
+    # from temperature and salinity, and has already done so before `_apply` is reached.
+    K_method    = (
+        default = nothing,
+        options = Dict(
+            "Roy 1993"           => (fn = Roy1993,           scale = :total),
+            "GP 1989"            => (fn = GP1989,            scale = :sws),
+            "Hansson 1973"       => (fn = Hansson1973,       scale = :sws),
+            "DM 1987"            => (fn = DM1987,            scale = :sws),
+            "HM 1973"            => (fn = HM1973,            scale = :sws),
+            "Mehrbach 1973 A"    => (fn = Mehrbach1973,      scale = :sws),
+            "Mehrbach 1973 B"    => (fn = Mehrbach1973,      scale = :sws),
+            "Millero 1979"       => (fn = Millero1979,       scale = :nbs),
+            "CW 2003"            => (fn = CW2003,            scale = :sws),
+            "Lueker 2000"        => (fn = Lueker2000,        scale = :total),
+            "MPM 2002"           => (fn = MPM2002,           scale = :sws),
+            "Millero 2002"       => (fn = Millero2002,       scale = :sws),
+            "Millero 2006"       => (fn = Millero2006,       scale = :sws),
+            "Millero 2010"       => (fn = Millero2010,       scale = :sws),
+            "Waters 2014"        => (fn = Waters2014,        scale = :sws),
+            "SB 2020"            => (fn = SB2020,            scale = :total),
+            "Papadimitriou 2018" => (fn = Papadimitriou2018, scale = :total),
+            "Sulpis 2020"        => (fn = Sulpis2020,        scale = :total),
+            # Listed so this is the complete set of valid K_method values and the error message
+            # stays right, but it has no K1/K2 function: Kgen hands back a whole bundle, already
+            # pressure-corrected and on the total scale, assembled separately below.
+            "MyAMI"              => (fn = nothing,           scale = :total),
+        )
+    ),
+)
+
+"""
+Raise for a `*_method` value that names no parameterisation.
+
+`valid` is built from the table when the dispatch below is generated, so the list of names
+cannot drift from the ones actually accepted, and the error path touches no table at all.
+"""
+_unknown_method(argument::Symbol, name, valid::String) =
+    throw(ArgumentError("Unknown $argument: \"$name\".\nChoose one of: $valid"))
+
+"The 'you could have meant' list for one argument, built at generation time."
+function _valid_names(entry)
+    fallback = isnothing(entry.default) ?
+        "\"default\" picks one from temperature and salinity" :
+        "\"default\" is $(entry.default)"
+    return join(sort!(collect(keys(entry.options))), ", ") * ". $fallback."
+end
+
+"""
+    _apply(Val(:KSO4_method), name; kwargs...)
+
+Call the parameterisation `name` selects for one `*_method` argument, resolving `"default"`
+and rejecting anything the table does not list.
+
+Generated from [`COMPOSITION`](@ref) and [`SPECIATION`](@ref) rather than looking the function
+up in them, which matters more than it looks. A `Dict` holding several functions can only be typed
+`Dict{String,Function}`, so calling through it is a dynamic dispatch returning `Any`, and
+that `Any` spreads into every constant derived from the result — leaving the whole bundle
+untyped. Measured, the lookup form cost 4.8 µs on a 1.3 µs function, and 15 % of a whole
+`carbon_system` call. Interpolating the function objects into a comparison chain keeps every
+call statically known, while the table stays the single place a parameterisation is
+registered.
+"""
+function _apply end
+
+"""
+    _native_scale(Val(:K_method), name) -> :total | :sws | :nbs
+
+The pH scale the parameterisation `name` selects is fitted on.
+
+Generated from [`SPECIATION`](@ref) only — the composition parameterisations give
+concentrations, which are not on a pH scale. Resolves `"default"` the same way
+[`_apply`](@ref) does, which is the point: `KNH3_method`'s multiplier used to be written as
+`KNH3_method == "Millero" ? sws_factor : 1.0`, testing the *raw argument*, so the default
+selected Millero's seawater-scale fit and then declined to convert it.
+"""
+function _native_scale end
+
+for table in (COMPOSITION, SPECIATION), (argument, entry) in pairs(table)
+    body = Expr(:block)
+
+    # A default that is a fixed name resolves here. K_method's is not — `which_K` derives it
+    # from temperature and salinity long before this is reached — so it emits no such line.
+    isnothing(entry.default) ||
+        push!(body.args, :(name == "default" && (name = $(entry.default))))
+
+    for (option, row) in entry.options
+        isnothing(row.fn) && continue    # MyAMI, which has no K1/K2 function
+        push!(body.args, :(name == $option && return $(row.fn)(; kwargs...)))
+    end
+
+    @eval function _apply(::Val{$(QuoteNode(argument))}, name; kwargs...)
+        $body
+        _unknown_method($(QuoteNode(argument)), name, $(_valid_names(entry)))
+    end
+end
+
+for (argument, entry) in pairs(SPECIATION)
+    body = Expr(:block)
+    isnothing(entry.default) ||
+        push!(body.args, :(name == "default" && (name = $(entry.default))))
+
+    for (option, row) in entry.options
+        push!(body.args, :(name == $option && return $(QuoteNode(row.scale))))
+    end
+
+    @eval function _native_scale(::Val{$(QuoteNode(argument))}, name)
+        $body
+        _unknown_method($(QuoteNode(argument)), name, $(_valid_names(entry)))
+    end
+end
+
+"""
+What K1 and K2 must be multiplied by to move them from the scale they were fitted on to the
+total scale. `sws_factor` converts seawater-scale to total; `fH` additionally relates NBS to
+seawater-scale.
+"""
+_to_total_mult(scale::Symbol, sws_factor, fH) =
+    scale === :sws ? sws_factor :
+    scale === :nbs ? sws_factor / fH :
+                     1.0    # :total — already there
+
+
+# --- Pressure corrections ------------------------------------------------------------------
+
+"The gas constant in ml bar⁻¹ K⁻¹ mol⁻¹. DOEv2 gives 83.14462618; this matches CO2SYS."
+const GAS_CONSTANT = 83.14472
+
+"""
+Millero 1995 volume and compressibility coefficients, one row per constant.
+
+Each row holds the two polynomials in temperature that [`_pressure_factor`](@ref) evaluates:
+`ΔV = a + b·T + c·T²` and `κ = (d + e·T + f·T²)/1000`. Data rather than code, because the
+correction is the same three lines of arithmetic for all sixteen constants and only these
+numbers differ.
+
+KspA and KspC are stated in the same ÷1000 convention as the rest. They were previously
+written with the factor folded into the literals (`-11.76e-3 + 0.3692e-3·T`), which rounds
+fractionally differently, so their pressure correction moves by an ulp or so.
+"""
+const PRESSURE_COEFFICIENTS = (
+    K1   = (ΔV = (-25.5,  0.1271,  0.0),       κ = (-3.08,  0.0877, 0.0)),
+    K2   = (ΔV = (-15.82, -0.0219, 0.0),       κ = (1.13,   -0.1475, 0.0)),
+    KB   = (ΔV = (-29.48, 0.1622,  -0.002608), κ = (-2.84,  0.0,    0.0)),
+    KW   = (ΔV = (-20.02, 0.1119,  -0.001409), κ = (-5.13,  0.0794, 0.0)),
+    KF   = (ΔV = (-9.78,  -0.009,  -0.000942), κ = (-3.91,  0.054,  0.0)),
+    KS   = (ΔV = (-18.03, 0.0466,  0.000316),  κ = (-4.53,  0.09,   0.0)),
+    KP1  = (ΔV = (-14.51, 0.1211,  -0.000321), κ = (-2.67,  0.0427, 0.0)),
+    KP2  = (ΔV = (-23.12, 0.1758,  -0.002647), κ = (-5.15,  0.09,   0.0)),
+    KP3  = (ΔV = (-26.57, 0.202,   -0.003042), κ = (-4.08,  0.0714, 0.0)),
+    KSi  = (ΔV = (-29.48, 0.1622,  -0.002608), κ = (-2.84,  0.0,    0.0)),
+    KH2S = (ΔV = (-11.07, -0.009,  -0.000942), κ = (-2.89,  0.054,  0.0)),
+    KNH3 = (ΔV = (-26.43, 0.0889,  -0.000905), κ = (-5.03,  0.0814, 0.0)),
+    KspA = (ΔV = (-46.0,  0.5304,  0.0),       κ = (-11.76, 0.3692, 0.0)),
+    KspC = (ΔV = (-48.76, 0.5304,  0.0),       κ = (-11.76, 0.3692, 0.0)),
+)
+
+"""
+Millero 1983's coefficients, which the freshwater `Millero 1979` parameterisation uses in
+place of the rows above.
+
+Being a table rather than a branch is the point: the special case is now three numbers-only
+rows that `merge` overlays on `PRESSURE_COEFFICIENTS`. KB is zeroed rather than omitted, so
+the correction evaluates to a factor of exactly 1 — irrelevant either way, since BT is zero
+in freshwater.
+"""
+const MILLERO1979_PRESSURE = (
+    K1 = (ΔV = (-30.54, 0.1849, -0.0023366), κ = (-5.74, 0.093,  -0.001896)),
+    K2 = (ΔV = (-29.81, 0.115,  -0.001816),  κ = (-5.74, 0.093,  -0.001896)),
+    KW = (ΔV = (-25.6,  0.2324, -0.0036246), κ = (-7.33, 0.1368, -0.001233)),
+    KB = (ΔV = (0.0,    0.0,    0.0),        κ = (0.0,   0.0,    0.0)),
+)
+
+"""
+    _pressure_factor(temp_c, pres_bar, coefficients)
+
+What an equilibrium constant is multiplied by to move it from the surface to `pres_bar`.
+"""
+function _pressure_factor(temp_c, pres_bar, coefficients)
+    ΔV = coefficients.ΔV[1] + coefficients.ΔV[2] * temp_c + coefficients.ΔV[3] * temp_c^2
+    κ = (coefficients.κ[1] + coefficients.κ[2] * temp_c + coefficients.κ[3] * temp_c^2) / 1000
+    RT = GAS_CONSTANT * (temp_c + 273.15)
+    return exp((-ΔV + 0.5 * κ * pres_bar) * pres_bar / RT)
+end
+
+"""
+The pressure coefficients to use for `K_method`.
+
+Identical field names and types either way, so the choice stays inferable — a `Union` of two
+differently-shaped tables here would leave every corrected constant untyped.
+"""
+_pressure_table(K_method) = K_method == "Millero 1979" ?
+    merge(PRESSURE_COEFFICIENTS, MILLERO1979_PRESSURE) : PRESSURE_COEFFICIENTS
+
+"""
+    calculate_constants(; temp_c, sal, pres_bar=0.0, kwargs...)
+
+Describe a body of seawater: its equilibrium constants, its totals, and the pH-scale
+conversions between them.
+
+Returns a NamedTuple `(; Ks, ST, FT, BT, Ca, Mg, fH, tf_fac, ts_fac, method)`, where `Ks` is
+the inner bundle of 15 equilibrium constants and the rest is the water they were computed
+for. Every calculation in the package runs against one of these, and a solver given `Ks=` is
+given *this* value rather than the inner bundle — see `_solve_core`.
+
+The three parts are returned together because they are not independent. `tf_fac`, `ts_fac`
+and `fH` are built from the totals *and* the constants, so a caller that recombined
+separately-derived pieces could convert a pH scale using factors describing different water.
+Anyone who wants a single constant on its own should call the parameterisation directly
+(`Lueker2000`, `calc_KB`, …) rather than take a slice of this.
+
+Scalar only. It used to carry an array branch, and a `K_mode` option choosing between one
+method for a whole array ("static") and one per sample ("dynamic"), but neither was
+reachable: the public entry points reject arrays before ever getting here. To process many
+samples, build a solver once and broadcast it — see `CarbonateSystem`.
+
+# Method arguments
+
+Each selects a parameterisation, and `"default"` picks the recommended one.
+
+| argument | options | default |
+|---|---|---|
+| `K_method` | `"Roy 1993"`, `"GP 1989"`, `"Hansson 1973"`, `"DM 1987"`, `"HM 1973"`, `"Mehrbach 1973 A"`, `"Mehrbach 1973 B"`, `"Millero 1979"`, `"CW 2003"`, `"Lueker 2000"`, `"MPM 2002"`, `"Millero 2002"`, `"Millero 2006"`, `"Millero 2010"`, `"Waters 2014"`, `"SB 2020"`, `"Papadimitriou 2018"`, `"Sulpis 2020"`, `"MyAMI"` | `which_K` chooses on temperature and salinity |
+| `KSO4_method` | `"Dickson"`, `"Khoo"`, `"WM13"` | `"Dickson"` (CO2SYS's recommendation) |
+| `BT_method` | `"Uppstrom"`, `"Lee"`, `"KSK18"` | `"Uppstrom"` (CO2SYS's recommendation) |
+| `KF_method` | `"Dickson"`, `"Perez"` | `"Dickson"` (CO2SYS's recommendation) |
+| `KNH3_method` | `"Millero"`, `"Clegg"` | `"Millero"` |
+| `Ca_method` | `"Culkin"`, `"RT67"` | modern seawater Ca (`MODERN_CALCIUM`) |
+
+`Ca_method`'s default is modern seawater rather than Culkin because that is the composition
+Kgen assumes for the MyAMI correction, so the Ca used for saturation state and the Ca used to
+correct the constants agree. `"Culkin"` and `"RT67"` give salinity-scaled concentrations
+instead. An explicitly supplied `Ca` overrides `Ca_method` entirely.
+"""
+function calculate_constants(; temp_c, sal, pres_bar=0.0, ST=nothing, FT=nothing,
     BT=nothing, K_method="default", KSO4_method="default", BT_method="default",
     KF_method="default", KNH3_method="default", Ca_method="default", kwargs...)
-
 
     if K_method =="default"
         K_method = which_K(K_method=K_method, temp_c=temp_c, sal=sal; kwargs...)
     end
 
     # --- Boron, Sulfate, Fluoride and Calcium Totals ---
-    if BT_method == "Lee"
-        final_BT = isnothing(BT) ? Lee_BT(; sal).BT : BT
-    elseif BT_method == "KSK18"
-        final_BT = isnothing(BT) ? KSK18_BT(; sal).BT : BT
-    else
-        final_BT = isnothing(BT) ? Uppstrom_BT(; sal).BT : BT
-    end
+    # A supplied total always wins over the method that would otherwise derive it.
+    final_BT = isnothing(BT) ? _apply(Val(:BT_method), BT_method; sal).BT : BT
+    final_ST = isnothing(ST) ? calc_ST(; sal).ST : ST
+    final_FT = isnothing(FT) ? calc_FT(; sal).FT : FT
 
     Ca_in = get(kwargs, :Ca, nothing)
     Mg_in = get(kwargs, :Mg, nothing)
@@ -1023,183 +1309,26 @@ function K_calculator(; temp_c, sal, pres_bar=0.0, ST=nothing, FT=nothing,
     # Kgen assumes for its MyAMI correction. Defaulting to that rather than to Culkin
     # keeps the calcium used for saturation state and the calcium used to correct the
     # constants the same number. Culkin and RT67 remain available explicitly.
-    final_Ca = if !isnothing(Ca_in)
-        Ca_in
-    elseif Ca_method == "Culkin"
-        Culkin_Ca(; sal)
-    elseif Ca_method == "RT67"
-        RT67_Ca(; sal)
-    else
-        MODERN_CALCIUM
-    end
-
+    final_Ca = isnothing(Ca_in) ? _apply(Val(:Ca_method), Ca_method; sal) : Ca_in
     final_Mg = something(Mg_in, MODERN_MAGNESIUM)
 
+    # --- What every method needs -----------------------------------------------------------
+    #
+    # Kept out of the branches below because MyAMI's bundle, alone among the methods, arrives
+    # from Kgen already complete and pressure-corrected. The only gaps in it are KH2S and
+    # KNH3, which Kgen does not carry, so those two and their pressure factors are computed
+    # for every method. Everything else the other parameterisations build on would be
+    # computed and discarded on what is the default code path.
+    pressure = _pressure_table(K_method)
 
-    final_ST = isnothing(ST) ? calc_ST(; sal).ST : ST
-    final_FT = isnothing(FT) ? calc_FT(; sal).FT : FT
+    fH_val = Helpers.calc_fH(temp_c, sal)
+    KH2S_surface = calc_KH2S(; temp_c, sal)
+    KNH3_surface = _apply(Val(:KNH3_method), KNH3_method; temp_c, sal)
 
-    # --- Standard KSO4 and KF ---
-    KSO4 = if KSO4_method == "Khoo"
-        res = Khoo_KS(; temp_c, sal); res isa Number ? res : res.KS
-    elseif KSO4_method == "WM13"
-        res = WM13_KS(; temp_c, sal); res isa Number ? res : res.KS
-    else # Default is Dickson
-        res = Dickson_KS(; temp_c, sal); res isa Number ? res : res.KS
-    end
+    KH2S_at_pressure = KH2S_surface * _pressure_factor(temp_c, pres_bar, pressure.KH2S)
+    KNH3_at_pressure = KNH3_surface * _pressure_factor(temp_c, pres_bar, pressure.KNH3)
 
-    kF = if KF_method == "Perez"
-        res = Perez_KF(; temp_c, sal); res isa Number ? res : res.KF
-    else
-        res = Dickson_KF(; temp_c, sal); res isa Number ? res : res.KF
-    end
-    kNH3   = KNH3_method == "Clegg" ? Clegg_KNH3(; temp_c, sal) : Millero_KNH3(; temp_c, sal)
-    
-    # --- Other Baseline Constants ---
-    k0   = calc_K0(; temp_c, sal).K0
-    fH_val   = Helpers.calc_fH(temp_c, sal)
-    kB   = calc_KB(; temp_c, sal, ST=final_ST, FT=final_FT, KS=KSO4, KF=kF).KB
-    kW   = calc_KW(; temp_c, sal).KW
-    kPs  = calc_KP(; temp_c, sal, fH=fH_val)
-    kH2S = calc_KH2S(; temp_c, sal)
-    
-    # Initialize K1, K2, KspA, KspC so they exist in memory
-    K1 = K2 = KspA = KspC = 1e-10
-
-    # Case 1
-    if K_method == "Roy 1993"
-
-        # Calculate K1 & K2
-        (; K1, K2) = Roy1993(; temp_c, sal, ST=final_ST, FT=final_FT, KS=KSO4, KF=kF)
-
-    # Case 2
-    elseif K_method == "GP 1989"
-
-        # Calculate K1 & K2
-        (; K1, K2) = GP1989(; temp_c, sal)
-
-    # Case 3
-    elseif K_method == "Hansson 1973"
-
-        # Calculate K1 & K2
-        (; K1, K2) = Hansson1973(; temp_c, sal)
-
-    # Case 4
-    elseif K_method == "DM 1987"
-
-        # Calculate K1 & K2
-        (; K1, K2) = DM1987(; temp_c, sal)
-
-    # Case 5
-    elseif K_method == "HM 1973"
-
-        # Calculate K1 & K2
-        (; K1, K2) = HM1973(; temp_c, sal)
-
-
-    # Case 6
-    elseif K_method == "Mehrbach 1973 A"
-        final_BT = isnothing(BT) ? case67_BT(; sal).BT : BT
-
-        (; K1, K2) = Mehrbach1973(; temp_c, sal, fH=fH_val)
-
-    # Case 7
-    elseif K_method == "Mehrbach 1973 B"
-        # Calculate fH first so it can be called later
-        fH_val = case7_fH(; temp_c, sal).fH
-
-        (; K1, K2) = Mehrbach1973(; temp_c, sal, fH=fH_val)
-
-
-    # Case 8
-    elseif K_method == "Millero 1979"
-
-        # Calculate fH first so it can be called later
-        fH_val = case8_fH(; temp_c, sal).fH
-
-        # Start by calculating BT, ST and FT if not already passed by user
-        final_BT = isnothing(BT) ? case8_BT(; sal).BT : BT
-
-        # Calculate other constants
-        kB = case8_KB(; temp_c, sal, fH_val).KB
-        kW = case8_KW(; temp_c, sal).KW
-        kPs = case68_KP(; temp_c, sal, fH_val)
-
-        # Calculate K1 & K2
-        (; K1, K2) = Millero1979(; temp_c, sal)
-
-
-    # Case 9
-    elseif K_method == "CW 2003"
-
-        # Calculate K1 & K2
-        (; K1, K2) = CW2003(; temp_c, sal, fH=fH_val)
-    
-
-    # Case 10
-    elseif K_method == "Lueker 2000"
-
-        # Calculate K1 & K2
-        (; K1, K2) = Lueker2000(; temp_c, sal, ST=final_ST, FT=final_FT, KS=KSO4, KF=kF)
-
-
-    # Case 11
-    elseif K_method == "MPM 2002"
-
-        # Calculate K1 & K2
-        (; K1, K2) = MPM2002(; temp_c, sal)
-
-    # Case 12
-    elseif K_method == "Millero 2002"
-
-        # Calculate K1 & K2
-        (; K1, K2) = Millero2002(; temp_c, sal)
-
-    # Case 13
-    elseif K_method == "Millero 2006"
-
-        # Calculate K1 & K2
-        (; K1, K2) = Millero2006(; temp_c, sal)
-
-
-    # Case 14
-    elseif K_method == "Millero 2010"
-
-        # Calculate K1 & K2
-        (; K1, K2) = Millero2010(; temp_c, sal)
-
-      
-    # Case 15
-    elseif K_method == "Waters 2014"
-
-        # Calculate K1 & K2
-        (; K1, K2) = Waters2014(; temp_c, sal)
-    
-
-    # Case 16
-    elseif K_method == "SB 2020"
-
-        # Calculate K1 & K2
-        (; K1, K2) = SB2020(; temp_c, sal, ST=final_ST, FT=final_FT, KS=KSO4, KF=kF)
-
-
-    # Case 17
-    elseif K_method == "Papadimitriou 2018"
-
-        # Calculate K1 & K2
-        (; K1, K2) = Papadimitriou2018(; temp_c, sal, ST=final_ST, FT=final_FT, KS=KSO4, KF=kF)
-
-
-    # Case # 18
-    elseif K_method == "Sulpis 2020"
-
-        # Calculate K1 & K2
-        (; K1, K2) = Sulpis2020(; temp_c, sal, ST=final_ST, FT=final_FT, KS=KSO4, KF=kF)
-
-
-    # MyAMI case
-    elseif K_method == "MyAMI"
-
+    if K_method == "MyAMI"
         # final_ST, final_FT and final_BT are the ones computed above, which honour any
         # explicitly supplied totals and the choice of BT_method. This branch used to
         # recompute them from a second, disagreeing set of formulas, which silently
@@ -1218,8 +1347,8 @@ function K_calculator(; temp_c, sal, pres_bar=0.0, ST=nothing, FT=nothing,
         # Julia cannot broadcast keyword arguments, so this is the form that survives if
         # this branch is ever handed arrays directly. sulphate/fluorine/MyAMI_mode are
         # keyword-only in Kgen and stay that way.
-        # Kgen owns the pressure correction here, hence the pres_bar pass-through and the
-        # MyAMI exclusions from the correction blocks below.
+        # Kgen owns the pressure correction, hence the pres_bar pass-through here and the
+        # absence of any correction block on this path.
         Ks = Kgen.calc_Ks(
             temp_c, sal, pres_bar, Mg_val, Ca_val;
             sulphate = final_ST,
@@ -1227,178 +1356,80 @@ function K_calculator(; temp_c, sal, pres_bar=0.0, ST=nothing, FT=nothing,
             MyAMI_mode = mode_val
         )
 
+        # Kgen's bundle is on the total scale, so KNH3 has to be converted onto it just as it
+        # is below — using Kgen's own KS and KF, which are the ones this bundle describes.
+        # This path used to skip the conversion entirely, leaving the default KNH3 about
+        # 2.2 % high; it reaches a result only through NH4T, which defaults to zero.
+        sws_factor = SWStoTOT(ST = final_ST, FT = final_FT, KS = Ks.KS, KF = Ks.KF)
+        knh3_mult = _to_total_mult(_native_scale(Val(:KNH3_method), KNH3_method),
+                                   sws_factor, fH_val)
+
+        final_Ks = merge(Ks, (KH2S = KH2S_at_pressure,
+                              KNH3 = KNH3_at_pressure * knh3_mult))
     else
-        throw(ArgumentError("Unknown K_method: $K_method"))
+        # --- The surface environment the parameterisation is a correction to ---
+        # `_surface` throughout: these are 1 atm values, not the ones that end up in the
+        # bundle. K0 is the exception that never gets corrected, following CO2SYS.
+        KS_surface = _apply(Val(:KSO4_method), KSO4_method; temp_c, sal).KS
+        KF_surface = _apply(Val(:KF_method), KF_method; temp_c, sal).KF
+        K0         = calc_K0(; temp_c, sal).K0
+        KB_surface = calc_KB(; temp_c, sal, ST = final_ST, FT = final_FT,
+                             KS = KS_surface, KF = KF_surface).KB
+        KW_surface = calc_KW(; temp_c, sal).KW
+        nutrients  = calc_KP(; temp_c, sal, fH = fH_val)
 
-    end
-
-
-    # Accounting for pressure corrections
-    P = pres_bar # in bars
-    RGasConstant = 83.14472 # was 83.14462618 ml bar-1 K-1 mol-1, DOEv2, changed to match CO2SYS
-    RT = RGasConstant * (temp_c + 273.15)
-
-    # Case 8
-    if K_method == "Millero 1979" # Correction method from Millero 1983
-        deltaV1 = -30.54 + 0.1849 * temp_c - 0.0023366 * temp_c^2
-        Kappa1 = (-5.74 + 0.093 * temp_c - 0.001896 * temp_c^2) / 1000
-        lnK1_fact = (-deltaV1 + 0.5 * Kappa1 * P) * P / RT
-
-        deltaV2 = -29.81 + 0.115 * temp_c - 0.001816 * temp_c^2
-        Kappa2 = (-5.74 + 0.093 * temp_c - 0.001896 * temp_c^2) / 1000
-        lnK2_fact = (-deltaV2 + 0.5 * Kappa2 * P) * P / RT
-
-        lnKB_fact = 0 # this doesn't matter since TB = 0 for this case
-
-    # For all others (besides MyAMI, which handles its own pressure corrections)
-    elseif !(K_method == "MyAMI")
-        # These are from Millero, 1995.
-        # They are the same as Millero, 1979 and Millero, 1992.
-        # They are from data of Culberson and Pytkowicz, 1968.
-        deltaV1 = -25.5 + 0.1271 * temp_c
-        Kappa1 = (-3.08 + 0.0877 * temp_c) / 1000
-        lnK1_fact = (-deltaV1 + 0.5 * Kappa1 * P) * P / RT
-        # These are from Millero, 1995.
-        # They are the same as Millero, 1979 and Millero, 1992.
-        # They are from data of Culberson and Pytkowicz, 1968.
-        deltaV2 = -15.82 - 0.0219 * temp_c
-        Kappa2 = (1.13 - 0.1475 * temp_c) / 1000
-        lnK2_fact = (-deltaV2 + 0.5 * Kappa2 * P) * P / RT
-        # This is from Millero, 1979.
-        # It is from data of Culberson and Pytkowicz, 1968.
-        deltaVB = -29.48 + 0.1622 * temp_c - 0.002608 * temp_c^2
-        KappaB = -2.84 / 1000
-        lnKB_fact = (-deltaVB + 0.5 * KappaB * P) * P / RT
-
-    end 
-
-    # Pressure corrections for KW
-    # Case 8 (freshwater)
-    if K_method == "Millero 1979"
-        deltaVW = -25.6 + 0.2324 * temp_c - 0.0036246 * temp_c^2
-        KappaW = (-7.33 + 0.1368 * temp_c - 0.001233 * temp_c^2) / 1000
-        lnKW_fact = ((-deltaVW + 0.5 * KappaW * P) * P / RT)
-
-    elseif K_method ∉ ["MyAMI"]
-        deltaVW = -20.02 + 0.1119 * temp_c - 0.001409 * temp_c^2
-        KappaW = (-5.13 + 0.0794 * temp_c) / 1000
-        lnKW_fact = (-deltaVW + 0.5 * KappaW * P) * P / RT
-    end 
-    
-    # Corrections for KF, KS, KP, and KSi (same for all methods)
-    # This is from Millero, 1995, which is the same as Millero, 1983.
-    # It is assumed that KF is on the free pH scale.
-    deltaVF = -9.78 - 0.009 * temp_c - 0.000942 * temp_c^2
-    KappaF = (-3.91 + 0.054 * temp_c) / 1000
-    lnKF_fact = (-deltaVF + 0.5 * KappaF * P) * P / RT
-    # This is from Millero, 1995, which is the same as Millero, 1983.
-    # It is assumed that KS is on the free pH scale.
-    deltaVS = -18.03 + 0.0466 * temp_c + 0.000316 * temp_c^2
-    KappaS = (-4.53 + 0.09 * temp_c) / 1000
-    lnKS_fact = (-deltaVS + 0.5 * KappaS * P) * P / RT
-    # The corrections for KP1, KP2, and KP3 are from Millero, 1995, which are the
-    # same as Millero, 1983.
-    deltaVP1 = -14.51 + 0.1211 * temp_c - 0.000321 * temp_c^2
-    KappaP1 = (-2.67 + 0.0427 * temp_c) / 1000
-    lnKP1_fact = (-deltaVP1 + 0.5 * KappaP1 * P) * P / RT
-
-    deltaVP2 = -23.12 + 0.1758 * temp_c - 0.002647 * temp_c^2
-    KappaP2 = (-5.15 + 0.09 * temp_c) / 1000
-    lnKP2_fact = (-deltaVP2 + 0.5 * KappaP2 * P) * P / RT
-
-    deltaVP3 = -26.57 + 0.202 * temp_c - 0.003042 * temp_c^2
-    KappaP3 = (-4.08 + 0.0714 * temp_c) / 1000
-    lnKP3_fact = (-deltaVP3 + 0.5 * KappaP3 * P) * P / RT
-
-    deltaVSi = -29.48 + 0.1622 * temp_c - 0.002608 * temp_c^2
-    KappaSi = -2.84 / 1000
-    lnKSi_fact = (-deltaVSi + 0.5 * KappaSi * P) * P / RT
-
-    # Corrections for KspA and KspC from Millero 1995:
-    deltaVC = -48.76 + 0.5304 * temp_c
-    KappaC = -11.76e-3 + 0.3692e-3 * temp_c
-    lnKspC_fact = ((-deltaVC + 0.5 * KappaC * P) * P) / RT
-
-    deltaVA = -46.0 + 0.5304 * temp_c
-    KappaA = -11.76e-3 + 0.3692e-3 * temp_c
-    lnKspA_fact = ((-deltaVA + 0.5 * KappaA * P) * P) / RT
-
-
-    # Pressure corrections for KNH4 and KH2S
-    deltaVH2S = -11.07 - 0.009 * temp_c - 0.000942 * temp_c^2
-    KappaH2S = (-2.89 + 0.054 * temp_c) / 1000
-    lnKH2S_fact = ((-deltaVH2S + 0.5 * KappaH2S * P) * P) / RT
-
-    deltaVNH3 = -26.43 + 0.0889 * temp_c - 0.000905 * temp_c^2
-    KappaNH3 = (-5.03 + 0.0814 * temp_c) / 1000
-    lnKNH3_fact = ((-deltaVNH3 + 0.5 * KappaNH3 * P) * P) / RT
-
-
-    # 1. FIRST, calculate the pressure-corrected KS and KF
-    KS_press = KSO4 * exp(lnKS_fact)
-    KF_press = kF * exp(lnKF_fact)
-
-    # 2. THEN, calculate the sws_factor using those pressure-corrected values
-    sws_factor = SWStoTOT(ST=final_ST, FT=final_FT, KS=KS_press, KF=KF_press)
-
-# 3. Determine native pH scales
-    sws_native_methods = [
-        "GP 1989", "DM 1987", "Hansson 1973",
-        "Mehrbach 1973 A", "Mehrbach 1973 B", 
-        "MPM 2002", "Millero 2002", "Millero 2006", "Millero 2010",
-        "Waters 2014", "HM 1973", "CW 2003"
-    ]
-    
-    nbs_native_methods = ["Millero 1979"]
-    KB_sws_native_methods = []
-
-    K1_total = K1
-    K2_total = K2
-    KB_total = kB
-    kH2S_tot = kH2S
-    kNH3_tot = kNH3
-
-    # Calculate scale conversion multipliers
-    # If SWS, we just need sws_factor. If NBS, we need fH * sws_factor
-    function get_scale_mult(method, sws_list, nbs_list, sws_fac, fH)
-        if method in sws_list
-            return sws_fac
-        elseif method in nbs_list
-            return sws_fac / fH
-        else
-            return 1.0 # Already Total
+        # Three parameterisations refit part of that surface environment before their K1/K2
+        # can be used. They are spelled out because each replaces a different set; the other
+        # fifteen need nothing but the lookup. Note that `nutrients` above keeps the baseline
+        # fH even where fH is refitted here — only Millero 1979 replaces those constants.
+        if K_method == "Mehrbach 1973 A"
+            final_BT = isnothing(BT) ? case67_BT(; sal).BT : BT
+        elseif K_method == "Mehrbach 1973 B"
+            fH_val = case7_fH(; temp_c, sal).fH
+        elseif K_method == "Millero 1979"
+            # Freshwater, so boron and the nutrient constants go to zero rather than being
+            # rescaled.
+            fH_val = case8_fH(; temp_c, sal).fH
+            final_BT = isnothing(BT) ? case8_BT(; sal).BT : BT
+            KB_surface = case8_KB(; temp_c, sal, fH_val).KB
+            KW_surface = case8_KW(; temp_c, sal).KW
+            nutrients = case68_KP(; temp_c, sal, fH_val)
         end
-    end
 
-    k1k2_mult = get_scale_mult(K_method, sws_native_methods, nbs_native_methods, sws_factor, fH_val)
-    kb_mult   = get_scale_mult(K_method, KB_sws_native_methods, [], sws_factor, fH_val)
-    # If Millero KNH3 is SWS, we multiply by sws_factor to get to Total
-    knh3_mult = (KNH3_method == "Millero") ? sws_factor : 1.0
-    kh2s_mult = 1.0 # Already Total based on your notes
+        (; K1, K2) = _apply(Val(:K_method), K_method; temp_c, sal, ST = final_ST,
+                            FT = final_FT, KS = KS_surface, KF = KF_surface, fH = fH_val)
 
-    # 4. Apply pressure corrections, THEN apply the scale shift
-    if K_method == "MyAMI"
-        final_Ks = merge(Ks, (
-            KH2S = kH2S_tot * exp(lnKH2S_fact),
-            KNH3 = kNH3_tot * exp(lnKNH3_fact)
-        ))
-    else
+        # --- Onto the total pH scale ---
+        # KS and KF are pressure-corrected first, because the seawater-to-total factor is
+        # built from the corrected values, not the surface ones.
+        KS = KS_surface * _pressure_factor(temp_c, pres_bar, pressure.KS)
+        KF = KF_surface * _pressure_factor(temp_c, pres_bar, pressure.KF)
+        sws_factor = SWStoTOT(ST = final_ST, FT = final_FT, KS = KS, KF = KF)
+
+        # KB and KH2S carry no multiplier because every parameterisation of them here is
+        # total-scale native. K1/K2 and KNH3 read theirs off the table.
+        k1k2_mult = _to_total_mult(_native_scale(Val(:K_method), K_method), sws_factor, fH_val)
+        knh3_mult = _to_total_mult(_native_scale(Val(:KNH3_method), KNH3_method),
+                                   sws_factor, fH_val)
+
         final_Ks = (
-            K1 = (K1_total * exp(lnK1_fact)) * k1k2_mult,
-            K2 = (K2_total * exp(lnK2_fact)) * k1k2_mult,
-            K0 = k0,
-            KB = (KB_total * exp(lnKB_fact)) * kb_mult, 
-            KS = KS_press,
-            KF = KF_press,
-            KH2S = (kH2S_tot * exp(lnKH2S_fact)) * kh2s_mult,
-            KW   = (kW * exp(lnKW_fact)) * sws_factor,
-            KP1  = (kPs.KP1 * exp(lnKP1_fact)) * sws_factor,
-            KP2  = (kPs.KP2 * exp(lnKP2_fact)) * sws_factor,
-            KP3  = (kPs.KP3 * exp(lnKP3_fact)) * sws_factor,
-            KSi  = (kPs.KSi * exp(lnKSi_fact)) * sws_factor,
-            KNH3 = (kNH3 * exp(lnKNH3_fact)) * knh3_mult,
-            KspA = calc_KspA(temp_c=temp_c, sal=sal).KspA * exp(lnKspA_fact),
-            KspC = calc_KspC(temp_c=temp_c, sal=sal).KspC * exp(lnKspC_fact)
+            K1 = (K1 * _pressure_factor(temp_c, pres_bar, pressure.K1)) * k1k2_mult,
+            K2 = (K2 * _pressure_factor(temp_c, pres_bar, pressure.K2)) * k1k2_mult,
+            K0 = K0,
+            KB = KB_surface * _pressure_factor(temp_c, pres_bar, pressure.KB),
+            KS = KS,
+            KF = KF,
+            KH2S = KH2S_at_pressure,
+            KW   = (KW_surface * _pressure_factor(temp_c, pres_bar, pressure.KW)) * sws_factor,
+            KP1  = (nutrients.KP1 * _pressure_factor(temp_c, pres_bar, pressure.KP1)) * sws_factor,
+            KP2  = (nutrients.KP2 * _pressure_factor(temp_c, pres_bar, pressure.KP2)) * sws_factor,
+            KP3  = (nutrients.KP3 * _pressure_factor(temp_c, pres_bar, pressure.KP3)) * sws_factor,
+            KSi  = (nutrients.KSi * _pressure_factor(temp_c, pres_bar, pressure.KSi)) * sws_factor,
+            KNH3 = KNH3_at_pressure * knh3_mult,
+            KspA = calc_KspA(temp_c = temp_c, sal = sal).KspA *
+                   _pressure_factor(temp_c, pres_bar, pressure.KspA),
+            KspC = calc_KspC(temp_c = temp_c, sal = sal).KspC *
+                   _pressure_factor(temp_c, pres_bar, pressure.KspC)
         )
     end
 
@@ -1426,5 +1457,5 @@ function K_calculator(; temp_c, sal, pres_bar=0.0, ST=nothing, FT=nothing,
 
 end
 
-export K_calculator
+export calculate_constants
 end # module
