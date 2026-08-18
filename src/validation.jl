@@ -78,14 +78,31 @@ end
 # accepts them; `carbon_system` takes `BT` alone, so for that function the carbon groups are
 # the whole story and any boron speciation name is rejected as unrecognised first.
 
-"Names supplied for each group, as `group => [names...]`, omitting groups with none."
-function _supplied_by_group(inputs::NamedTuple)
-    supplied = Pair{Symbol,Vector{Symbol}}[]
-    for (group, members) in pairs(PARAMETER_GROUPS)
-        present = [m for m in members if haskey(inputs, m) && !isnothing(inputs[m])]
-        isempty(present) || push!(supplied, group => present)
+"How many of a group's member names `inputs` supplies."
+function _supplied_in_group(inputs::NamedTuple, members)
+    n = 0
+    for name in members
+        haskey(inputs, name) && !isnothing(inputs[name]) && (n += 1)
     end
-    return supplied
+    return n
+end
+
+"""
+The member names of `members` that `inputs` supplies.
+
+Only called to build an error message, never on the path of a successful calculation, so it
+is free to allocate.
+"""
+_supplied_names(inputs::NamedTuple, members) =
+    [name for name in members if haskey(inputs, name) && !isnothing(inputs[name])]
+
+"The one name supplied for each group that has exactly one, for error messages."
+function _supplied_names(inputs::NamedTuple)
+    names = Symbol[]
+    for (_, members) in pairs(PARAMETER_GROUPS)
+        append!(names, _supplied_names(inputs, members))
+    end
+    return names
 end
 
 """
@@ -105,30 +122,39 @@ case usefully, listing the boron and isotope routes to a solution, and duplicati
 logic here would mean two places to keep in step.
 """
 function _check_determinacy(inputs::NamedTuple, entry_point; require_two::Bool)
-    supplied = _supplied_by_group(inputs)
+    # Counted without allocating, because this runs on every call. The first version built a
+    # Vector{Pair{Symbol,Vector{Symbol}}} to hold the same information and cost 7.6 µs - 24%
+    # of a whole `carbon_system` call, for a check that answers a yes/no question. Message
+    # construction is pushed onto the error paths, where allocation costs nothing.
+    groups = 0
+    for (group, members) in pairs(PARAMETER_GROUPS)
+        supplied = _supplied_in_group(inputs, members)
+        supplied == 0 && continue
 
-    for (group, present) in supplied
-        length(present) > 1 || continue
+        if supplied > 1
+            present = _supplied_names(inputs, members)
+            throw(ArgumentError(
+                "$(nameof(entry_point)) was given $(join(present, ", ")), which all " *
+                "describe $group. Supply one of them.\nThese are the same quantity " *
+                "expressed differently rather than independent measurements, so all but " *
+                "one would be silently ignored."
+            ))
+        end
+
+        groups += 1
+    end
+
+    if groups > 2
         throw(ArgumentError(
-            "$(nameof(entry_point)) was given $(join(present, ", ")), which all describe " *
-            "$group. Supply one of them.\nThese are the same quantity expressed " *
-            "differently rather than independent measurements, so all but one would be " *
-            "silently ignored."
+            "$(nameof(entry_point)) was given $groups parameters " *
+            "($(join(_supplied_names(inputs), ", "))); two determine the system.\n" *
+            "Drop one: the extra value would be discarded and recomputed, with nothing in " *
+            "the result to show that the supplied measurement disagreed."
         ))
     end
 
-    names = [only(present) for (_, present) in supplied]
-
-    if length(names) > 2
-        throw(ArgumentError(
-            "$(nameof(entry_point)) was given $(length(names)) parameters " *
-            "($(join(names, ", "))); two determine the system.\nDrop one: the extra value " *
-            "would be discarded and recomputed, with nothing in the result to show that " *
-            "the supplied measurement disagreed."
-        ))
-    end
-
-    if require_two && length(names) < 2
+    if require_two && groups < 2
+        names = _supplied_names(inputs)
         throw(ArgumentError(
             "$(nameof(entry_point)) needs two parameters to solve the system, but was " *
             "given $(isempty(names) ? "none" : "only $(only(names))").\nSupply two of: " *

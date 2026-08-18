@@ -23,7 +23,7 @@ salinity, `δBT` from modern seawater — so supplying one constrains nothing on
 the *speciated* member that carries the information.
 """
 const PARAMETER_GROUPS = (
-    pH    = (:pH, :pHtot, :pHsws, :pHfree, :pHNBS),
+    pH    = (:pHtot, :pHsws, :pHfree, :pHNBS),
     CO₂   = (:CO₂, :pCO₂, :fCO₂),
     CO₃   = (:CO₃, :ΩA, :ΩC),
     HCO₃  = (:HCO₃,),
@@ -122,37 +122,21 @@ _to_mol(v, m) = isnothing(v) ? nothing : v / m
 _to_atm(v) = isnothing(v) ? nothing : v / 1e6
 
 """
-Every concentration that is held internally in mol/kg and must be converted back to the
-caller's unit on the way out.
-
-One list for both systems. It used to be written out separately in each core, and the
-carbon copy was missing `Alk_H2S` and `Alk_NH3` — so at `unit="mmol"` those two came back
-in mol/kg while every other concentration in the same result was in mmol/kg, a factor of
-1000 apart. Keys absent from a given system are skipped.
+Every concentration held internally in mol/kg that must be converted back to the caller's
+unit on the way out.
 """
-const CONCENTRATION_KEYS = (:DIC, :TA, :BT, :CO₂, :HCO₃, :CO₃, :PT, :SiT, :BOH₃, :BOH₄,
-                            :CAlk, :BAlk, :PAlk, :OH, :SiAlk, :HSO₄, :Hfree, :HF,
-                            :Alk_H2S, :Alk_NH3)
+const CARBON_CONCENTRATIONS = (:DIC, :TA, :BT, :CO₂, :HCO₃, :CO₃, :PT, :SiT,
+                               :CAlk, :BAlk, :PAlk, :OH, :SiAlk, :HSO₄, :Hfree, :HF,
+                               :Alk_H2S, :Alk_NH3)
+
+const WHOLE_CONCENTRATIONS = (CARBON_CONCENTRATIONS..., :BOH₃, :BOH₄)
 
 """
-    _to_total_scale(pH, pHtot, pHsws, pHfree, pHNBS, scale, env)
+    _to_total_scale(pHtot, pHsws, pHfree, pHNBS, env)
 
-Reduce whatever pH the caller gave, on whatever scale, to a single total-scale value.
-
-Everything inside the solvers works on the total scale, so this is the one place a scale
-conversion happens on the way in — and `_from_total_scale` the one place on the way out.
+Reduce whichever pH the caller gave to a single total-scale value.
 """
-function _to_total_scale(pH, pHtot, pHsws, pHfree, pHNBS, scale, env)
-    # A generic `pH` means "on the scale named by `scale`".
-    if !isnothing(pH) && isnothing(pHtot) && isnothing(pHsws) && isnothing(pHfree) &&
-       isnothing(pHNBS)
-        named = lowercase(scale)
-        named == "total" && (pHtot = pH)
-        named == "sws" && (pHsws = pH)
-        named == "free" && (pHfree = pH)
-        named == "nbs" && (pHNBS = pH)
-    end
-
+function _to_total_scale(pHtot, pHsws, pHfree, pHNBS, env)
     if isnothing(pHtot)
         if !isnothing(pHsws)
             pHtot = pHsws - log10(env.ts_fac)
@@ -222,36 +206,26 @@ function _saturation_states(ps)
 end
 
 """
-Convert concentrations from the internal mol/kg back to the caller's unit.
+    _rescale_to_unit(ps, m, keys)
 
-`DIC`, `TA` and `BT` are left alone when already greater than 1.0: they can be supplied
-either in the caller's unit or as mol/kg, and a value above 1 mol/kg is not physical, so it
-must already have been converted.
+Convert every concentration in `keys` from the internal mol/kg back to the caller's unit.
 """
-function _rescale_to_unit(ps, m)
+function _rescale_to_unit(ps, m, keys::NTuple{N,Symbol}) where {N}
     m == 1 && return ps
-
-    rescaled = (; [
-        begin
-            value = getfield(ps, k)
-            if isnothing(value)
-                k => nothing
-            elseif (k === :BT || k === :DIC || k === :TA) && value > 1.0
-                k => value
-            else
-                k => value * m
-            end
-        end for k in CONCENTRATION_KEYS if hasproperty(ps, k)
-    ]...)
-
-    return merge(ps, rescaled)
+    scaled = map(k -> (v = getfield(ps, k); isnothing(v) ? nothing : v * m), keys)
+    return merge(ps, NamedTuple{keys}(scaled))
 end
 
 "Gases are held internally in atm and reported in µatm."
 _rescale_gases(ps) = (pCO₂ = ps.pCO₂ * 1e6, fCO₂ = ps.fCO₂ * 1e6)
 
-"Drop the internal bookkeeping that is not part of the result."
-function _finalise(ps)
-    keys_to_keep = Tuple(k for k in keys(ps) if k != :scale)
-    return NamedTuple{keys_to_keep}(ps)
-end
+"""
+Lift the two non-numeric entries out of the computed state.
+
+`val` on a result holds numbers only, so `Ks` and `unit` are returned separately for the
+wrapper to store as their own fields. Everything else in `ps` is a concentration, a
+condition or a derived quantity.
+
+Returns `(values, Ks, unit)`.
+"""
+_split_metadata(ps) = (Base.structdiff(ps, NamedTuple{(:Ks, :unit)}), ps.Ks, ps.unit)

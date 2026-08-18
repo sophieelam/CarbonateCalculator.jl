@@ -81,7 +81,7 @@ end
         # overrides that CO2SYS applies under those options were removed: they were
         # unreachable from the public API and did not improve agreement with PyCO2SYS
         env = (temp_c=row.TEMPIN, sal=row.SAL, pres_bar=p_val, PT=row.PO4, SiT=row.SI, 
-               H2ST=row.H2S, NH4T=row.NH4, unit="umol", scale=scale_name_map[scale_in], 
+               H2ST=row.H2S, NH4T=row.NH4, unit="umol", 
                K_method=k_method, KF_method=kf_method, KSO4_method=kso4_method, BT_method=b_method)
 
         # Mapping inputs (accounting for historical pCO2->fCO2 overrides in Mehrbach)

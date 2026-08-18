@@ -41,7 +41,7 @@ function _print_dynamic_vars(io, r)
     # --- Unit & Precision Handling ---
     # --- Unit & Precision Handling ---
     # We check if :unit exists, and convert it to string to handle Symbols or Strings
-    raw_unit = haskey(r.val, :unit) ? string(r.val[:unit]) : "umol"
+    raw_unit = r.unit
     
     if raw_unit == "mol" || raw_unit == "mol/kg"
         unit_label = "mol/kg"

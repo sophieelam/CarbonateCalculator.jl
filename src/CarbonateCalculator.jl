@@ -103,11 +103,11 @@ Returns
 NamedTuple containing all calculated parameters
 """
 function carbon_system_core(;
-    pH=nothing, pHtot=nothing, DIC=nothing, TA=nothing, CO₂=nothing, HCO₃=nothing,
+    pHtot=nothing, DIC=nothing, TA=nothing, CO₂=nothing, HCO₃=nothing,
     CO₃=nothing, pCO₂=nothing, fCO₂=nothing, BT=nothing, Ca=nothing,
     Mg=nothing, temp_c=25.0, sal=35.0,
     pres_bar=0.0, PT=0.0, SiT=0.0, H2ST=0.0, NH4T=0.0, ST=nothing, FT=nothing,
-    pHsws=nothing, pHfree=nothing, pHNBS=nothing, unit="umol", scale="total", Ks=nothing,
+    pHsws=nothing, pHfree=nothing, pHNBS=nothing, unit="umol", Ks=nothing,
     ΩC=nothing, ΩA=nothing, MyAMI_mode="approximate",
     K_method="default", KSO4_method="default", BT_method="default", 
     KF_method="default", KNH3_method="default",
@@ -126,7 +126,7 @@ function carbon_system_core(;
                                        K_method, KSO4_method, BT_method, KF_method,
                                        KNH3_method, Ca_method, MyAMI_mode) : Ks
 
-    pHtot = _to_total_scale(pH, pHtot, pHsws, pHfree, pHNBS, scale, env)
+    pHtot = _to_total_scale(pHtot, pHsws, pHfree, pHNBS, env)
 
     ps = (;
         kwargs...,
@@ -149,12 +149,10 @@ function carbon_system_core(;
         temp_c = temp_c,
         pres_bar = pres_bar,
         sal = sal,
-        pH = nothing,     # Explicitly clear generic pH
         pHtot = pHtot,
         pHfree = nothing, # Cleared to prevent inner solvers from touching them
         pHsws = nothing,
         pHNBS = nothing,
-        scale = "total",  # Force the internal scale to be total
         unit = unit,
         Ks = env.Ks
     )
@@ -171,10 +169,10 @@ function carbon_system_core(;
     ps = merge(ps, (revelle_factor = rf,))
     ps = merge(ps, _saturation_states(ps))
 
-    ps = _rescale_to_unit(ps, m)
+    ps = _rescale_to_unit(ps, m, CARBON_CONCENTRATIONS)
     ps = merge(ps, _rescale_gases(ps))
 
-    return _finalise(ps)
+    return ps
 end
 
 
@@ -298,7 +296,7 @@ end
     # requires one of BT/BOH₃/BOH₄ to be given.
     BT_value = isnothing(BT) ? env.BT * 1e6 : env.BT
 
-    pHtot = _to_total_scale(nothing, pHtot, pHsws, pHfree, pHNBS, "total", env)
+    pHtot = _to_total_scale(pHtot, pHsws, pHfree, pHNBS, env)
 
     ps = (
         BT = BT_value,
@@ -479,7 +477,7 @@ function boron_isotopes(;
 
     BT_value = isnothing(BT) ? env.BT * 1e6 : env.BT
 
-    pHtot = _to_total_scale(nothing, pHtot, pHsws, pHfree, pHNBS, "total", env)
+    pHtot = _to_total_scale(pHtot, pHsws, pHfree, pHNBS, env)
 
     ps = (
         ST = env.ST,
@@ -644,13 +642,13 @@ NamedTuple containing all calculated parameters
 
 """
 function whole_system_core(;
-    pH=nothing, pHtot=nothing, DIC=nothing, TA=nothing, CO₂=nothing, HCO₃=nothing,
+    pHtot=nothing, DIC=nothing, TA=nothing, CO₂=nothing, HCO₃=nothing,
     CO₃=nothing, pCO₂=nothing, fCO₂=nothing, BT =nothing, BOH₃=nothing,
     BOH₄=nothing, ABT=nothing, ABOH₃=nothing, ABOH₄=nothing, δBT=nothing,
     δBOH₃=nothing, δBOH₄=nothing, alphaB=nothing, Ca=nothing,
     Mg=nothing, temp_c=25.0, sal=35.0,
     pres_bar=0.0, PT=0.0, SiT=0.0, H2ST=0.0, NH4T=0.0, ST=nothing, FT=nothing,
-    pHsws=nothing, pHfree=nothing, pHNBS=nothing, unit="umol", scale="total", Ks=nothing,
+    pHsws=nothing, pHfree=nothing, pHNBS=nothing, unit="umol", Ks=nothing,
     ΩC=nothing, ΩA=nothing, MyAMI_mode="approximate",
     K_method="default", KSO4_method="default", BT_method="default", 
     KF_method="default", KNH3_method="default", Ca_method="default",
@@ -670,7 +668,7 @@ function whole_system_core(;
                                        K_method, KSO4_method, BT_method, KF_method,
                                        KNH3_method, Ca_method, MyAMI_mode) : Ks
 
-    pHtot = _to_total_scale(pH, pHtot, pHsws, pHfree, pHNBS, scale, env)
+    pHtot = _to_total_scale(pHtot, pHsws, pHfree, pHNBS, env)
 
     ps = (;
         kwargs...,
@@ -703,23 +701,26 @@ function whole_system_core(;
         temp_c = temp_c,
         pres_bar = pres_bar,
         sal = sal,
-        pH = nothing,     # <-- Added to explicitly clear generic pH
         pHtot = pHtot,
         pHfree = nothing, # Cleared to prevent inner solvers from touching them
         pHsws = nothing,
         pHNBS = nothing,
-        scale = "total", # Force the internal scale to be total
         unit = unit,
         Ks = env.Ks
     )
 
-    alphaB   = !isnothing(get(ps, :alphaB, nothing))   ? ps.alphaB   : Isotopes.get_alphaB()
+    alphaB_val = something(ps.alphaB, Isotopes.get_alphaB())
     δBT_val = (isnothing(δBT) && isnothing(ABT)) ? Isotopes.get_δBT() : δBT
     ABT_val   = !isnothing(δBT_val)   ? Isotopes.δ11_to_A11(δBT_val)   : ABT
     ABOH₃_val = !isnothing(δBOH₃) ? Isotopes.δ11_to_A11(δBOH₃) : ABOH₃
     ABOH₄_val = !isnothing(δBOH₄) ? Isotopes.δ11_to_A11(δBOH₄) : ABOH₄
 
-    ps = merge(ps, (δBT = δBT_val, ABT = ABT_val, ABOH₃ = ABOH₃_val, ABOH₄ = ABOH₄_val))
+    # `alphaB` is stored, not just computed. It used to be resolved into a local that was
+    # never merged, so the fractionation factor actually applied - 1.0272 by default - was
+    # reported back as `nothing`. For δ¹¹B work that is the single most important parameter to
+    # have on the record: a result showing 27.7‰ of fractionation while claiming no αB.
+    ps = merge(ps, (alphaB = alphaB_val, δBT = δBT_val, ABT = ABT_val,
+                    ABOH₃ = ABOH₃_val, ABOH₄ = ABOH₄_val))
 
     ps = merge(ps, _resolve_gases(ps))
     ps = merge(ps, _omega_to_CO₃(ps, ΩA, ΩC))
@@ -760,10 +761,10 @@ function whole_system_core(;
     ps = merge(ps, (revelle_factor = rf,))
     ps = merge(ps, _saturation_states(ps))
 
-    ps = _rescale_to_unit(ps, m)
+    ps = _rescale_to_unit(ps, m, WHOLE_CONCENTRATIONS)
     ps = merge(ps, _rescale_gases(ps))
 
-    return _finalise(ps)
+    return ps
 end
 
 
@@ -777,11 +778,11 @@ If the `errors` NamedTuple is provided, returns propagated uncertainties.
 """
 function carbon_system(;
     errors=nothing, 
-    pH=nothing, pHtot=nothing, DIC=nothing, TA=nothing, CO₂=nothing, HCO₃=nothing,
+    pHtot=nothing, DIC=nothing, TA=nothing, CO₂=nothing, HCO₃=nothing,
     CO₃=nothing, pCO₂=nothing, fCO₂=nothing, BT=nothing, Ca=nothing,
     Mg=nothing, temp_c=25.0, sal=35.0,
     pres_bar=0.0, PT=0.0, SiT=0.0, H2ST=0.0, NH4T=0.0, ST=nothing, FT=nothing,
-    pHsws=nothing, pHfree=nothing, pHNBS=nothing, unit="umol", scale="total", Ks=nothing,
+    pHsws=nothing, pHfree=nothing, pHNBS=nothing, unit="umol", Ks=nothing,
     ΩC=nothing, ΩA=nothing, MyAMI_mode="approximate",
     K_method="default", KSO4_method="default", BT_method="default", 
     KF_method="default", KNH3_method="default",
@@ -791,11 +792,11 @@ function carbon_system(;
     _reject_unknown_arguments(kwargs, carbon_system)
 
     inputs_nt = (
-        pH=pH, pHtot=pHtot, DIC=DIC, TA=TA, CO₂=CO₂, HCO₃=HCO₃, CO₃=CO₃,
+        pHtot=pHtot, DIC=DIC, TA=TA, CO₂=CO₂, HCO₃=HCO₃, CO₃=CO₃,
         pCO₂=pCO₂, fCO₂=fCO₂, BT=BT, Ca=Ca, Mg=Mg, temp_c=temp_c,
         sal=sal, pres_bar=pres_bar, PT=PT, SiT=SiT,
         H2ST=H2ST, NH4T=NH4T, ST=ST, FT=FT, pHsws=pHsws, pHfree=pHfree, 
-        pHNBS=pHNBS, unit=unit, scale=scale, Ks=Ks, ΩC=ΩC,
+        pHNBS=pHNBS, unit=unit, Ks=Ks, ΩC=ΩC,
         ΩA=ΩA, MyAMI_mode=MyAMI_mode, K_method=K_method, KSO4_method=KSO4_method, 
         BT_method=BT_method, KF_method=KF_method,
         KNH3_method=KNH3_method, Ca_method=Ca_method
@@ -827,13 +828,13 @@ end
 
 function whole_system(;
     errors=nothing, 
-    pH=nothing, pHtot=nothing, DIC=nothing, TA=nothing, CO₂=nothing, HCO₃=nothing,
+    pHtot=nothing, DIC=nothing, TA=nothing, CO₂=nothing, HCO₃=nothing,
     CO₃=nothing, pCO₂=nothing, fCO₂=nothing, BT=nothing, BOH₃=nothing,
     BOH₄=nothing, ABT=nothing, ABOH₃=nothing, ABOH₄=nothing, δBT=nothing,
     δBOH₃=nothing, δBOH₄=nothing, alphaB=nothing, Ca=nothing,
     Mg=nothing, temp_c=25.0, sal=35.0,
     pres_bar=0.0, PT=0.0, SiT=0.0, H2ST=0.0, NH4T=0.0, ST=nothing, FT=nothing,
-    pHsws=nothing, pHfree=nothing, pHNBS=nothing, unit="umol", scale="total", Ks=nothing,
+    pHsws=nothing, pHfree=nothing, pHNBS=nothing, unit="umol", Ks=nothing,
     ΩC=nothing, ΩA=nothing, MyAMI_mode="approximate",
     K_method="default", KSO4_method="default", BT_method="default", 
     KF_method="default", KNH3_method="default", Ca_method="default",
@@ -844,13 +845,13 @@ function whole_system(;
     _reject_unknown_arguments(kwargs, whole_system)
 
     inputs_nt = (
-        pH=pH, pHtot=pHtot, DIC=DIC, TA=TA, CO₂=CO₂, HCO₃=HCO₃, CO₃=CO₃,
+        pHtot=pHtot, DIC=DIC, TA=TA, CO₂=CO₂, HCO₃=HCO₃, CO₃=CO₃,
         pCO₂=pCO₂, fCO₂=fCO₂, BT=BT, BOH₃=BOH₃, BOH₄=BOH₄, ABT=ABT,
         ABOH₃=ABOH₃, ABOH₄=ABOH₄, δBT=δBT, δBOH₃=δBOH₃, δBOH₄=δBOH₄, 
         alphaB=alphaB, Ca=Ca, Mg=Mg, temp_c=temp_c, sal=sal,
         pres_bar=pres_bar, PT=PT, SiT=SiT, H2ST=H2ST,
         NH4T=NH4T, ST=ST, FT=FT, pHsws=pHsws, pHfree=pHfree, pHNBS=pHNBS, 
-        unit=unit, scale=scale, Ks=Ks, ΩC=ΩC, ΩA=ΩA,
+        unit=unit, Ks=Ks, ΩC=ΩC, ΩA=ΩA,
         MyAMI_mode=MyAMI_mode, K_method=K_method, KSO4_method=KSO4_method, 
         BT_method=BT_method, KF_method=KF_method,
         KNH3_method=KNH3_method, Ca_method=Ca_method

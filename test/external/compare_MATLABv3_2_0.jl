@@ -102,7 +102,7 @@ end
         p_dbar = row.PRESIN / 10.0
 
         env = (temp_c=row.TEMPIN, sal=row.SAL, pres_bar=p_dbar, PT=row.PO4, SiT=row.SI, 
-               H2ST=row.H2S, NH4T=row.NH4, unit="umol", scale=current_scale_str, 
+               H2ST=row.H2S, NH4T=row.NH4, unit="umol", 
                K_method=k_method, KF_method=kf_method, KSO4_method=kso4_method, BT_method=b_method)
 
         if sym1 == :pH_temp; inputs[current_scale_sym] = val1; else; inputs[(sym1==:pCO₂ && is_mehrbach) ? :fCO₂ : sym1] = val1; end
