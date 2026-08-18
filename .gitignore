@@ -1,5 +1,3 @@
-test/data/
-test/CO2SYS_tests/results/
 *.zip
-test/GLODAPv2_pH_DIC_ALK_subset.csv\
-.CondaPkg/
+test/field_data/data/*
+test/refactor_baseline/current_*.tsv
