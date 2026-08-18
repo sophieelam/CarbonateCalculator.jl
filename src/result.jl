@@ -34,7 +34,8 @@ const RETIRED_ARGUMENTS = (
     # Chose between one K_method for a whole array and one per sample - but only inside
     # K_calculator's array branch, which the public entry points could never reach because
     # they reject arrays first. Both are gone; process many samples with a solver instead.
-    K_mode = "carbon_solver, which builds a scalar solver you can broadcast",
+    K_mode = "CarbonateSystem(:carbon; varying=(:TA, :DIC)), which builds a scalar " *
+             "solver you can broadcast",
     # A generic pH plus `scale` said exactly what the scale-specific arguments already say,
     # at the cost of a permanently-`nothing` `pH` output field and a setting that existed
     # only to disambiguate it. Nothing used it.

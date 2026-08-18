@@ -983,7 +983,7 @@ end
 # K_calculator is scalar. It used to carry an array branch, and a `K_mode` option choosing
 # between one method for a whole array ("static") and one per sample ("dynamic"), but
 # neither was reachable: the public entry points reject arrays before ever getting here.
-# To process many samples, build a solver once and broadcast it - see `carbon_solver`.
+# To process many samples, build a solver once and broadcast it - see `CarbonateSystem`.
 #
 # Possible options for KSO4_method are "Dickson", "Khoo", "WM13" or "default".
 # Default will be calculated as "Dickson" (reccomended by CO2SYS).
