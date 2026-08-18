@@ -74,8 +74,19 @@ Parameters
     "mol", "mmol", "umol", "nmol", "pmol", or "fmol".
     Default is "umol".
 * Ks: NamedTuple
-    Conatins named tuples of constants. Must contain:
-    "K1", "K2", "KB", and "KW".
+    A complete seawater environment, as returned by `K_calculator`: the equilibrium
+    constants in a `Ks` field, together with the totals (ST, FT, BT, Ca, Mg), fH and
+    the pH-scale factors computed alongside them. Supplying it skips the constant
+    calculation entirely.
+
+        env = K_calculator(; temp_c = 25.0, sal = 35.0, pres_bar = 0.0)
+        carbon_system(; TA = 2300.0, DIC = 2000.0, Ks = env)
+
+    Not the bare constants bundle. The constants and the totals must describe the
+    same water, because the pH-scale factors are built from both, so `env.Ks` alone
+    is rejected rather than silently combined with salinity-derived totals. This
+    entry previously said "must contain K1, K2, KB and KW", which is what led all
+    four field-data scripts to pass `env.Ks` and fail on every row.
     If none, Ks are calculated with the MyAMI model. Alternative Ks for non-
     seawater conditions are available in predefined NamedTuples. See file 
     "Constants" for details.
@@ -104,9 +115,16 @@ function carbon_system_core(;
 )
     m = _unit_multiplier(unit)
 
-    env = _resolve_environment(; Ks, temp_c, sal, pres_bar, ST, FT, BT, Ca, Mg, m,
-                               K_method, KSO4_method, BT_method, KF_method, KNH3_method,
-                               Ca_method, MyAMI_mode)
+    # BT is converted here with every other concentration, not inside the environment: it is
+    # input sanitisation, and it also matches K_calculator's own convention, whose BT_method
+    # fallbacks all return mol/kg.
+    BT = _clean(_to_mol(BT, m))
+
+    # K_calculator returns the complete environment - constants, totals, and the pH scale
+    # factors beside them - so a supplied `Ks` is used as-is and nothing is recombined.
+    env = isnothing(Ks) ? K_calculator(; temp_c, sal, pres_bar, ST, FT, BT, Ca, Mg,
+                                       K_method, KSO4_method, BT_method, KF_method,
+                                       KNH3_method, Ca_method, MyAMI_mode) : Ks
 
     pHtot = _to_total_scale(pH, pHtot, pHsws, pHfree, pHNBS, scale, env)
 
@@ -200,8 +218,19 @@ Parameters
     Pressure in Bar for the conditions that the measuremnts were taken in. Used
     in pressure-correcting constants. 
 * Ks: NamedTuple
-    Conatins named tuples of constants. Must contain:
-    "K1", "K2", "KB", and "KW".
+    A complete seawater environment, as returned by `K_calculator`: the equilibrium
+    constants in a `Ks` field, together with the totals (ST, FT, BT, Ca, Mg), fH and
+    the pH-scale factors computed alongside them. Supplying it skips the constant
+    calculation entirely.
+
+        env = K_calculator(; temp_c = 25.0, sal = 35.0, pres_bar = 0.0)
+        carbon_system(; TA = 2300.0, DIC = 2000.0, Ks = env)
+
+    Not the bare constants bundle. The constants and the totals must describe the
+    same water, because the pH-scale factors are built from both, so `env.Ks` alone
+    is rejected rather than silently combined with salinity-derived totals. This
+    entry previously said "must contain K1, K2, KB and KW", which is what led all
+    four field-data scripts to pass `env.Ks` and fail on every row.
     If none, Ks are calculated with teh MyAMI model. Alternative Ks for non-
     seawater conditions are available in predefined NamedTuples. See file 
     "Constants" for details.
@@ -242,58 +271,60 @@ if isnothing(δBT) && isnothing(δBOH₃) && isnothing(δBOH₄) && isnothing(AB
 end
 
 
-clean(x) = isnothing(x) ? nothing : (x < 0.0 ? NaN : x)
+    # Shared with the two cores, so the constants, the totals and the pH-scale conversion
+    # are resolved exactly one way in this package. This function used to compute its own
+    # ST/FT from salinity, call K_calculator itself, and convert pH scales through
+    # `Helpers.calc_pH_scale` - a second implementation of the same conversion, and the one
+    # the pHNBS sign error lived in.
+    #
+    # m = 1: boron_system has no `unit` argument. Speciation is linear in BT, so BOH₃ and
+    # BOH₄ come back in whatever unit BT went in.
+    # No `unit` argument here, so BT is used exactly as supplied and BOH₃/BOH₄ come back in
+    # the same unit - valid because the speciation is linear in BT.
+    BT = _clean(BT)
 
-ps = (
-        BT = clean(BT),
-        BOH₃ = clean(BOH₃),
-        BOH₄ = clean(BOH₄),
-        ST   = clean(isnothing(ST) ? Constants.calc_ST(; sal).ST : ST), # else from salinity
-        FT   = clean(isnothing(FT) ? Constants.calc_FT(; sal).FT : FT), # else from salinity
+    # K_calculator returns the complete environment - constants, totals, and the pH scale
+    # factors beside them - so a supplied `Ks` is used as-is and nothing is recombined.
+    env = isnothing(Ks) ? K_calculator(; temp_c, sal, pres_bar, ST, FT, BT, Ca, Mg,
+                                       K_method, KSO4_method, BT_method, KF_method,
+                                       KNH3_method, Ca_method, MyAMI_mode) : Ks
+
+    # A supplied BT is used as given. Without one, the salinity-derived value is reported in
+    # µmol/kg, matching what whole_system defaults to.
+    #
+    # This is the fix for a defect that made the function ignore its own primary input:
+    # `ps = merge(ps, new_Ks)` used to overwrite BT with K_calculator's salinity value, so
+    # BT=415.7, BT=300.0 and BT=500.0 all returned the same answer - in a function that
+    # requires one of BT/BOH₃/BOH₄ to be given.
+    BT_value = isnothing(BT) ? env.BT * 1e6 : env.BT
+
+    pHtot = _to_total_scale(nothing, pHtot, pHsws, pHfree, pHNBS, "total", env)
+
+    ps = (
+        BT = BT_value,
+        BOH₃ = _clean(BOH₃),
+        BOH₄ = _clean(BOH₄),
+        ST = env.ST,
+        FT = env.FT,
         δBT = δBT,
         δBOH₃ = δBOH₃,
         δBOH₄ = δBOH₄,
-        ABT = ABT, 
+        ABT = ABT,
         ABOH₃ = ABOH₃,
         ABOH₄ = ABOH₄,
         alphaB = alphaB,
-        Mg = Mg,
-        Ca = Ca,
+        Mg = env.Mg,
+        Ca = env.Ca,
+        fH = env.fH,
         temp_c = temp_c,
         pres_bar = pres_bar,
         sal = sal,
         pHtot = pHtot,
-        pHfree = pHfree,
-        pHsws = pHsws,
-        pHNBS = pHNBS
+        pHfree = nothing,
+        pHsws = nothing,
+        pHNBS = nothing,
+        Ks = env.Ks
     )
-
-    # If not provided, equilibrium constants are claculated with K calculator:
-    if isnothing(Ks)
-
-        # No `kwargs...` here: the guard above has already established it is empty.
-        new_Ks = K_calculator(; temp_c, sal, pres_bar, ST=nothing, FT=nothing,
-        BT=nothing, K_method=K_method, KSO4_method=KSO4_method,
-        BT_method=BT_method, KF_method=KF_method, KNH3_method=KNH3_method,
-        Ca_method=Ca_method, MyAMI_mode=MyAMI_mode, Ca=Ca, Mg=Mg)
-
-        ps = merge(ps, new_Ks)
-
-    else
-        Ks = Ks isa Dict ? NamedTuple(Ks) : Ks
-        ps = merge(ps, (; Ks=Ks))
-
-    end
-
-
-    # Calculate pH for all scales given an input pH value & scale:
-    pH_results = calc_pH_scale(
-        ps.pHtot, ps.pHfree, ps.pHsws, ps.pHNBS, ps.ST, ps.FT, ps.temp_c,
-        ps.sal, ps.Ks
-    )
-    if !isempty(pH_results)
-        ps = merge(ps, pH_results)
-    end
 
    # If pH is unknown, assign δBT value to calculate ABT, ABOH₃, and ABOH₄
     if isnothing(ps.pHtot)
@@ -321,25 +352,32 @@ ps = (
     species_results = B_calculator(; ps...)
     ps = merge(ps, species_results)
 
-    pH_results_final = calc_pH_scale(
-        ps.pHtot, ps.pHfree, ps.pHsws, ps.pHNBS, ps.ST, ps.FT, ps.temp_c,
-        ps.sal, ps.Ks
-    )
-    if !isempty(pH_results_final)
-        ps = merge(ps, pH_results_final)
-    end
+    ps = merge(ps, _from_total_scale(ps.pHtot, env))
 
-    # If any of the following parameters are known, recalculates boron isotope speciation
-    has_isotope_data = !isnothing(get(ps, :ABT, nothing)) || 
-                       !isnothing(get(ps, :ABOH₃, nothing)) || 
-                       !isnothing(get(ps, :ABOH₄, nothing)) ||
-                       !isnothing(get(ps, :δBOH₃, nothing)) || 
-                       !isnothing(get(ps, :δBOH₄, nothing))
-                       if has_isotope_data || !isnothing(get(ps, :δBT, nothing))
-        isotope_results_final = boron_isotopes(; ps...)
-        if !isempty(isotope_results_final)
-            ps = merge(ps, isotope_results_final)
-        end 
+    # Solve the isotope system and report it in both notations.
+    #
+    # This used to re-enter the public `boron_isotopes(; ps...)`, which resolved the whole
+    # environment a second time and handed `ps` - whose `Ks` is the bare constants bundle -
+    # to a function whose `Ks` means the environment. Done here instead: δ in, solve, δ out.
+    has_isotope_data = any(!isnothing, (ps.ABT, ps.ABOH₃, ps.ABOH₄, ps.δBOH₃, ps.δBOH₄))
+
+    if has_isotope_data || !isnothing(ps.δBT)
+        as_abundance(δ, A) = !isnothing(A) ? A :
+                             (isnothing(δ) ? nothing : Isotopes.δ11_to_A11(δ))
+
+        ps = merge(ps, (;
+            alphaB = something(ps.alphaB, Isotopes.get_alphaB()),
+            ABT = as_abundance(ps.δBT, ps.ABT),
+            ABOH₃ = as_abundance(ps.δBOH₃, ps.ABOH₃),
+            ABOH₄ = as_abundance(ps.δBOH₄, ps.ABOH₄),
+        ))
+        ps = merge(ps, calc_B_isotopes(; ps...))
+
+        ps = merge(ps, (;
+            δBT = !isnothing(δBT) ? δBT : A11_to_δ11(ps.ABT),
+            δBOH₃ = !isnothing(δBOH₃) ? δBOH₃ : A11_to_δ11(ps.ABOH₃),
+            δBOH₄ = !isnothing(δBOH₄) ? δBOH₄ : A11_to_δ11(ps.ABOH₄),
+        ))
     end
 
 
@@ -388,8 +426,19 @@ Parameters
     Pressure in Bar for the conditions that the measuremnts were taken in. Used
     in pressure-correcting constants. 
 * Ks: NamedTuple
-    Conatins named tuples of constants. Must contain:
-    "K1", "K2", "KB", and "KW".
+    A complete seawater environment, as returned by `K_calculator`: the equilibrium
+    constants in a `Ks` field, together with the totals (ST, FT, BT, Ca, Mg), fH and
+    the pH-scale factors computed alongside them. Supplying it skips the constant
+    calculation entirely.
+
+        env = K_calculator(; temp_c = 25.0, sal = 35.0, pres_bar = 0.0)
+        carbon_system(; TA = 2300.0, DIC = 2000.0, Ks = env)
+
+    Not the bare constants bundle. The constants and the totals must describe the
+    same water, because the pH-scale factors are built from both, so `env.Ks` alone
+    is rejected rather than silently combined with salinity-derived totals. This
+    entry previously said "must contain K1, K2, KB and KW", which is what led all
+    four field-data scripts to pass `env.Ks` and fail on every row.
     If none, Ks are calculated with teh MyAMI model. Alternative Ks for non-
     seawater conditions are available in predefined NamedTuples. See file 
     "Constants" for details.
@@ -416,56 +465,46 @@ function boron_isotopes(;
     kwargs...
 )
 
-clean(x) = isnothing(x) ? nothing : (x < 0.0 ? NaN : x)
+    # Shared with the cores; see the note in boron_system. m = 1 for the same reason: no
+    # `unit` argument, and the isotope ratios are dimensionless anyway.
+    # No `unit` argument here, so BT is used exactly as supplied and BOH₃/BOH₄ come back in
+    # the same unit - valid because the speciation is linear in BT.
+    BT = _clean(BT)
 
-ps = (
-        ST   = clean(isnothing(ST) ? Constants.calc_ST(; sal).ST : ST), # else from salinity
-        FT   = clean(isnothing(FT) ? Constants.calc_FT(; sal).FT : FT), # else from salinity
-        BT = clean(BT),
+    # K_calculator returns the complete environment - constants, totals, and the pH scale
+    # factors beside them - so a supplied `Ks` is used as-is and nothing is recombined.
+    env = isnothing(Ks) ? K_calculator(; temp_c, sal, pres_bar, ST, FT, BT, Ca, Mg,
+                                       K_method, KSO4_method, BT_method, KF_method,
+                                       KNH3_method, Ca_method, MyAMI_mode) : Ks
+
+    BT_value = isnothing(BT) ? env.BT * 1e6 : env.BT
+
+    pHtot = _to_total_scale(nothing, pHtot, pHsws, pHfree, pHNBS, "total", env)
+
+    ps = (
+        ST = env.ST,
+        FT = env.FT,
+        BT = BT_value,
         δBT = δBT,
         δBOH₃ = δBOH₃,
         δBOH₄ = δBOH₄,
-        ABT = ABT, 
+        ABT = ABT,
         ABOH₃ = ABOH₃,
         ABOH₄ = ABOH₄,
         alphaB = alphaB,
-        Mg = Mg,
-        Ca = Ca,
+        Mg = env.Mg,
+        Ca = env.Ca,
+        fH = env.fH,
         temp_c = temp_c,
         pres_bar = pres_bar,
         sal = sal,
         pHtot = pHtot,
-        pHfree = pHfree,
-        pHsws = pHsws,
-        pHNBS = pHNBS,
+        pHfree = nothing,
+        pHsws = nothing,
+        pHNBS = nothing,
+        Ks = env.Ks,
         kwargs...
     )
-
-# If not provided, equilibrium constants are claculated with K calculator:
-    if isnothing(Ks)
-
-        new_Ks = K_calculator(; temp_c, sal, pres_bar, ST=nothing, FT=nothing,
-        BT=nothing, K_method=K_method, KSO4_method=KSO4_method,
-        BT_method=BT_method, KF_method=KF_method, KNH3_method=KNH3_method,
-        Ca_method=Ca_method, MyAMI_mode=MyAMI_mode, Ca=Ca, Mg=Mg,
-        kwargs...)
-
-        ps = merge(ps, new_Ks)
-
-    else
-        Ks = Ks isa Dict ? NamedTuple(Ks) : Ks
-        ps = merge(ps, (; Ks=Ks))
-
-    end
-
-    # Calculate pH for all scales given an input pH value & scale:
-    pH_results = calc_pH_scale(
-        ps.pHtot, ps.pHfree, ps.pHsws, ps.pHNBS, ps.ST, ps.FT, ps.temp_c,
-        ps.sal, ps.Ks
-    )
-    if !isempty(pH_results)
-        ps = merge(ps, pH_results)
-    end
 
     # If δBT is known, calculates ABT
     val_ABT   = !isnothing(ABT) ? ABT : (!isnothing(δBT) ? Isotopes.δ11_to_A11(δBT) : nothing)
@@ -498,6 +537,9 @@ ps = (
     δBOH₄ = final_δBOH₄,
     ))
 
+    # Report the other three pH scales. `_to_total_scale` reduced whatever the caller gave to
+    # the total scale on the way in; this is the matching step on the way out.
+    ps = merge(ps, _from_total_scale(ps.pHtot, env))
 
     return ps
 
@@ -572,8 +614,19 @@ Parameters
     "mol", "mmol", "umol", "nmol", "pmol", or "fmol".
     Default is "umol".
 * Ks: NamedTuple
-    Conatins named tuples of constants. Must contain:
-    "K1", "K2", "KB", and "KW".
+    A complete seawater environment, as returned by `K_calculator`: the equilibrium
+    constants in a `Ks` field, together with the totals (ST, FT, BT, Ca, Mg), fH and
+    the pH-scale factors computed alongside them. Supplying it skips the constant
+    calculation entirely.
+
+        env = K_calculator(; temp_c = 25.0, sal = 35.0, pres_bar = 0.0)
+        carbon_system(; TA = 2300.0, DIC = 2000.0, Ks = env)
+
+    Not the bare constants bundle. The constants and the totals must describe the
+    same water, because the pH-scale factors are built from both, so `env.Ks` alone
+    is rejected rather than silently combined with salinity-derived totals. This
+    entry previously said "must contain K1, K2, KB and KW", which is what led all
+    four field-data scripts to pass `env.Ks` and fail on every row.
     If none, Ks are calculated with teh MyAMI model. Alternative Ks for non-
     seawater conditions are available in predefined NamedTuples. See file 
     "Constants" for details.
@@ -606,9 +659,16 @@ function whole_system_core(;
 
     m = _unit_multiplier(unit)
 
-    env = _resolve_environment(; Ks, temp_c, sal, pres_bar, ST, FT, BT, Ca, Mg, m,
-                               K_method, KSO4_method, BT_method, KF_method, KNH3_method,
-                               Ca_method, MyAMI_mode)
+    # BT is converted here with every other concentration, not inside the environment: it is
+    # input sanitisation, and it also matches K_calculator's own convention, whose BT_method
+    # fallbacks all return mol/kg.
+    BT = _clean(_to_mol(BT, m))
+
+    # K_calculator returns the complete environment - constants, totals, and the pH scale
+    # factors beside them - so a supplied `Ks` is used as-is and nothing is recombined.
+    env = isnothing(Ks) ? K_calculator(; temp_c, sal, pres_bar, ST, FT, BT, Ca, Mg,
+                                       K_method, KSO4_method, BT_method, KF_method,
+                                       KNH3_method, Ca_method, MyAMI_mode) : Ks
 
     pHtot = _to_total_scale(pH, pHtot, pHsws, pHfree, pHNBS, scale, env)
 
@@ -664,29 +724,27 @@ function whole_system_core(;
     ps = merge(ps, _resolve_gases(ps))
     ps = merge(ps, _omega_to_CO₃(ps, ΩA, ΩC))
 
-    C_count = count(!isnothing, (ps.DIC, ps.CO₂, ps.HCO₃, ps.CO₃))
-    B_count = count(!isnothing, (ps.BT, ps.BOH₃, ps.BOH₄))
-    iso_count = count(!isnothing, (ps.ABT,)) + count(!isnothing, (ps.ABOH₃, ps.ABOH₄))
+    # All three calculators run whatever the input; only the order changes, because pH is
+    # the unknown they share. `_first_solvable` reads the same table the input validation
+    # does, so the two cannot disagree about what determines the system. The branch costs
+    # nothing at run time - which parameters were supplied is type information, so the
+    # counts constant-fold and this resolves during specialisation.
+    solve_first = _first_solvable(ps)
 
-    if !isnothing(ps.pHtot) || B_count == 2
+    if solve_first === :boron
         ps = merge(ps, B_calculator(; ps...))
         ps = merge(ps, C_calculator(; ps...))
         ps = merge(ps, calc_B_isotopes(; ps...))
-    elseif iso_count == 2
+    elseif solve_first === :isotopes
         ps = merge(ps, calc_B_isotopes(; ps...))
         ps = merge(ps, B_calculator(; ps...))
         ps = merge(ps, C_calculator(; ps...))
-    elseif (C_count == 2) || ((C_count == 1) && (count(!isnothing, (ps.TA, ps.BT)) == 2))
+    elseif solve_first === :carbon
         ps = merge(ps, C_calculator(; ps...))
         ps = merge(ps, B_calculator(; ps...))
         ps = merge(ps, calc_B_isotopes(; ps...))
     else
-        throw(ArgumentError("""Impossible! You haven't provided enough information.
-                If you don't know pH, you must provide either:
-                - Two of [DIC, CO2, HCO3, CO3] and BT
-                - One of [DIC, CO2, HCO3, CO3], and TA and BT
-                - Two of [BT, BO3, BO4] and one of [DIC, CO2, HCO3, CO3]
-                - Two of [dBT, dBO3, dBO4] and one of [DIC, CO2, HCO3, CO3]"""))
+        throw(ArgumentError(_underdetermined_message()))
     end
 
     ps = merge(ps, _from_total_scale(ps.pHtot, env))

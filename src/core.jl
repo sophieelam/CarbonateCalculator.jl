@@ -1,15 +1,104 @@
 # The pipeline shared by `carbon_system_core` and `whole_system_core`.
 #
-# The two cores ran the same stages in the same order and differed only in the boron and
-# isotope block: 200 and 241 lines with 29 unique to the carbon one, and `carbon_system`'s
-# 40 output keys are a strict subset of `whole_system`'s 50. That duplication had already
-# produced two live defects by the time it was split out — `whole_system` could not take
-# ΩA/ΩC as inputs, and `carbon_system` did not unit-rescale `Alk_H2S`/`Alk_NH3` — each
-# present in one copy and not the other. Both are fixed here by there being one copy.
-#
 # The stages are named functions rather than one flag-driven core because the cores marked
 # them with comments (`# --- THE WAY IN ---`, `# Converting values back into their original
 # units`), which is the signal to split.
+
+# --- What determines the system -----------------------------------------------------
+#
+# One table, read by two things that must agree: the input validation in `validation.jl`,
+# and the solve-order dispatch in `whole_system_core`. They used to be separate encodings —
+# `PARAMETER_GROUPS` on one side, three hand-written `count(!isnothing, ...)` expressions
+# and a hand-maintained error message on the other.
+
+"""
+Parameters grouped by the degree of freedom each constrains.
+
+Two members of one group are not two measurements. pH on four scales is one measurement
+expressed four ways; ΩA and ΩC are both statements about [CO₃²⁻]; pCO₂ and fCO₂ are both
+statements about dissolved CO₂; δ and A are the same isotope value in two notations.
+
+**`BT`, `δBT` and `ABT` are deliberately absent.** They are totals with defaults — `BT` from
+salinity, `δBT` from modern seawater — so supplying one constrains nothing on its own. It is
+the *speciated* member that carries the information.
+"""
+const PARAMETER_GROUPS = (
+    pH    = (:pH, :pHtot, :pHsws, :pHfree, :pHNBS),
+    CO₂   = (:CO₂, :pCO₂, :fCO₂),
+    CO₃   = (:CO₃, :ΩA, :ΩC),
+    HCO₃  = (:HCO₃,),
+    DIC   = (:DIC,),
+    TA    = (:TA,),
+    BOH₃  = (:BOH₃,),
+    BOH₄  = (:BOH₄,),
+    δBOH₃ = (:δBOH₃, :ABOH₃),
+    δBOH₄ = (:δBOH₄, :ABOH₄),
+)
+
+"""
+Which subsystem each group constrains.
+
+`pH` is `:shared` because it is the unknown that links the three: fix it in any one
+subsystem and the other two follow. That is the whole basis of the solve order below.
+"""
+const GROUP_SUBSYSTEM = (pH = :shared, CO₂ = :carbon, CO₃ = :carbon, HCO₃ = :carbon,
+                         DIC = :carbon, TA = :carbon, BOH₃ = :boron, BOH₄ = :boron,
+                         δBOH₃ = :isotopes, δBOH₄ = :isotopes)
+
+"How many independent constraints a subsystem needs before it can be solved for pH."
+const CONSTRAINTS_NEEDED = (carbon = 2, boron = 1, isotopes = 1)
+
+"Groups in `inputs` that are supplied, for one subsystem."
+function _constraints(inputs, subsystem::Symbol)
+    n = 0
+    for (group, members) in pairs(PARAMETER_GROUPS)
+        getproperty(GROUP_SUBSYSTEM, group) === subsystem || continue
+        any(m -> haskey(inputs, m) && !isnothing(inputs[m]), members) && (n += 1)
+    end
+    return n
+end
+
+"""
+    _first_solvable(ps) -> :boron | :isotopes | :carbon | :none
+
+Which subsystem to solve first.
+
+The three calculators are always all run — the choice is only what order, because pH is the
+shared unknown. Whichever subsystem has enough constraints to pin pH goes first, and the
+other two then follow with pH already known.
+
+Carbon needs two constraints; boron and isotopes need only one, because their totals (`BT`,
+`δBT`) always have a value, so a single speciated measurement closes them. A known pH
+satisfies everything at once.
+"""
+function _first_solvable(ps)
+    # If pH is *known*, return early: all three subsystems are then immediately solvable,
+    # the order is irrelevant, and boron leads only because something has to.
+    isnothing(ps.pHtot) || return :boron
+
+    # Otherwise take whichever subsystem the inputs determine. At most one of these can
+    # hold: more than two constraints is over-determined, and the wrappers reject that
+    # before the core is reached, so the order between them is not a precedence rule.
+    _constraints(ps, :boron) >= CONSTRAINTS_NEEDED.boron && return :boron
+    _constraints(ps, :isotopes) >= CONSTRAINTS_NEEDED.isotopes && return :isotopes
+    # The common case lands here: two carbonate parameters and no boron speciation, so
+    # carbon solves first and yields pH, and boron and the isotopes follow from it.
+    _constraints(ps, :carbon) >= CONSTRAINTS_NEEDED.carbon && return :carbon
+
+    return :none
+end
+
+"What to tell someone whose input does not determine the system, built from the table."
+function _underdetermined_message()
+    routes = [
+        "pH on any scale",
+        "two of $(join(("TA", "DIC", "CO₂ (or pCO₂/fCO₂)", "HCO₃", "CO₃ (or ΩA/ΩC)"), ", "))",
+        "BT with one of BOH₃, BOH₄",
+        "δBT with one of δBOH₃, δBOH₄ (or the A equivalents)",
+    ]
+    return "Not enough information to solve the system. Provide one of:\n  " *
+           join(routes, "\n  ")
+end
 
 "Concentration unit names to the factor that converts them to mol/kg."
 const UNIT_SCALES = Dict(
@@ -44,55 +133,6 @@ in mol/kg while every other concentration in the same result was in mmol/kg, a f
 const CONCENTRATION_KEYS = (:DIC, :TA, :BT, :CO₂, :HCO₃, :CO₃, :PT, :SiT, :BOH₃, :BOH₄,
                             :CAlk, :BAlk, :PAlk, :OH, :SiAlk, :HSO₄, :Hfree, :HF,
                             :Alk_H2S, :Alk_NH3)
-
-"""
-    _resolve_environment(; Ks, temp_c, sal, pres_bar, ...)
-
-Resolve the equilibrium constants and the seawater composition they belong to.
-
-Returns the constants alongside the totals and the two pH-scale conversion factors, so that
-everything downstream reads one consistent description of the water rather than re-deriving
-pieces of it.
-"""
-function _resolve_environment(; Ks, temp_c, sal, pres_bar, ST, FT, BT, Ca, Mg, m,
-                              K_method, KSO4_method, BT_method, KF_method, KNH3_method,
-                              Ca_method, MyAMI_mode)
-    Ks_env = if isnothing(Ks)
-        K_calculator(;
-            temp_c=temp_c, sal=sal, pres_bar=pres_bar, ST=ST, FT=FT, BT=BT,
-            K_method=K_method, KSO4_method=KSO4_method, BT_method=BT_method,
-            KF_method=KF_method, KNH3_method=KNH3_method, Ca_method=Ca_method,
-            MyAMI_mode=MyAMI_mode, Ca=Ca, Mg=Mg
-        )
-    else
-        Ks
-    end
-
-    # Ca drives both the MyAMI correction and the saturation state. K_calculator has
-    # already resolved it - the explicit value if one was given, Ca_method otherwise - so
-    # take it from there rather than re-deriving it and risking the two disagreeing.
-    Ca_val = hasproperty(Ks_env, :Ca) ? Ks_env.Ca : something(Ca, Constants.MODERN_CALCIUM)
-    Mg_val = hasproperty(Ks_env, :Mg) ? Ks_env.Mg : something(Mg, Constants.MODERN_MAGNESIUM)
-
-    ST_val = Ks_env.ST
-    FT_val = Ks_env.FT
-    KS_val = Ks_env.Ks.KS
-    KF_val = Ks_env.Ks.KF
-
-    BT_from_env = hasproperty(Ks_env, :BT) ? Ks_env.BT :
-                  (hasproperty(Ks_env.Ks, :BT) ? Ks_env.Ks.BT : 0.0)
-
-    internal_BT = !isnothing(BT) ? _clean(_to_mol(BT, m)) :
-                  (BT_from_env > 1.0 ? BT_from_env / 1e6 : BT_from_env)
-
-    fH_val = Ks_env.fH isa AbstractArray ? Ks_env.fH[1] : Ks_env.fH
-
-    tf_fac = (1.0 + ST_val / KS_val)
-    ts_fac = tf_fac / (1.0 + ST_val / KS_val + FT_val / KF_val)
-
-    return (Ks = Ks_env.Ks, ST = ST_val, FT = FT_val, BT = internal_BT,
-            Ca = Ca_val, Mg = Mg_val, fH = fH_val, tf_fac = tf_fac, ts_fac = ts_fac)
-end
 
 """
     _to_total_scale(pH, pHtot, pHsws, pHfree, pHNBS, scale, env)

@@ -69,36 +69,14 @@ end
 
 # --- Determinacy -----------------------------------------------------------------------
 
-"""
-Parameters grouped by the degree of freedom each constrains.
-
-Two members of one group are not two measurements. pH on four scales is one measurement
-expressed four ways; ΩA and ΩC are both statements about [CO₃²⁻]; pCO₂ and fCO₂ are both
-statements about dissolved CO₂; δ and A are the same isotope value in two notations.
-Counting parameters rather than groups would treat `pHtot=8.1, pHsws=8.0` as a solvable
-system, and it is not — it is a contradiction.
-
-The boron entries matter because pH is not only a carbon observable: `BT` with one of
-`BOH₃`/`BOH₄` fixes it, as does `δBT` with one of `δBOH₃`/`δBOH₄`. Only `whole_system`
-accepts them; `carbon_system` takes `BT` alone, so for that function the carbon groups are
-the whole story and any boron speciation name is rejected as unrecognised first.
-
-**`BT`, `δBT` and `ABT` are deliberately absent.** They are totals, not constraints on pH —
-`BT` defaults from salinity and `δBT` from modern seawater, so supplying either pins nothing
-on its own. It is the *speciated* member that carries the information.
-"""
-const PARAMETER_GROUPS = (
-    pH    = (:pH, :pHtot, :pHsws, :pHfree, :pHNBS),
-    CO₂   = (:CO₂, :pCO₂, :fCO₂),
-    CO₃   = (:CO₃, :ΩA, :ΩC),
-    HCO₃  = (:HCO₃,),
-    DIC   = (:DIC,),
-    TA    = (:TA,),
-    BOH₃  = (:BOH₃,),
-    BOH₄  = (:BOH₄,),
-    δBOH₃ = (:δBOH₃, :ABOH₃),
-    δBOH₄ = (:δBOH₄, :ABOH₄),
-)
+# `PARAMETER_GROUPS` lives in core.jl, beside the solve-order dispatch that reads the same
+# table. Counting parameters rather than groups would treat `pHtot=8.1, pHsws=8.0` as a
+# solvable system, and it is not — it is a contradiction.
+#
+# The boron entries matter because pH is not only a carbon observable: `BT` with one of
+# `BOH₃`/`BOH₄` fixes it, as does `δBT` with one of `δBOH₃`/`δBOH₄`. Only `whole_system`
+# accepts them; `carbon_system` takes `BT` alone, so for that function the carbon groups are
+# the whole story and any boron speciation name is rejected as unrecognised first.
 
 "Names supplied for each group, as `group => [names...]`, omitting groups with none."
 function _supplied_by_group(inputs::NamedTuple)

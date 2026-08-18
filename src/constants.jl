@@ -1402,6 +1402,15 @@ function K_calculator(; temp_c, sal, pres_bar=0.0, ST=nothing, FT=nothing,
         )
     end
 
+    # pH scale conversion factors. These belong here beside `fH`, which is the same kind of
+    # quantity for the NBS scale: they are pure functions of the totals and the constants
+    # this function has just computed, and every caller needs them. Keeping them here is
+    # what makes this return value a complete, self-consistent description of the water -
+    # constants, totals and scale conversions together - so nothing downstream has to
+    # recombine pieces of it and risk mixing supplied constants with derived totals.
+    free_to_total = 1.0 + final_ST / final_Ks.KS
+    sws_to_total = free_to_total / (1.0 + final_ST / final_Ks.KS + final_FT / final_Ks.KF)
+
     return (
         Ks = final_Ks,
         ST = final_ST,
@@ -1410,6 +1419,8 @@ function K_calculator(; temp_c, sal, pres_bar=0.0, ST=nothing, FT=nothing,
         Ca = final_Ca,
         Mg = final_Mg,
         fH = fH_val,
+        tf_fac = free_to_total,
+        ts_fac = sws_to_total,
         method = K_method
     )
 
