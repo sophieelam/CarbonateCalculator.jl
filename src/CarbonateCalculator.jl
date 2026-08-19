@@ -58,6 +58,7 @@ using ForwardDiff, LinearAlgebra, Roots
 # The package proper, in dependency order.
 include("errors.jl")        # uncertainty propagation
 include("result.jl")        # CarbonateResult
+include("tables.jl")        # a vector of results is a Tables.jl table
 include("parameters.jl")    # what the inputs are
 include("pipeline.jl")      # how a system is solved
 include("validation.jl")    # input checks

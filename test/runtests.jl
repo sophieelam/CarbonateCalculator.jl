@@ -91,6 +91,10 @@ end
             include("internal/input_output_test.jl")
         end
 
+        @testset "Tables.jl interop" begin
+            include("internal/tables_test.jl")
+        end
+
         @testset "Conditions" begin
             include("internal/conditions_test.jl")
         end

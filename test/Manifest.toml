@@ -2,7 +2,7 @@
 
 julia_version = "1.12.6"
 manifest_format = "2.0"
-project_hash = "f4a87f8d8a63deb8fd7b5295be444921654176d1"
+project_hash = "89a6590c40477f58ecb95948e7be3a75bf970757"
 
 [[deps.Accessors]]
 deps = ["CompositionsBase", "ConstructionBase", "Dates", "InverseFunctions", "MacroTools"]
@@ -47,7 +47,7 @@ uuid = "336ed68f-0bac-5ca0-87d4-7b16caf5d00b"
 version = "0.10.16"
 
 [[deps.CarbonateCalculator]]
-deps = ["ForwardDiff", "Kgen", "LinearAlgebra", "Printf", "Roots", "Statistics"]
+deps = ["ForwardDiff", "Kgen", "LinearAlgebra", "Printf", "Roots", "Statistics", "Tables"]
 path = ".."
 uuid = "a2b7c4d9-8e12-4f33-b1a9-9c8d7e6f5a4b"
 version = "0.1.0"

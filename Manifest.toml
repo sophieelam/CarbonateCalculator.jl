@@ -2,7 +2,7 @@
 
 julia_version = "1.12.6"
 manifest_format = "2.0"
-project_hash = "6293ff617167d6b8099a4a2c27912ac8fe64d1d2"
+project_hash = "51f3ae4a4aa6944cf6c773b00e11b21b228f504e"
 
 [[deps.Accessors]]
 deps = ["CompositionsBase", "ConstructionBase", "Dates", "InverseFunctions", "MacroTools"]
@@ -33,7 +33,7 @@ uuid = "56f22d72-fd6d-98f1-02f0-08ddc0907c33"
 version = "1.11.0"
 
 [[deps.CarbonateCalculator]]
-deps = ["ForwardDiff", "Kgen", "LinearAlgebra", "Printf", "Roots", "Statistics"]
+deps = ["ForwardDiff", "Kgen", "LinearAlgebra", "Printf", "Roots", "Statistics", "Tables"]
 path = "."
 uuid = "a2b7c4d9-8e12-4f33-b1a9-9c8d7e6f5a4b"
 version = "0.1.0"
@@ -77,6 +77,16 @@ version = "1.6.0"
     IntervalSets = "8197267c-284f-5f27-9208-e0e47529a953"
     LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
     StaticArrays = "90137ffa-7385-5640-81b9-e52037218182"
+
+[[deps.DataAPI]]
+git-tree-sha1 = "abe83f3a2f1b857aac70ef8b269080af17764bbe"
+uuid = "9a962f9c-6df0-11e9-0e5d-c546b8b5ee8a"
+version = "1.16.0"
+
+[[deps.DataValueInterfaces]]
+git-tree-sha1 = "bfc1187b79289637fa0ef6d4436ebdfe6905cbd6"
+uuid = "e2d170a0-9d28-54be-80f0-106bbe20a464"
+version = "1.0.0"
 
 [[deps.Dates]]
 deps = ["Printf"]
@@ -129,6 +139,11 @@ version = "0.1.17"
 git-tree-sha1 = "b2d91fe939cae05960e760110b328288867b5758"
 uuid = "92d709cd-6900-40b7-9082-c6be49f344b6"
 version = "0.2.6"
+
+[[deps.IteratorInterfaceExtensions]]
+git-tree-sha1 = "a3f24677c21f5bbe9d2a714f95dcd58337fb2856"
+uuid = "82899510-4779-5014-852e-03e436cf321d"
+version = "1.0.0"
 
 [[deps.JLLWrappers]]
 deps = ["Artifacts", "Preferences"]
@@ -206,6 +221,11 @@ deps = ["Artifacts", "CompilerSupportLibraries_jll", "JLLWrappers", "Libdl"]
 git-tree-sha1 = "1346c9208249809840c91b26703912dff463d335"
 uuid = "efe28fd5-8261-553b-a9e1-b2916fc3738e"
 version = "0.5.6+0"
+
+[[deps.OrderedCollections]]
+git-tree-sha1 = "05f45c2e0de6259db764adbfd2f1dc6d3f8de13c"
+uuid = "bac558e1-5e72-5ebc-8fee-abe8a469f55d"
+version = "2.0.1"
 
 [[deps.Parsers]]
 deps = ["Dates", "PrecompileTools", "UUIDs"]
@@ -294,6 +314,18 @@ version = "1.11.1"
 deps = ["Dates"]
 uuid = "fa267f1f-6049-4f14-aa54-33bafae1ed76"
 version = "1.0.3"
+
+[[deps.TableTraits]]
+deps = ["IteratorInterfaceExtensions"]
+git-tree-sha1 = "c06b2f539df1c6efa794486abfb6ed2022561a39"
+uuid = "3783bdb8-4a98-5b6b-af9a-565f29a5fe9c"
+version = "1.0.1"
+
+[[deps.Tables]]
+deps = ["DataAPI", "DataValueInterfaces", "IteratorInterfaceExtensions", "OrderedCollections", "TableTraits"]
+git-tree-sha1 = "0f38a06c83f0007bbab3cf911262841c9a0f07e0"
+uuid = "bd369af6-aec1-5ad0-b16a-f7cc5008161c"
+version = "1.13.0"
 
 [[deps.UUIDs]]
 deps = ["Random", "SHA"]
