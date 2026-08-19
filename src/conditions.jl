@@ -86,6 +86,21 @@ function recalculate_at_target_conditions(result::CarbonateResult;
     resolved_temp_c = something(temp_c, measured.temp_c)
     resolved_pres_bar = something(pres_bar, measured.pres_bar)
 
+    # Both exits below call the core directly rather than going through `_run`, so this is the
+    # only place the target conditions are checked at all. Without it a target of 200 °C or a
+    # negative pressure returns a number in silence, where stage 1 would warn or throw.
+    #
+    # Here rather than inside `composed`: `_check_conditions` returns early for anything that is
+    # not `Real`, so on the AD path it would meet `Dual`s and never fire. At this point the
+    # values are still plain numbers.
+    #
+    # `sal` comes from the measurement because it is not a degree of freedom here, but it still
+    # reaches the equilibrium constants at the target conditions, so it still needs checking.
+    _check_conditions(resolved_temp_c, measured.sal, resolved_pres_bar)
+
+    # No `_check_determinacy`: `_target_inputs` clears `DERIVED_PARAMETERS` and sets TA and DIC
+    # from the solved state, so the target is determinate by construction rather than by luck.
+
     ad_errors = merge(something(result.input_errors, NamedTuple()),
                       isnothing(errors) ? NamedTuple() : _rename_target_errors(errors))
 

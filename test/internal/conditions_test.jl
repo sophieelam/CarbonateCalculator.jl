@@ -166,6 +166,33 @@ const δBT_MODERN = 39.61
             carbon_system(; measured_kw...); temp_c=2.0).err)
     end
 
+    @testset "Target conditions are validated" begin
+        # Both exits of stage 2 call the core directly rather than going through `_run`, so
+        # before this check existed a 200 °C target or a negative pressure returned a number
+        # in silence while stage 1 warned or threw for the same values.
+        m = carbon_system(; measured_kw...)
+
+        @test_throws ArgumentError recalculate_at_target_conditions(m; pres_bar=-50.0)
+        @test_throws ArgumentError recalculate_at_target_conditions(m; temp_c=NaN)
+
+        # Out of range warns rather than throwing: the package should still compute for a
+        # hydrothermal vent, so the value has to come back as well as the warning.
+        hot = @test_logs (:warn,) match_mode=:any recalculate_at_target_conditions(m;
+                                                                                  temp_c=200.0)
+        @test hot.temp_c == 200.0
+
+        # In range stays quiet, including on the uncertainty path — the check runs before the
+        # AD call, where the values are still plain numbers rather than Duals.
+        @test_logs recalculate_at_target_conditions(m; temp_c=2.0)
+        uncertain = CarbonateSystem(:carbon; varying_errors=(:TA,), measured_kw...)(2.0)
+        @test_logs recalculate_at_target_conditions(uncertain; temp_c=2.0)
+
+        # Known blind spot, pinned rather than fixed: `_check_conditions` returns early for
+        # anything that is not `Real`, and `missing isa Real` is false, so a `missing` target
+        # still fails from deep inside the solver instead of being named here.
+        @test_throws TypeError recalculate_at_target_conditions(m; temp_c=missing)
+    end
+
     @testset "Presets agree with the solver they wrap" begin
         # `carbon_calculator` / `carbon_boron_calculator` are gone; the four entry points are
         # now presets over CarbonateSystem, and must match calling it directly.
