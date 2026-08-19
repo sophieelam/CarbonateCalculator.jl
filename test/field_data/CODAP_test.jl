@@ -82,28 +82,19 @@ the seawater composition and every method choice across the condition change, an
 the answer to a published in-situ pH rather than to another calculation of our own.
 """
 function solve_CODAP(df)
-    lab_pH = fill(NaN, nrow(df))
-    insitu_pH = fill(NaN, nrow(df))
+    solver = CarbonateSystem(:carbon; varying = (:TA, :DIC, :temp_c, :sal, :pres_bar, :PT, :SiT))
 
-    for i in 1:nrow(df)
-        try
-            # No `Ks=`: see the note in GLODAP_test.jl. `pres_bar = 0` because this is a
-            # bench measurement on a collected sample — the sample is no longer at depth.
-            measured = carbon_system(TA = df.TA[i], DIC = df.DIC[i],
-                                     temp_c = df.lab_temp_c[i], sal = df.sal[i],
-                                     pres_bar = 0.0, PT = df.PT[i], SiT = df.SiT[i],
-                                     unit = "umol")
-            lab_pH[i] = measured.pHtot
+    measured = solver.(df.TA, df.DIC, df.lab_temp_c, df.sal, 0.0, df.PT, df.SiT)
+    in_situ = at_collection_conditions.(
+        measured, 
+        df.insitu_temp_c,
+        df.insitu_pres_bar
+        )
 
-            collected = at_collection_conditions(measured;
-                                                         temp_c = df.insitu_temp_c[i],
-                                                         pres_bar = df.insitu_pres_bar[i])
-            insitu_pH[i] = collected.pHtot
-        catch
-        end
-    end
+    df_meas = DataFrame(measured)
+    df_insitu = DataFrame(in_situ)
 
-    return (lab = lab_pH, insitu = insitu_pH)
+    return (lab = df_meas.pHtot, insitu = df_insitu.pHtot)
 end
 
 
