@@ -16,9 +16,9 @@ inputs = (
     SiT = 15.0,
 )
 
-# The isotope arguments belong to whole_system only. They used to live in the shared tuple
-# above, where carbon_system absorbed them into its kwargs sink and carried them into its
-# output as fields that meant nothing.
+# The isotope arguments belong to whole_system only, so they are kept out of the shared tuple
+# above. In it, carbon_system would absorb them into its kwargs sink and carry them into its
+# output as fields that mean nothing for a carbon-only scope.
 boron_inputs = merge(inputs, (
     δBT = 39.61,
     alphaB = 1.0272,
@@ -108,9 +108,9 @@ solve_with(σ::NamedTuple; scope=(:carbon,), settings...) =
 
     @testset "MyAMI supports error propagation" begin
         @info "Testing error propagation through the MyAMI path..."
-        # Kgen.jl is pure Julia and Real-typed, so ForwardDiff differentiates straight
-        # through it. The Python implementation could not, and this path used to warn and
-        # silently discard the requested errors.
+        # Kgen.jl is pure Julia and Real-typed, so ForwardDiff differentiates straight through
+        # it. Anything on this path that is not AD-transparent discards the requested errors,
+        # which shows up as uncertainties of exactly zero rather than as a failure.
 
         for (scope, args) in (((:carbon,), inputs),
                               ((:carbon, :boron, :isotopes), boron_inputs))

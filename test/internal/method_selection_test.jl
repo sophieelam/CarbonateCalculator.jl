@@ -1,11 +1,11 @@
-# Default parameterisation selection (CLEANUP.md §3.1).
+# Default parameterisation selection.
 #
-# `which_K` tests domain guards before preference guards. It used to interleave them, with
-# `temp_c > 35` tested ahead of both salinity guards, so every sample above 35 °C got
-# Millero 2006 whatever its salinity — and the freshwater and brine branches, which exist
-# precisely for those cases, were unreachable for any warm sample.
+# `which_K` tests domain guards before preference guards. Interleaving them — `temp_c > 35`
+# ahead of the salinity guards — gives every sample above 35 °C Millero 2006 whatever its
+# salinity, and makes the freshwater and brine branches unreachable for exactly the warm
+# estuaries and hypersaline lagoons they exist for.
 #
-# This file pins the selection table so the ordering cannot silently regress.
+# This file pins the selection table so that ordering cannot silently regress.
 
 using Test
 using CarbonateCalculator

@@ -5,11 +5,10 @@
 # the measured one. That is the only thing in the suite that says anything about accuracy
 # rather than self-consistency.
 #
-# These files used to be scripts that downloaded data, ran the calculator and wrote PNGs
-# without a single assertion. Every row's solve sat in a bare `catch e → NaN`, so when the
-# `Ks=` argument was wrong the calculator raised on *every* row and the only symptom was an
-# empty plot nobody was looking at. Hence `min_solved` below: the assertion that the
-# calculation ran at all matters as much as the assertion that it was accurate.
+# Every row's solve sits in a `catch e → NaN`, because real data contains rows the solver
+# cannot handle. That makes total failure look exactly like a quiet sweep: if the calculator
+# raises on *every* row, the only symptom is an empty plot. Hence `min_solved` below —
+# asserting that the calculation ran at all matters as much as asserting it was accurate.
 
 module FieldData
 

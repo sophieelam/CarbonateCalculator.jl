@@ -32,10 +32,9 @@ using CarbonateCalculator
     end
 
     @testset "ΩA and ΩC are accepted as inputs by both" begin
-        # whole_system used to throw `ArgumentError: Impossible! You haven't provided enough
-        # information` here, because the Ω -> CO₃ input conversion existed only in the
-        # carbon core. Ω is a statement about carbonate ion, so it is a valid second
-        # parameter for either system.
+        # Ω is a statement about carbonate ion, so it is a valid second parameter for either
+        # system. The Ω -> CO₃ conversion has to run for every scope that includes :carbon,
+        # not just `carbon_system`, or `whole_system` reports the input as insufficient.
         for (name, value) in ((:ΩC, 5.0), (:ΩA, 3.0))
             carbon = carbon_system(; TA = 2300.0, name => value)
             whole = whole_system(; TA = 2300.0, name => value)

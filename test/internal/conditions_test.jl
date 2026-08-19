@@ -87,13 +87,14 @@ const δBT_MODERN = 39.61
         @test r.system === (:carbon,)
     end
 
-    @testset "Inputs the old recursion dropped are now carried" begin
-        # Each of these was silently lost when the target state was computed by re-entering
-        # the public function with a hand-written argument list.
+    @testset "every input survives a re-solve at target conditions" begin
+        # A re-solve inherits its inputs from the original result. Each parameter below is one
+        # that a hand-written argument list drops silently, leaving the target state computed
+        # from a default instead of the value supplied.
 
-        # δBT is bulk-conservative: it cannot change with temperature. Uses a non-modern
-        # value deliberately - at 39.61 the dropped value and the default coincide, which is
-        # exactly how this went unnoticed.
+        # δBT is bulk-conservative: it cannot change with temperature. Deliberately non-modern,
+        # because at the default 39.61 a dropped value and the default coincide and the test
+        # would pass either way.
         m = whole_system(; measured_kw..., δBT=38.0)
         r = recalculate_at_target_conditions(m; temp_c=2.0)
         @test r.val.δBT ≈ 38.0

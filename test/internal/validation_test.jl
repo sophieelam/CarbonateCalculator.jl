@@ -1,8 +1,8 @@
-# Input validation (CLEANUP.md §3.5, §3.6, §3.7).
+# Input validation.
 #
-# Every case below used to succeed, or to fail while naming an internal variable rather than
-# the mistake. They are grouped by what the user actually did wrong, because that is what
-# the error message has to identify.
+# Every case below is input that would otherwise succeed quietly, or fail while naming an
+# internal variable rather than the mistake. Grouped by what the user actually did wrong,
+# because that is what the error message has to identify.
 
 using Test
 using CarbonateCalculator
@@ -10,8 +10,8 @@ using CarbonateCalculator
 @testset "Input validation" begin
 
     @testset "unrecognised keywords" begin
-        # Julia routes unmatched keywords into the `kwargs...` sink, so `tempc=2.0` used to
-        # be dropped and the calculation ran at the default 25 °C, returning a plausible
+        # Julia routes unmatched keywords into the `kwargs...` sink, so unchecked, `tempc=2.0`
+        # is dropped and the calculation runs at the default 25 °C, returning a plausible
         # wrong number.
         @test_throws ArgumentError carbon_system(TA=2300.0, DIC=2000.0, tempc=2.0)
         @test_throws ArgumentError whole_system(TA=2300.0, DIC=2000.0, presbar=100.0)
@@ -80,7 +80,7 @@ using CarbonateCalculator
     end
 
     @testset "conditions" begin
-        # Negative salinity used to be a DomainError from a sqrt several frames down.
+        # Unguarded, negative salinity is a DomainError from a sqrt several frames down.
         @test_throws ArgumentError carbon_system(TA=2300.0, DIC=2000.0, sal=-5.0)
         @test_throws ArgumentError carbon_system(TA=2300.0, DIC=2000.0, pres_bar=-10.0)
         @test_throws ArgumentError carbon_system(TA=2300.0, DIC=2000.0, temp_c=NaN)

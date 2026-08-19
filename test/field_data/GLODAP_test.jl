@@ -84,9 +84,9 @@ end
 """
 Solve each row three ways: pH from TA+DIC, TA from pH+DIC, DIC from pH+TA.
 
-A row that fails to converge becomes `NaN` rather than aborting the sweep — real data
-contains rows the solver cannot handle. The count is asserted on, so failures cannot hide
-the way they did when this file swallowed them into a plot.
+A row that fails to converge becomes `NaN` rather than aborting the sweep — real data contains
+rows the solver cannot handle. The count is asserted on, so a sweep where everything failed
+cannot pass as a quiet one.
 """
 function solve_GLODAP(gd)
     pH  = fill(NaN, nrow(gd))
@@ -94,11 +94,9 @@ function solve_GLODAP(gd)
     DIC = fill(NaN, nrow(gd))
 
     for i in 1:nrow(gd)
-        # No `Ks=` here. This used to precompute the constants with `calculate_constants`
-        # and pass `row_K_results.Ks` — the inner 15-constant bundle where the outer
-        # environment tuple is required — which raised `FieldError` on every row.
-        # `carbon_system` calls `calculate_constants` with these same arguments itself, so
-        # the precompute was never anything but a way to get it wrong.
+        # No `Ks=`. `carbon_system` calls `calculate_constants` with these same arguments
+        # itself, so precomputing gains nothing and invites passing the inner 15-constant
+        # bundle where the outer environment tuple is wanted — a `FieldError` on every row.
         conditions = (temp_c = gd.temperature[i], sal = gd.salinity[i],
                       pres_bar = gd.pressure[i], PT = gd.phosphate[i],
                       SiT = gd.silicate[i], BT = 415.7, unit = "umol")

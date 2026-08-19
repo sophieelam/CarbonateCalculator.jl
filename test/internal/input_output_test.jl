@@ -5,10 +5,11 @@ const δBT_SW = 39.61  # modern seawater δ¹¹B, matches Isotopes.get_δBT()
     # A sample measured at one temperature/pressure and reported at another must survive the
     # round trip unchanged. Two routes are checked because they can fail independently:
     #
-    #   direct   - recalculate to the target, then recalculate straight back
+    #   direct    - recalculate to the target, then recalculate straight back
     #   remeasure - recalculate to the target, treat that as a fresh measurement, come back
     #
-    # The second is the one the old two-condition API exercised.
+    # The second is the route a caller takes when reporting a sample at collection conditions
+    # and then re-deriving the bench values from it.
 
     @testset "Csys" begin
 
@@ -70,9 +71,9 @@ const δBT_SW = 39.61  # modern seawater δ¹¹B, matches Isotopes.get_δBT()
     end
 
     @testset "Retired output-condition arguments" begin
-        # These used to select a second set of conditions. They are gone, and because every
-        # calculation function ends in `kwargs...` an unrecognised name would otherwise be
-        # absorbed silently and the call would compute at the default 25 °C.
+        # These names selected a second set of conditions in the two-condition API. Because
+        # every calculation function ends in `kwargs...`, an unrecognised name is otherwise
+        # absorbed silently and the call computes at the default 25 °C.
         @test_throws ArgumentError whole_system(pHtot=8.1, TA=2300, temp_c=20, T_out=30)
         @test_throws ArgumentError whole_system(pHtot=8.1, TA=2300, pres_bar=0, P_out=400)
 

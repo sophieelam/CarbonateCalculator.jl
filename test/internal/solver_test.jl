@@ -1,7 +1,7 @@
 # Broadcasting a solver.
 #
-# Julia cannot broadcast over keyword arguments, so processing many samples used to mean a
-# comprehension. Naming the varying parameters up front hands back a scalar function, which
+# Julia cannot broadcast over keyword arguments, so a keyword API cannot be vectorised
+# directly. Naming the varying parameters up front hands back a scalar function, which
 # broadcasts — and checks the names when it is built rather than on every row.
 #
 # There is no `carbon_solver`: a solver is `CarbonateSystem(scope; varying = …)`, which reads

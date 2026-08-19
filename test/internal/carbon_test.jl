@@ -188,15 +188,15 @@ end
 
 
 @testset "iterative solves converge away from pH 8" begin
-    # Every iterative solve used to start at pH 8.0 and stay there, so an answer far from
-    # seawater diverged: TA+DIC raised ConvergenceFailed above pH 10.5, CO₂+TA above pH 9.5,
-    # HCO₃+TA above pH 10. Nothing caught it, because every existing case sits near pH 8.
+    # Guards against a solve that only converges near seawater. A single fixed starting point
+    # of pH 8 diverges with ConvergenceFailed above roughly pH 10.5 for TA+DIC, 9.5 for
+    # CO₂+TA and 10 for HCO₃+TA — and every other case in this suite sits near pH 8, so
+    # nothing else would notice.
     #
-    # Each case here is generated from (pH, DIC), which is analytic and unambiguous, and then
-    # solved back from the derived pair. The three pairs below have residuals that are
-    # monotonic in pH, so there is exactly one root to find and the expected answer is not in
-    # question. CO₃+TA and HCO₃+DIC are deliberately absent: both are genuinely ambiguous over
-    # part of this range and are recorded as open items rather than pinned here.
+    # Each case is generated from (pH, DIC), which is analytic and unambiguous, then solved
+    # back from the derived pair. These three pairs have residuals that are monotonic in pH,
+    # so there is one root and the expected answer is not in question. CO₃+TA and HCO₃+DIC are
+    # deliberately absent: both are multi-valued, and are open items rather than pinned here.
     env = CarbonateCalculator.Constants.calculate_constants(temp_c = 25.0, sal = 35.0)
     Ks = env.Ks
     totals = (BT = env.BT, PT = 0.0, SiT = 0.0, ST = env.ST, FT = env.FT,
@@ -210,7 +210,7 @@ end
         return (TA = TA, CO₂ = calc_CO₂(H, DIC, Ks), HCO₃ = calc_HCO₃(H, DIC, Ks))
     end
 
-    # DIC low enough that the corresponding pH is far above the old fixed starting point.
+    # DIC low enough that the corresponding pH is far from where the search begins.
     for (pH, DIC) in ((9.5, 500e-6), (10.0, 500e-6), (10.5, 2000e-6), (11.0, 200e-6))
         state = reference(pH, DIC)
 
@@ -231,4 +231,53 @@ end
     high_pH = solve(2300.0, 180.0, 2.0, 2.0)
     @test high_pH.pHtot > 10.0
     @test high_pH.err.pHtot > 0.0
+end
+
+
+@testset "an under-determined carbonate system says so" begin
+    # `whole_system` requires two constraints overall, not two *carbonate* ones, so an input
+    # that pins boron and its isotopes can still leave carbon with pH alone. No branch of the
+    # carbonate solver matches, and the failure has to name the missing input rather than let
+    # an internal variable go undefined.
+    for call in (() -> whole_system(pHtot = 8.1, δBOH₄ = 16.0),
+                 () -> whole_system(pHtot = 8.1))
+        err = try; call(); nothing; catch e; e; end
+        @test err isa ArgumentError
+        @test occursin("carbonate system needs two of", err.msg)
+        @test occursin("boron_system", err.msg)   # points at the scope that would work
+    end
+
+    # The same input through a scope that excludes carbon is not an error at all.
+    @test boron_system(pHtot = 8.1, δBOH₄ = 16.0).BOH₄ > 0.0
+end
+
+
+@testset "one alkalinity definition behind every caller" begin
+    # The non-carbonate contributions were written out four times over. They are now shared,
+    # so the four assemblers must still agree exactly: a residual is zero at the pH that
+    # `calc_TA_components` reports, and the TA->DIC rearrangement inverts the forward form.
+    env = CarbonateCalculator.Constants.calculate_constants(temp_c = 12.0, sal = 33.0)
+    Ks = env.Ks
+    BT, PT, SiT, ST, FT, H2ST, NH4T = env.BT, 3e-6, 5e-6, env.ST, env.FT, 2e-6, 4e-6
+
+    for pH in (6.5, 7.5, 8.1, 9.0), DIC in (500e-6, 2000e-6)
+        H = 10.0^(-pH)
+        TA = calc_TA(H, DIC, BT, PT, SiT, ST, FT, H2ST, NH4T, Ks)
+
+        # Both residuals vanish at the pH that produced TA. The tolerance is scaled to TA
+        # rather than absolute: these are differences of terms of size TA, so a few ulp of
+        # TA is the floor, and the CO₂ route carries a little more of it because CAlk comes
+        # back through K0. A genuine disagreement between the two would be far larger.
+        tolerance = 1e-12 * abs(TA)
+
+        @test CarbonateCalculator.Carbon.solve_pH_from_TA_DIC(
+            pH, TA, DIC, BT, PT, SiT, ST, FT, H2ST, NH4T, Ks) ≈ 0.0 atol=tolerance
+
+        CO₂ = calc_CO₂(H, DIC, Ks)
+        @test CarbonateCalculator.Carbon.solve_pH_from_CO₂_TA(
+            pH, CO₂, TA, BT, PT, SiT, ST, FT, H2ST, NH4T, Ks) ≈ 0.0 atol=tolerance
+
+        # And the rearrangement recovers the DIC it started from.
+        @test DIC_from_pH_TA(pH, TA, BT, PT, SiT, ST, FT, H2ST, NH4T, Ks) ≈ DIC rtol=1e-12
+    end
 end
