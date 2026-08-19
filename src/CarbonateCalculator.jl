@@ -47,10 +47,10 @@ include("boron.jl")
 using .Boron
 include("boron_isotopes.jl")
 using .Isotopes
-include("helpers.jl")
-using .Helpers
 include("constants.jl")
 using .Constants
+include("helpers.jl")
+using .Helpers
 
 using Printf
 using ForwardDiff, LinearAlgebra, Roots
