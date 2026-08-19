@@ -9,7 +9,7 @@ const GAS_CONSTANT = 83.14472
 # Modern seawater composition, taken from Kgen so there is a single source of truth for
 # what "unspecified Ca/Mg" means. Ca and Mg default to `nothing` throughout the public
 # API: nothing leaves Ca_method in charge of the calcium used for saturation state, and
-# means "modern" for the MyAMI correction.
+# means "modern" for the KGen correction.
 const MODERN_CALCIUM = Kgen.MODERN_CALCIUM
 const MODERN_MAGNESIUM = Kgen.MODERN_MAGNESIUM
 
@@ -953,7 +953,7 @@ function which_K(; K_method="default", temp_c, sal, Ca=nothing,
     # An unspecified Ca/Mg is modern seawater, so it must not read as "non-modern" here.
     if something(Ca, MODERN_CALCIUM) != MODERN_CALCIUM ||
        something(Mg, MODERN_MAGNESIUM) != MODERN_MAGNESIUM
-        return "MyAMI"
+        return "KGen"
     end
 
     # Domain guards.
@@ -971,7 +971,7 @@ function which_K(; K_method="default", temp_c, sal, Ca=nothing,
     elseif temp_c < 0 && 10 < sal < 50
         return "GP 1989"
     else
-        return "MyAMI"
+        return "KGen"
     end
 end
 
@@ -980,7 +980,7 @@ end
 """
 Modern seawater calcium, as a parameterisation so that `Ca_method` has three interchangeable
 options rather than two plus a fallback. Independent of salinity by definition: this is the
-composition Kgen assumes for the MyAMI correction, not a concentration to be diluted.
+composition Kgen assumes for the KGen correction, not a concentration to be diluted.
 """
 Modern_Ca(; kwargs...) = MODERN_CALCIUM
 
@@ -1046,7 +1046,7 @@ const SPECIATION = (
     # `default = nothing` because K_method's default is not a fixed name: `which_K` picks it
     # from temperature and salinity, and has already done so before `_apply` is reached.
     K_method    = (
-        default = nothing,
+        default = "KGen",
         options = Dict(
             "Roy 1993"           => (fn = Roy1993,           scale = :total),
             "GP 1989"            => (fn = GP1989,            scale = :sws),
@@ -1069,7 +1069,7 @@ const SPECIATION = (
             # Listed so this is the complete set of valid K_method values and the error message
             # stays right, but it has no K1/K2 function: Kgen hands back a whole bundle, already
             # pressure-corrected and on the total scale, assembled separately below.
-            "MyAMI"              => (fn = nothing,           scale = :total),
+            "KGen"              => (fn = nothing,           scale = :total),
         )
     ),
 )
@@ -1131,7 +1131,7 @@ for table in (COMPOSITION, SPECIATION), (argument, entry) in pairs(table)
         push!(body.args, :(name == "default" && (name = $(entry.default))))
 
     for (option, row) in entry.options
-        isnothing(row.fn) && continue    # MyAMI, which has no K1/K2 function
+        isnothing(row.fn) && continue    # KGen, which has no K1/K2 function
         push!(body.args, :(name == $option && return $(row.fn)(; kwargs...)))
     end
 
@@ -1260,7 +1260,7 @@ Each selects a parameterisation, and `"default"` picks the recommended one.
 
 | argument | options | default |
 |---|---|---|
-| `K_method` | `"Roy 1993"`, `"GP 1989"`, `"Hansson 1973"`, `"DM 1987"`, `"HM 1973"`, `"Mehrbach 1973 A"`, `"Mehrbach 1973 B"`, `"Millero 1979"`, `"CW 2003"`, `"Lueker 2000"`, `"MPM 2002"`, `"Millero 2002"`, `"Millero 2006"`, `"Millero 2010"`, `"Waters 2014"`, `"SB 2020"`, `"Papadimitriou 2018"`, `"Sulpis 2020"`, `"MyAMI"` | `which_K` chooses on temperature and salinity |
+| `K_method` | `"KGen"`, `"Roy 1993"`, `"GP 1989"`, `"Hansson 1973"`, `"DM 1987"`, `"HM 1973"`, `"Mehrbach 1973 A"`, `"Mehrbach 1973 B"`, `"Millero 1979"`, `"CW 2003"`, `"Lueker 2000"`, `"MPM 2002"`, `"Millero 2002"`, `"Millero 2006"`, `"Millero 2010"`, `"Waters 2014"`, `"SB 2020"`, `"Papadimitriou 2018"`, `"Sulpis 2020"`, `"automatic"` | `"KGen"` |
 | `KSO4_method` | `"Dickson"`, `"Khoo"`, `"WM13"` | `"Dickson"` (CO2SYS's recommendation) |
 | `BT_method` | `"Uppstrom"`, `"Lee"`, `"KSK18"` | `"Uppstrom"` (CO2SYS's recommendation) |
 | `KF_method` | `"Dickson"`, `"Perez"` | `"Dickson"` (CO2SYS's recommendation) |
@@ -1273,10 +1273,16 @@ correct the constants agree. `"Culkin"` and `"RT67"` give salinity-scaled concen
 instead. An explicitly supplied `Ca` overrides `Ca_method` entirely.
 """
 function calculate_constants(; temp_c, sal, pres_bar=0.0, ST=nothing, FT=nothing,
-    BT=nothing, K_method="default", KSO4_method="default", BT_method="default",
-    KF_method="default", KNH3_method="default", Ca_method="default", kwargs...)
+    BT=nothing, K_method="KGen", KSO4_method="Dickson", BT_method="Uppstrom",
+    KF_method="Dickson", KNH3_method="Millero", Ca_method="modern", kwargs...)
 
-    if K_method =="default"
+    # `"default"` is resolved here rather than in `_apply`, because the method it names has no
+    # K1/K2 function to dispatch to — Kgen delivers a whole bundle, and the branch below is what
+    # reaches it. Left to `_apply`, "default" would be rewritten to "KGen" and then fail to
+    # match any clause, which reports an unknown method that is in its own list of valid names.
+    if K_method == "default"
+        K_method = SPECIATION.K_method.default
+    elseif K_method == "automatic"
         K_method = which_K(K_method=K_method, temp_c=temp_c, sal=sal; kwargs...)
     end
 
@@ -1290,7 +1296,7 @@ function calculate_constants(; temp_c, sal, pres_bar=0.0, ST=nothing, FT=nothing
     Mg_in = get(kwargs, :Mg, nothing)
 
     # An unspecified Ca or Mg is modern seawater, and "modern" means the same composition
-    # Kgen assumes for its MyAMI correction. Defaulting to that rather than to Culkin
+    # Kgen assumes for its KGen correction. Defaulting to that rather than to Culkin
     # keeps the calcium used for saturation state and the calcium used to correct the
     # constants the same number. Culkin and RT67 remain available explicitly.
     final_Ca = isnothing(Ca_in) ? _apply(Val(:Ca_method), Ca_method; sal) : Ca_in
@@ -1298,7 +1304,7 @@ function calculate_constants(; temp_c, sal, pres_bar=0.0, ST=nothing, FT=nothing
 
     # --- What every method needs -----------------------------------------------------------
     #
-    # Kept out of the branches below because MyAMI's bundle, alone among the methods, arrives
+    # Kept out of the branches below because KGen's bundle, alone among the methods, arrives
     # from Kgen already complete and pressure-corrected. The only gaps in it are KH2S and
     # KNH3, which Kgen does not carry, so those two and their pressure factors are computed
     # for every method. Everything else the other parameterisations build on would be
@@ -1312,30 +1318,30 @@ function calculate_constants(; temp_c, sal, pres_bar=0.0, ST=nothing, FT=nothing
     KH2S_at_pressure = KH2S_surface * _pressure_factor(temp_c, pres_bar, pressure.KH2S)
     KNH3_at_pressure = KNH3_surface * _pressure_factor(temp_c, pres_bar, pressure.KNH3)
 
-    if K_method == "MyAMI"
+    if K_method == "KGen"
         # Pass the totals computed above rather than deriving new ones here: those honour any
         # explicitly supplied ST/FT/BT and the choice of BT_method, and a second set of
         # formulas would discard BT_method on what is the default code path.
 
-        # The seawater *composition* MyAMI corrects for: the explicit Ca/Mg if given, modern
+        # The seawater *composition* KGen corrects for: the explicit Ca/Mg if given, modern
         # otherwise. Deliberately not final_Ca, which may have come from Ca_method and be
         # salinity-scaled — that is a concentration, not a composition, and feeding it here
         # would read dilution as a low-Ca ocean.
         Mg_val = something(Mg_in, MODERN_MAGNESIUM)
         Ca_val = something(Ca_in, MODERN_CALCIUM)
 
-        mode_val = get(kwargs, :MyAMI_mode, "approximate")
+        MyAMI_mode = get(kwargs, :MyAMI_mode, "approximate")
 
         # Positional form, in Kgen's fixed order temp_c, sal, p_bar, magnesium, calcium.
         # Julia cannot broadcast keyword arguments, so this is the form that survives if this
-        # branch is ever handed arrays directly. sulphate/fluorine/MyAMI_mode are keyword-only
+        # branch is ever handed arrays directly. sulphate/fluorine/KGen_mode are keyword-only
         # in Kgen. Kgen owns the pressure correction, hence the pres_bar pass-through and the
         # absence of any correction block on this path.
         Ks = Kgen.calc_Ks(
             temp_c, sal, pres_bar, Mg_val, Ca_val;
             sulphate = final_ST,
             fluorine = final_FT,
-            MyAMI_mode = mode_val
+            MyAMI_mode = MyAMI_mode
         )
 
         # Kgen's bundle is on the total scale, so KNH3 needs the same conversion it gets on
