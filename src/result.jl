@@ -19,52 +19,6 @@ declares all of these, so an absent one is a programming error rather than an in
 left out, and should say so instead of quietly producing a smaller tuple.
 """
 _settings(inputs::NamedTuple) = NamedTuple{SETTING_KEYS}(inputs)
-# TODO: this should be in validation?W
-"""
-Arguments this package does not accept, mapped to what to use instead.
-
-Read only to build an error message, so a name here costs nothing until someone uses it. Each
-entry is phrased as the replacement, because that is what the caller needs to type next.
-"""
-const RETIRED_ARGUMENTS = (
-    T_in  = "temp_c",
-    S_in  = "sal",
-    P_in  = "pres_bar",
-    T_out = "recalculate_at_target_conditions(result; temp_c=...)",
-    S_out = "nothing - a sample's salinity does not change between collection and measurement",
-    P_out = "recalculate_at_target_conditions(result; pres_bar=...)",
-    # Julia splatting covers this natively and composes better.
-    pdict = "splatting: carbon_system(; TA=2300.0, DIC=2000.0, your_parameters...)",
-    # Selected one K_method per array versus one per sample. The public entry points are
-    # scalar-only, so many samples are handled by broadcasting a solver instead.
-    K_mode = "CarbonateSystem(:carbon; varying=(:TA, :DIC)), which builds a scalar " *
-             "solver you can broadcast",
-    # A generic pH plus `scale` says what the scale-specific arguments already say.
-    pH = "pHtot, pHsws, pHfree or pHNBS - name the scale directly",
-    scale = "nothing - name the scale in the argument, e.g. pHsws=8.0",
-)
-
-"""
-Reject arguments this package does not accept.
-
-Every calculation function ends in `kwargs...`, which Julia fills silently with any keyword
-the signature does not declare. Unchecked, `carbon_system(TA=2300, DIC=2000, T_in=2.0)` would
-compute at the default 25 °C and return a plausible wrong number.
-"""
-function _reject_retired_arguments(kwargs)
-    found = [k for k in keys(kwargs) if haskey(RETIRED_ARGUMENTS, k)]
-    isempty(found) && return nothing
-
-    lines = ["$k is no longer accepted; use $(RETIRED_ARGUMENTS[k])" for k in found]
-
-    # The condition rename needs a word of explanation that the others do not.
-    conditions = [k for k in found if k in (:T_in, :S_in, :P_in, :T_out, :S_out, :P_out)]
-    note = isempty(conditions) ? "" :
-        "\nConditions are now named temp_c, sal and pres_bar, and a single call describes " *
-        "one set of conditions."
-
-    throw(ArgumentError("retired argument(s):\n  " * join(lines, "\n  ") * note))
-end
 
 """
     CarbonateResult
