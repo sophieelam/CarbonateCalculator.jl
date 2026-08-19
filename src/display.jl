@@ -35,7 +35,7 @@ function _print_dynamic_vars(io, r)
         "deltaBOH₄"      => [:deltaBOH4, :deltaBOH₄, :d11B_BOH4],
         "ΩA"             => [:OmegaA, :ΩA, :OmegaAragonite],
         "ΩC"             => [:OmegaC, :ΩC, :OmegaCalcite],
-        "revelle_factor" => [:revelle_factor, :Revelle, :RF]
+        # "revelle_factor" => [:revelle_factor, :Revelle, :RF]
     ]
     
     # --- Unit & Precision Handling ---
@@ -91,7 +91,7 @@ function _print_dynamic_vars(io, r)
                     var_name == "deltaBOH₄" ? "δ¹¹B_borate (‰)" :
                     var_name == "ΩA"        ? "Ω Aragonite" :
                     var_name == "ΩC"        ? "Ω Calcite" : 
-                    var_name == "revelle_factor" ? "Revelle Fact." : var_name
+                    # var_name == "revelle_factor" ? "Revelle Fact." : var_name
             
             label_padded = rpad(label, 22)
             

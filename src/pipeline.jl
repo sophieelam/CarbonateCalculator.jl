@@ -317,9 +317,9 @@ function _solve_core(scope, inputs)
 
     # Revelle factor and saturation state are carbonate quantities; the gases likewise.
     if :carbon in scope
-        rf = calc_revelle_factor(ps.TA, ps.DIC, ps.BT, ps.PT, ps.SiT, ps.ST,
-                                 ps.FT, ps.H2ST, ps.NH4T, ps.Ks)
-        ps = merge(ps, (revelle_factor = rf,))
+        # rf = calc_revelle_factor(ps.TA, ps.DIC, ps.BT, ps.PT, ps.SiT, ps.ST,
+        #                          ps.FT, ps.H2ST, ps.NH4T, ps.Ks)
+        # ps = merge(ps, (revelle_factor = rf,))
         ps = merge(ps, _saturation_states(ps))
     end
 
