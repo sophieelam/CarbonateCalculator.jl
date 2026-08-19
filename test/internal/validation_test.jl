@@ -33,7 +33,7 @@ using CarbonateCalculator
         catch err
             sprint(showerror, err)
         end
-        @test occursin("recalculate_at_target_conditions", retired)
+        @test occursin("at_collection_conditions", retired)
     end
 
     @testset "under-determined" begin

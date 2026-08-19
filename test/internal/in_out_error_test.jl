@@ -50,19 +50,19 @@ solve_with(σ::NamedTuple; scope=(:carbon,), settings...) =
 
         # Measurement uncertainties are carried on the result, so they are not restated -
         # the re-solve differentiates the whole chain from the original measurements.
-        at_target = recalculate_at_target_conditions(measured;
+        at_target = at_collection_conditions(measured;
             temp_c=TARGET_TEMP_C, pres_bar=TARGET_PRES_BAR)
         @test at_target.err.pHtot > 0.0
         @test isfinite(at_target.err.pHtot)
 
         # Adding uncertainty in the collection temperature can only widen the result.
-        with_target_err = recalculate_at_target_conditions(measured;
-            temp_c=TARGET_TEMP_C, pres_bar=TARGET_PRES_BAR, errors=(temp_c=0.5,))
+        with_target_err = at_collection_conditions(measured;
+            temp_c=TARGET_TEMP_C, pres_bar=TARGET_PRES_BAR, σ_temp_c=0.5)
         @test with_target_err.err.pHtot > at_target.err.pHtot
 
         # A result with no uncertainties attached stays that way.
         no_errors = carbon_system(; K_method="Lueker 2000", inputs...)
-        @test isnothing(recalculate_at_target_conditions(no_errors; temp_c=TARGET_TEMP_C).err)
+        @test isnothing(at_collection_conditions(no_errors; temp_c=TARGET_TEMP_C).err)
 
         println("\n" * "═"^50)
         println("  TWO-STAGE PROPAGATION RESULTS")

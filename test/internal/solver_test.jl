@@ -43,6 +43,21 @@ using CarbonateCalculator
               Vector{Float64}
     end
 
+    @testset "a result is a scalar under broadcast" begin
+        # `CarbonateResult` defines `iterate` and `length`, so Base's fallback
+        # `broadcastable(x) = collect(x)` would splat one result into its ~38 values, and any
+        # broadcast against it failed with a DimensionMismatch naming 38 axes.
+        result = carbon_system(TA = 2300.0, DIC = 2000.0, temp_c = 20.0)
+        @test Base.broadcastable(result) isa Ref
+        @test all(pair -> first(pair) === result, tuple.(result, [2.0, 4.0]))
+
+        # The case this exists for: one sample carried to several target conditions.
+        at_target(r, t) = at_collection_conditions(r; temp_c = t)
+        cooled = at_target.(result, [2.0, 4.0])
+        @test length(cooled) == 2
+        @test cooled[1].pHtot != cooled[2].pHtot
+    end
+
     @testset "scalars and settings" begin
         solve = CarbonateSystem(:carbon; varying = (:TA, :DIC), temp_c = 2.0, sal = 34.5)
         # A fixed setting applies to every element and cannot drift between rows.
