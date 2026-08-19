@@ -102,7 +102,6 @@ function Base.propertynames(res::CarbonateResult, private::Bool=false)
     return (fieldnames(CarbonateResult)..., keys(getfield(res, :val))...)
 end
 
-# Allow iteration so tools like ForwardDiff can treat the result like a tuple
 function Base.iterate(res::CarbonateResult, state...)
     return iterate(getfield(res, :val), state...)
 end
@@ -114,3 +113,9 @@ end
 function Base.length(res::CarbonateResult)
     return length(getfield(res, :val))
 end
+
+# One result is one sample, so broadcast has to treat it as a scalar. Base's fallback is
+# `broadcastable(x) = collect(x)`, which would reach the `iterate` above and splat a result
+# into its ~38 values — making `f.(result, temperatures)` fail with a `DimensionMismatch`
+# naming 38 axes instead of solving at each temperature.
+Base.broadcastable(res::CarbonateResult) = Ref(res)
