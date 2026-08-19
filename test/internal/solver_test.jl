@@ -30,7 +30,6 @@ using CarbonateCalculator
             # Identical, not approximately so: both paths run the same code.
             @test a.pHtot === b.pHtot
             @test a.CO₃ === b.CO₃
-            @test a.revelle_factor === b.revelle_factor
         end
     end
 

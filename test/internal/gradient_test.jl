@@ -18,11 +18,13 @@ using CarbonateCalculator
                                PT = 0.5e-6, SiT = 3e-6, unit = "mol")
         v = in_mol.val
 
-        reference = CarbonateCalculator.calc_revelle_factor(
+        # Reached through `Carbon` rather than the package: both are kept for reference but no
+        # longer exported, so they do not reach `CarbonateCalculator` via `using .Carbon`.
+        reference = CarbonateCalculator.Carbon.calc_revelle_factor(
             v.TA, v.DIC, v.BT, v.PT, v.SiT, v.ST, v.FT, v.H2ST, v.NH4T, in_mol.Ks)
         @test revelle_factor(in_mol) ≈ reference rtol=1e-12
 
-        capacity = CarbonateCalculator.calc_buffer_capacity(
+        capacity = CarbonateCalculator.Carbon.calc_buffer_capacity(
             v.pHtot, v.DIC, v.BT, v.PT, v.SiT, v.ST, v.FT, v.H2ST, v.NH4T, in_mol.Ks)
         @test calc_gradient(in_mol, :TA, :pHtot; constant = :DIC) ≈ capacity rtol=1e-12
     end

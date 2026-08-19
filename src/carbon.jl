@@ -2,8 +2,15 @@ module Carbon
 using Roots
 using ForwardDiff
 
-export C_calculator, calc_revelle_factor, calc_buffer_capacity, fCO₂_to_CO₂,
+export C_calculator, fCO₂_to_CO₂,
 CO₂_to_fCO₂, fCO₂_to_pCO₂, pCO₂_to_fCO₂
+
+# `calc_revelle_factor` and `calc_buffer_capacity` are deliberately absent from the export list. Both
+# are superseded by `calc_gradient`, which reproduces them exactly, and both are easy to misuse
+# from outside: they run before `_rescale_to_unit`, so they take mol/kg, where the obvious thing
+# for a caller to do is pass values off `result.val` — which are in the reporting unit, and give
+# a plausible answer about 1% wrong. Kept in place, and still reachable within the package as
+# `Carbon.calc_revelle_factor`.
 
 # One knob for the iterative solves below. `const` matters: an untyped global would make
 # every `ROOT_METHOD()` a dynamic dispatch on the hot path.
