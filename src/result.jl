@@ -43,10 +43,16 @@ Computed values are reached directly — `result.pHtot` — and forwarded to the
 - `system`: which system was solved, `:carbon`, `:boron`, `:isotopes`, or `:whole`. Needed so a result can be
   re-solved without the caller having to say which function produced it.
 - `input_errors`: the uncertainties this calculation was given, or `nothing`.
-- `is_collection_state`: whether this is a sample already carried to the conditions it was
-  *collected* at, rather than the state it was measured at. Set only by
-  [`at_collection_conditions`](@ref), which refuses to run on a result that has it — a sample
-  has one set of collection conditions, so there is nothing a second carry could mean.
+- `source`: what this result was carried from, or `nothing` if it is a measurement. Set only by
+  [`at_collection_conditions`](@ref), so **`source` is also how a collection state is
+  recognised** — there is no separate flag, because a result has a source exactly when it has
+  been carried. `at_collection_conditions` refuses to run on a result that has one: a sample has
+  one set of collection conditions, so there is nothing a second carry could mean.
+
+  It holds `(inputs, errors, condition_errors)` — the measurement's inputs, the measurement's
+  uncertainties, and the uncertainties in the collection conditions themselves. A collection
+  state's own `inputs` are the *target* ones, with the derived parameters cleared and the
+  measurement's conditions overwritten, so this is the only record of what it came from.
 
 `settings`, `inputs`, `system` and `input_errors` exist so a result can be re-solved at other
 conditions without the caller restating anything — see `at_collection_conditions`.
@@ -71,7 +77,7 @@ struct CarbonateResult{V<:NamedTuple, E<:Union{NamedTuple, Nothing}}
     input_errors::Union{NamedTuple, Nothing}
     Ks::NamedTuple
     unit::String
-    is_collection_state::Bool
+    source::Union{NamedTuple, Nothing}
 end
 
 """
@@ -85,16 +91,16 @@ Having this as a constructor rather than at each call site keeps the seven const
 — four in the wrappers, three in `at_collection_conditions` — unaware of the split.
 """
 function CarbonateResult(raw::NamedTuple, err, input_keys, settings, inputs, system,
-                         input_errors; is_collection_state::Bool = false)
+                         input_errors; source::Union{NamedTuple, Nothing} = nothing)
     values, Ks, unit = _split_metadata(raw)
     return CarbonateResult(values, err, input_keys, settings, inputs, system, input_errors,
-                           Ks, unit, is_collection_state)
+                           Ks, unit, source)
 end
 
 function Base.getproperty(res::CarbonateResult, s::Symbol)
     # 1. Standard fields
     if s in (:val, :err, :input_keys, :settings, :inputs, :system, :input_errors,
-             :Ks, :unit, :is_collection_state)
+             :Ks, :unit, :source)
         return getfield(res, s)
     end
 

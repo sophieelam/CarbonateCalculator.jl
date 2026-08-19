@@ -124,6 +124,7 @@ export CarbonateSystem,  # the main solver
        carbon_system, whole_system, boron_system, boron_isotopes,  # user-facing convenience functions
        propagate_errors, 
        at_collection_conditions,  # re-solve a result at the conditions the sample was collected at
-       calc_gradient, calc_relative_gradient, revelle_factor, with_gradient  # buffer factors
+       calc_gradient, calc_relative_gradient, calc_gradient_uncertainty,  # buffer factors
+       revelle_factor, with_gradient
 
 end # module

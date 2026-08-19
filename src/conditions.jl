@@ -126,10 +126,9 @@ function _at_collection_conditions(result::CarbonateResult, temp_c, pres_bar,
     _reject_vector_arguments(temp_c, pres_bar, σ_temp_c, σ_pres_bar)
 
     # A sample has one set of collection conditions, so a second carry has nothing to mean.
-    # Refusing also closes a bookkeeping hole: the result below records the *measurement's*
-    # uncertainties on `input_errors`, not the collection ones, so chaining would silently drop
-    # σ(temp_c) from the first carry while `err` still reflected it.
-    result.is_collection_state && throw(ArgumentError(
+    # Carrying a result is the only thing that gives it a `source`, so having one is what marks
+    # it as already carried.
+    isnothing(result.source) || throw(ArgumentError(
         "this result is already at its collection conditions, and a sample has only one set " *
         "of those.\nTo report the same measurement somewhere else, carry the measured result " *
         "again rather than this one."))
@@ -156,13 +155,20 @@ function _at_collection_conditions(result::CarbonateResult, temp_c, pres_bar,
     # No `_check_determinacy`: `_target_inputs` clears `DERIVED_PARAMETERS` and sets TA and DIC
     # from the solved state, so the target is determinate by construction rather than by luck.
 
-    ad_errors = merge(something(result.input_errors, NamedTuple()),
-                      _target_errors(σ_temp_c, σ_pres_bar))
+    condition_errors = _target_errors(σ_temp_c, σ_pres_bar)
+    ad_errors = merge(something(result.input_errors, NamedTuple()), condition_errors)
+
+    # What this state was carried from. `inputs` is about to be overwritten with the collection
+    # conditions and the derived parameters cleared, and `condition_errors` is recorded nowhere
+    # else, so without this a collection state cannot reconstruct its own chain — which is what
+    # propagating an uncertainty through anything computed *from* it needs.
+    source = (inputs = measured, errors = result.input_errors,
+              condition_errors = condition_errors)
 
     if isempty(ad_errors)
         return CarbonateResult(core(; target...), nothing, result.input_keys,
                                _settings(target), target, result.system, nothing;
-                               is_collection_state = true)
+                               source = source)
     end
 
     # Differentiate the whole chain, from the original independent measurements through to
@@ -193,7 +199,7 @@ function _at_collection_conditions(result::CarbonateResult, temp_c, pres_bar,
     res_data = propagate_errors(composed; inputs=ad_inputs, errors=ad_errors)
     return CarbonateResult(res_data.val, res_data.err, result.input_keys,
                            _settings(target), target, result.system, result.input_errors;
-                           is_collection_state = true)
+                           source = source)
 end
 
 """
