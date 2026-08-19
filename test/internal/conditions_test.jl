@@ -16,7 +16,7 @@ const δBT_MODERN = 39.61
         k_methods = ["Roy 1993", "GP 1989", "Hansson 1973", "DM 1987", "HM 1973",
                      "Mehrbach 1973 A", "Mehrbach 1973 B", "CW 2003", "Lueker 2000",
                      "MPM 2002", "Millero 2002", "Millero 2006", "Millero 2010",
-                     "Waters 2014", "SB 2020", "Sulpis 2020", "MyAMI"]
+                     "Waters 2014", "SB 2020", "Sulpis 2020", "KGen"]
 
         for k in k_methods
             m = carbon_system(; measured_kw..., K_method=k)
@@ -60,7 +60,7 @@ const δBT_MODERN = 39.61
         # Ground truth: TA and DIC are conservative, so re-solving a measured sample at
         # some other conditions must equal solving there directly with the same settings.
         for (tc, pb) in ((2.0, 0.0), (30.0, 0.0), (20.0, 400.0), (2.0, 400.0))
-            for k in ("MyAMI", "Lueker 2000")
+            for k in ("KGen", "Lueker 2000")
                 staged = at_collection_conditions(
                     carbon_system(; measured_kw..., K_method=k); temp_c=tc, pres_bar=pb)
                 direct = carbon_system(; measured_kw..., K_method=k, temp_c=tc, pres_bar=pb)
@@ -326,8 +326,10 @@ const δBT_MODERN = 39.61
 
         # Known blind spot, pinned rather than fixed: `_check_conditions` returns early for
         # anything that is not `Real`, and `missing isa Real` is false, so a `missing` target
-        # still fails from deep inside the solver instead of being named here.
-        @test_throws TypeError at_collection_conditions(m; temp_c=missing)
+        # still fails from deep inside the solver instead of being named here. The exception
+        # type depends on which parameterisation the solve reaches, so only the failure is
+        # asserted, not its shape.
+        @test_throws Exception at_collection_conditions(m; temp_c=missing)
     end
 
     @testset "Presets agree with the solver they wrap" begin

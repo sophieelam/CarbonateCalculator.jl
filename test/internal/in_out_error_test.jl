@@ -106,15 +106,15 @@ solve_with(σ::NamedTuple; scope=(:carbon,), settings...) =
         @test result.err.BOH₃ > 0.0
     end
 
-    @testset "MyAMI supports error propagation" begin
-        @info "Testing error propagation through the MyAMI path..."
+    @testset "KGen supports error propagation" begin
+        @info "Testing error propagation through the KGen path..."
         # Kgen.jl is pure Julia and Real-typed, so ForwardDiff differentiates straight through
         # it. Anything on this path that is not AD-transparent discards the requested errors,
         # which shows up as uncertainties of exactly zero rather than as a failure.
 
         for (scope, args) in (((:carbon,), inputs),
                               ((:carbon, :boron, :isotopes), boron_inputs))
-            result = solve_with((TA=2.0,); scope=scope, K_method="MyAMI", args...)
+            result = solve_with((TA=2.0,); scope=scope, K_method="KGen", args...)
             @test hasproperty(result, :err)
             @test result.err.pHtot > 0.0
             @test isfinite(result.err.pHtot)
@@ -122,7 +122,7 @@ solve_with(σ::NamedTuple; scope=(:carbon,), settings...) =
 
         # No warning should be emitted any more.
         @test_logs min_level=Logging.Warn solve_with((TA=2.0,);
-            K_method="MyAMI", inputs...
+            K_method="KGen", inputs...
         )
     end
 
@@ -132,9 +132,9 @@ solve_with(σ::NamedTuple; scope=(:carbon,), settings...) =
         # model is Python-only. Asking for it must fail loudly rather than silently
         # returning approximate values.
         @test_throws ArgumentError carbon_system(;
-            K_method="MyAMI", MyAMI_mode="calculate", inputs...
+            K_method="KGen", MyAMI_mode="calculate", inputs...
         )
-        @test carbon_system(; K_method="MyAMI", MyAMI_mode="approximate", inputs...).pHtot ≈
-              carbon_system(; K_method="MyAMI", inputs...).pHtot
+        @test carbon_system(; K_method="KGen", MyAMI_mode="approximate", inputs...).pHtot ≈
+              carbon_system(; K_method="KGen", inputs...).pHtot
     end
 end
