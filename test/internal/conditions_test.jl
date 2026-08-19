@@ -282,8 +282,9 @@ const δBT_MODERN = 39.61
         m = carbon_system(; measured_kw...)
         collected = at_collection_conditions(m; temp_c=2.0)
 
-        @test !m.is_collection_state
-        @test collected.is_collection_state
+        # Having a `source` is what marks a result as already carried; there is no separate flag.
+        @test isnothing(m.source)
+        @test !isnothing(collected.source)
 
         @test_throws "already at its collection conditions" at_collection_conditions(
             collected; temp_c=4.0)
@@ -294,10 +295,10 @@ const δBT_MODERN = 39.61
         # Carrying the *measurement* somewhere else is the supported route, and stays open.
         @test at_collection_conditions(m; temp_c=4.0).pHtot != collected.pHtot
 
-        # The flag survives the uncertainty path, which builds the result down a different
-        # branch — and the intermediate measured state inside it must not be marked.
+        # The source is recorded down the uncertainty path too, which builds the result on a
+        # different branch — and the intermediate measured state inside it must not get one.
         uncertain = CarbonateSystem(:carbon; varying_errors=(:TA,), measured_kw...)(2.0)
-        @test at_collection_conditions(uncertain; temp_c=2.0, σ_temp_c=0.5).is_collection_state
+        @test !isnothing(at_collection_conditions(uncertain; temp_c=2.0, σ_temp_c=0.5).source)
         @test_throws ArgumentError at_collection_conditions(
             at_collection_conditions(uncertain; temp_c=2.0); temp_c=4.0)
     end
