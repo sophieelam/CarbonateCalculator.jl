@@ -55,9 +55,9 @@ const RETIRED_ARGUMENTS = (
     T_in  = "temp_c",
     S_in  = "sal",
     P_in  = "pres_bar",
-    T_out = "recalculate_at_target_conditions(result; temp_c=...)",
+    T_out = "at_collection_conditions(result; temp_c=...)",
     S_out = "nothing - a sample's salinity does not change between collection and measurement",
-    P_out = "recalculate_at_target_conditions(result; pres_bar=...)",
+    P_out = "at_collection_conditions(result; pres_bar=...)",
     # Julia splatting covers this natively and composes better.
     pdict = "splatting: carbon_system(; TA=2300.0, DIC=2000.0, your_parameters...)",
     # Selected one K_method per array versus one per sample. The public entry points are

@@ -45,7 +45,8 @@ function _target_inputs(result::CarbonateResult, temp_c, pres_bar)
 end
 
 """
-    recalculate_at_target_conditions(result; temp_c=nothing, pres_bar=nothing, errors=nothing)
+    at_collection_conditions(result; temp_c, pres_bar, σ_temp_c, σ_pres_bar)
+    at_collection_conditions(result, temp_c, pres_bar=nothing, σ_temp_c=nothing, σ_pres_bar=nothing)
 
 Re-solve a carbonate system at a different temperature and/or pressure.
 
@@ -59,26 +60,59 @@ measurement.
 Everything needed to re-solve — the conservative totals, the seawater composition, and every
 method choice — is carried on `result`, so nothing has to be restated.
 
+The second form takes the same arguments positionally, which is what makes it broadcastable —
+Julia will not broadcast over keyword arguments. Scalars broadcast against vectors, so a value
+shared by every sample is just a number.
+
 # Examples
 ```julia
 measured = carbon_system(TA=2300.0, DIC=2000.0, temp_c=20.0)   # on deck
-collected = recalculate_at_target_conditions(measured, temp_c=2.0, pres_bar=400.0)
+collected = at_collection_conditions(measured, temp_c=2.0, pres_bar=400.0)
 collected.pHtot
 ```
 
 Uncertainties given to stage 1 are carried on `result` and do not have to be restated.
-`errors` here adds uncertainty in the *target conditions*, which are often less well known
-than the conditions the sample was measured at:
+`σ_temp_c` and `σ_pres_bar` add uncertainty in the *collection conditions*, which are often less
+well known than the conditions the sample was measured at:
 
 ```julia
 measured = carbon_system(TA=2300.0, DIC=2000.0, temp_c=20.0, errors=(TA=2.0, DIC=2.0))
-recalculate_at_target_conditions(measured; temp_c=2.0, errors=(temp_c=0.5,)).err.pHtot
+at_collection_conditions(measured; temp_c=2.0, σ_temp_c=0.5).err.pHtot
+```
+
+A whole cast at once, carrying per-sample uncertainty in the collection temperature:
+
+```julia
+at_collection_conditions.(results, df.insitu_temp_c, df.insitu_pres_bar, df.temp_sd)
 ```
 """
-function recalculate_at_target_conditions(result::CarbonateResult;
-                                          temp_c=nothing,
-                                          pres_bar=nothing,
-                                          errors=nothing)
+function at_collection_conditions(result::CarbonateResult;
+                                  temp_c = nothing,
+                                  pres_bar = nothing,
+                                  σ_temp_c = nothing,
+                                  σ_pres_bar = nothing,
+                                  unsupported...)
+    isempty(unsupported) || _reject_collection_keywords(keys(unsupported))
+    return _at_collection_conditions(result, temp_c, pres_bar, σ_temp_c, σ_pres_bar)
+end
+
+"""
+The positional form, which is the one that broadcasts.
+
+`temp_c` has no default, unlike every argument after it. If it had one this method would also
+define the single-argument call and overwrite the keyword method above, which already covers it.
+Pass `nothing` explicitly to hold a condition at its measured value while varying a later one:
+`at_collection_conditions.(results, nothing, nothing, σ)`.
+"""
+at_collection_conditions(result::CarbonateResult, temp_c, pres_bar = nothing,
+                         σ_temp_c = nothing, σ_pres_bar = nothing) =
+    _at_collection_conditions(result, temp_c, pres_bar, σ_temp_c, σ_pres_bar)
+
+"The one path both call forms take."
+function _at_collection_conditions(result::CarbonateResult, temp_c, pres_bar,
+                                   σ_temp_c, σ_pres_bar)
+    _reject_vector_arguments(temp_c, pres_bar, σ_temp_c, σ_pres_bar)
+
     core = _core_for(result.system)
     target = _target_inputs(result, temp_c, pres_bar)
 
@@ -102,7 +136,7 @@ function recalculate_at_target_conditions(result::CarbonateResult;
     # from the solved state, so the target is determinate by construction rather than by luck.
 
     ad_errors = merge(something(result.input_errors, NamedTuple()),
-                      isnothing(errors) ? NamedTuple() : _rename_target_errors(errors))
+                      _target_errors(σ_temp_c, σ_pres_bar))
 
     if isempty(ad_errors)
         return CarbonateResult(core(; target...), nothing, result.input_keys,
@@ -140,13 +174,69 @@ function recalculate_at_target_conditions(result::CarbonateResult;
 end
 
 """
-Map user-facing `temp_c`/`pres_bar` uncertainties onto the internal target-condition names,
-so they cannot be confused with uncertainty in the conditions the sample was measured at.
+The collection-condition uncertainties, under the internal names the AD path uses.
+
+One method per combination rather than a branch, so which uncertainties are present is settled
+by the argument types and folds away on specialisation — a broadcast passes `Float64` where a σ
+column was given and `Nothing` where a slot was skipped, and each call site compiles to one
+concrete NamedTuple. Building the key set at runtime instead is the expensive pattern in this
+package (see `CarbonateSystem`).
+
+The `target_` prefix is applied here rather than mapped over user-supplied names, which is what
+makes a collision with a stage-1 uncertainty of the same name impossible.
 """
-function _rename_target_errors(errors::NamedTuple)
-    renamed = map(keys(errors)) do k
-        k === :temp_c   ? :target_temp_c   :
-        k === :pres_bar ? :target_pres_bar : k
+_target_errors(::Nothing, ::Nothing) = NamedTuple()
+_target_errors(σ_temp_c, ::Nothing) = (target_temp_c = σ_temp_c,)
+_target_errors(::Nothing, σ_pres_bar) = (target_pres_bar = σ_pres_bar,)
+_target_errors(σ_temp_c, σ_pres_bar) = (target_temp_c = σ_temp_c,
+                                        target_pres_bar = σ_pres_bar)
+
+"""
+Reject a vector handed to an argument that describes one sample.
+
+`at_collection_conditions.(results; temp_c = temps)` is syntactically valid and broadcasts over
+`results` alone, handing the whole vector of temperatures to every call. It used to surface as
+`isless(::Int64, ::Vector)` from inside the solver, or `convert(Float64, ::Vector)` from the
+uncertainty path — neither of which names the mistake.
+
+Written out rather than looped over, so each check folds away for the concrete argument types a
+broadcast produces.
+"""
+function _reject_vector_arguments(temp_c, pres_bar, σ_temp_c, σ_pres_bar)
+    temp_c     isa AbstractArray && _vector_argument_error(:temp_c, temp_c)
+    pres_bar   isa AbstractArray && _vector_argument_error(:pres_bar, pres_bar)
+    σ_temp_c   isa AbstractArray && _vector_argument_error(:σ_temp_c, σ_temp_c)
+    σ_pres_bar isa AbstractArray && _vector_argument_error(:σ_pres_bar, σ_pres_bar)
+    return nothing
+end
+
+@noinline _vector_argument_error(name, value) = throw(ArgumentError(
+    "$name was given a $(typeof(value)), but one call solves one sample.\n" *
+    "Broadcast the positional form instead: at_collection_conditions.(results, temperatures)"))
+
+"""
+Reject keyword arguments that are not collection conditions.
+
+Named individually for the two people will actually reach for: `sal`, because a per-sample
+collection salinity is a reasonable thing to want and a wrong thing to ask for here, and
+`errors`, because it is what this function used to take.
+"""
+function _reject_collection_keywords(names)
+    lines = map(collect(names)) do name
+        if name === :sal || name === :σ_sal
+            "$name: a sample's salinity does not change between collection and measurement, " *
+            "so it is not a collection condition.\n    If the collection salinity genuinely " *
+            "differs then it is not the same water, and that is a direct solve — broadcast a " *
+            "CarbonateSystem with :sal in `varying`.\n    For its uncertainty, rebuild the " *
+            "measurement with CarbonateSystem(:carbon; varying_errors = (:sal,))."
+        elseif name === :errors
+            "errors: give collection-condition uncertainties as σ_temp_c and σ_pres_bar.\n" *
+            "    Uncertainty in a measured quantity belongs to the measurement, so it goes in " *
+            "the solver's `varying_errors` and is carried here on the result automatically."
+        else
+            "$name is not a collection condition; expected temp_c, pres_bar, σ_temp_c " *
+            "or σ_pres_bar"
+        end
     end
-    return NamedTuple{Tuple(renamed)}(values(errors))
+    throw(ArgumentError("unrecognised argument(s):\n  " * join(lines, "\n  ")))
 end

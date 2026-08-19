@@ -45,7 +45,7 @@ with `errors=`, or `nothing`.
 - `input_errors`: the uncertainties this calculation was given, or `nothing`.
 
 `settings`, `inputs`, `system` and `input_errors` exist so a result can be re-solved at other
-conditions without the caller restating anything — see `recalculate_at_target_conditions`.
+conditions without the caller restating anything — see `at_collection_conditions`.
 Keeping the *input* uncertainties, rather than only the propagated `err`, is what lets a
 re-solve differentiate the whole chain from the original independent measurements. Propagating
 `err` forward instead would double-count any input affecting both conditions, and would lose
@@ -77,7 +77,7 @@ Build a result from a core's raw output, lifting `Ks` and `unit` out of the comp
 The cores return the constants and the unit alongside the numbers, because both are needed to
 finish the calculation; they become their own fields here so that `val` is numeric throughout.
 Having this as a constructor rather than at each call site keeps the seven construction points
-— four in the wrappers, three in `recalculate_at_target_conditions` — unaware of the split.
+— four in the wrappers, three in `at_collection_conditions` — unaware of the split.
 """
 function CarbonateResult(raw::NamedTuple, err, input_keys, settings, inputs, system,
                          input_errors)

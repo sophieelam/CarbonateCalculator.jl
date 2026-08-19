@@ -31,7 +31,7 @@ and unable to drift between rows. Names are checked when the solver is built, so
 surfaces there rather than on row 700,000.
 
 To report a sample at the conditions it was *collected* at rather than measured at, pass a
-result to [`recalculate_at_target_conditions`](@ref).
+result to [`at_collection_conditions`](@ref).
 
 The source is laid out by role: `parameters.jl` declares what the inputs are, `pipeline.jl`
 how a system is solved, `system.jl` the solver itself, and `result.jl`, `validation.jl`,
@@ -69,6 +69,6 @@ include("conditions.jl")    # re-solving at other conditions
 export CarbonateSystem,  # the main solver
        carbon_system, whole_system, boron_system, boron_isotopes,  # user-facing convenience functions
        propagate_errors, 
-       recalculate_at_target_conditions  # function to recalculate the carbon chemistry at target conditions.
+       at_collection_conditions  # re-solve a result at the conditions the sample was collected at
 
 end # module
