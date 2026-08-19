@@ -99,6 +99,10 @@ end
             include("internal/conditions_test.jl")
         end
 
+        @testset "Gradients" begin
+            include("internal/gradient_test.jl")
+        end
+
         @testset "pH Scales" begin
             include("internal/ph_scales_test.jl")
         end
