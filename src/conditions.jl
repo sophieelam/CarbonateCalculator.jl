@@ -71,19 +71,27 @@ collected = at_collection_conditions(measured, temp_c=2.0, pres_bar=400.0)
 collected.pHtot
 ```
 
-Uncertainties given to stage 1 are carried on `result` and do not have to be restated.
+Uncertainties given to the measurement are carried on `result` and do not have to be restated.
 `σ_temp_c` and `σ_pres_bar` add uncertainty in the *collection conditions*, which are often less
-well known than the conditions the sample was measured at:
+well known than the conditions the sample was measured at. Note that a measurement carrying
+uncertainties is built with `varying_errors` and called positionally — the presets take no
+`errors` argument:
 
 ```julia
-measured = carbon_system(TA=2300.0, DIC=2000.0, temp_c=20.0, errors=(TA=2.0, DIC=2.0))
-at_collection_conditions(measured; temp_c=2.0, σ_temp_c=0.5).err.pHtot
+measured = CarbonateSystem(:carbon; varying_errors = (:TA, :DIC),
+                           TA = 2300.0, DIC = 2000.0, temp_c = 20.0)(2.0, 2.0)
+at_collection_conditions(measured; temp_c = 2.0, σ_temp_c = 0.5).err.pHtot
 ```
+
+The two contributions are independent and combine in quadrature. Whether uncertainty in the
+*measurement* temperature reaches the collection state at all depends on what was measured: with
+TA and DIC it does not, because both are conservative and carried across unchanged, but with pH
+and DIC it does, because TA is derived using constants at the measurement temperature.
 
 A whole cast at once, carrying per-sample uncertainty in the collection temperature:
 
 ```julia
-at_collection_conditions.(results, df.insitu_temp_c, df.insitu_pres_bar, df.temp_sd)
+collected = at_collection_conditions.([measured, measured], [2.0, 4.0], 400.0, [0.5, 0.2])
 ```
 """
 function at_collection_conditions(result::CarbonateResult;

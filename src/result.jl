@@ -26,8 +26,8 @@ _settings(inputs::NamedTuple) = NamedTuple{SETTING_KEYS}(inputs)
 The result of a carbonate system calculation.
 
 Computed values are reached directly — `result.pHtot` — and forwarded to the underlying
-`val` NamedTuple. `result.err` holds matching uncertainties when the calculation was run
-with `errors=`, or `nothing`.
+`val` NamedTuple. `result.err` holds matching uncertainties when the solver was built with
+`varying_errors` and given a σ for each, or `nothing`.
 
 # Fields
 - `val`: the computed state. **Numbers only** - every entry is a concentration, a condition

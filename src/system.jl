@@ -17,7 +17,7 @@ sys = CarbonateSystem(:carbon)
 sys(TA = 2300.0, DIC = 2000.0)                      # keyword
 
 fast = CarbonateSystem(:carbon; varying = (:TA, :DIC, :temp_c))
-fast.(df.talk, df.tco2, df.temperature)             # positional, so it broadcasts
+fast.([2300.0, 2310.0], [2000.0, 1990.0], [25.0, 2.0])   # positional, so it broadcasts
 ```
 
 [`carbon_system`](@ref), [`whole_system`](@ref), [`boron_system`](@ref) and
@@ -43,10 +43,11 @@ vector, so a σ that is the same for every sample needs no separate mechanism �
 number:
 
 ```julia
-solve = CarbonateSystem(:carbon; varying = (:TA, :DIC), varying_errors = (:DIC, :TA))
+solve = CarbonateSystem(:carbon; varying = (:TA, :DIC), varying_errors = (:TA, :DIC))
 
-solve.(TA, DIC, σ_DIC, σ_TA)   # a σ column per sample
-solve.(TA, DIC, 2.0, 2.0)      # or one σ for all of them
+TA, DIC = [2300.0, 2310.0], [2000.0, 1990.0]
+solve.(TA, DIC, [2.0, 3.0], [1.5, 2.0])   # a σ column per sample, in the order specified in the construcor
+solve.(TA, DIC, 2.0, 2.0)                 # or one σ for all of them
 ```
 
 Everything knowable from names alone is checked here rather than per call — an unrecognised

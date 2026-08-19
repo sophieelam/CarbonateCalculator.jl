@@ -57,8 +57,30 @@ _recover_values(::Any, target_func, inputs) = target_func(; inputs...)
 """
     propagate_errors(target_func; inputs::NamedTuple, errors::NamedTuple)
 
-Propagates uncertainties through a carbonate chemistry function using
-First-Order Taylor Series expansion (Automatic Differentiation).
+Propagate uncertainties through a carbonate chemistry function by first-order Taylor expansion,
+with the derivatives from automatic differentiation.
+
+`target_func` is called with `inputs` as keyword arguments; `errors` gives a σ for whichever of
+them are uncertain. Returns `(val, err)` — the solved state, and a matching σ for every numeric
+quantity in it. Because the derivatives are taken rather than written down, every derived
+quantity gets an uncertainty without anyone deriving an error formula for it.
+
+# The model, and its one assumption
+
+σ_out = √( Σᵢ (∂out/∂inᵢ · σᵢ)² ), which **assumes the named inputs are uncorrelated**. There is
+no covariance term, so uncertainties that share a common cause — the same instrument, a shared
+calibration offset — are not represented, and would need a full covariance treatment.
+
+That assumption is about the *named inputs*, not about the routes through the calculation. An
+input reaching the answer several ways is handled exactly, because it is differentiated once:
+salinity enters every equilibrium constant, and TA and DIC enter both conditions of a two-stage
+calculation, with the correlations that implies preserved by construction. This is why
+[`at_collection_conditions`](@ref) differentiates the whole chain from the original measurements
+rather than propagating an intermediate σ forward — the latter would double-count anything
+affecting both conditions.
+
+First-order also means the result is a local linearisation. For a σ large enough that the
+system is meaningfully non-linear across it, it is an approximation.
 """
 function propagate_errors(target_func; inputs::NamedTuple, errors::NamedTuple)
     error_keys = keys(errors)
