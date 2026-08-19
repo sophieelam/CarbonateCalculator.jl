@@ -278,6 +278,30 @@ const δBT_MODERN = 39.61
         @test_throws "Broadcast the positional form" at_collection_conditions(m, [2.0, 4.0])
     end
 
+    @testset "A collection state cannot be carried again" begin
+        m = carbon_system(; measured_kw...)
+        collected = at_collection_conditions(m; temp_c=2.0)
+
+        @test !m.is_collection_state
+        @test collected.is_collection_state
+
+        @test_throws "already at its collection conditions" at_collection_conditions(
+            collected; temp_c=4.0)
+        # Positional form and no-argument form go through the same guard.
+        @test_throws ArgumentError at_collection_conditions(collected, 4.0)
+        @test_throws ArgumentError at_collection_conditions(collected)
+
+        # Carrying the *measurement* somewhere else is the supported route, and stays open.
+        @test at_collection_conditions(m; temp_c=4.0).pHtot != collected.pHtot
+
+        # The flag survives the uncertainty path, which builds the result down a different
+        # branch — and the intermediate measured state inside it must not be marked.
+        uncertain = CarbonateSystem(:carbon; varying_errors=(:TA,), measured_kw...)(2.0)
+        @test at_collection_conditions(uncertain; temp_c=2.0, σ_temp_c=0.5).is_collection_state
+        @test_throws ArgumentError at_collection_conditions(
+            at_collection_conditions(uncertain; temp_c=2.0); temp_c=4.0)
+    end
+
     @testset "Target conditions are validated" begin
         # Both exits of stage 2 call the core directly rather than going through `_run`, so
         # before this check existed a 200 °C target or a negative pressure returned a number

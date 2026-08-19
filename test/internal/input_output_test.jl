@@ -3,22 +3,20 @@ const δBT_SW = 39.61  # modern seawater δ¹¹B, matches Isotopes.get_δBT()
 @testset "TestInputOutput: Test internal consistency of measured/target condition calculations" begin
 
     # A sample measured at one temperature/pressure and reported at another must survive the
-    # round trip unchanged. Two routes are checked because they can fail independently:
+    # round trip unchanged: recalculate to the collection conditions, treat that state as a
+    # fresh measurement, and come back. That is the route a caller takes when re-deriving bench
+    # values from reported ones.
     #
-    #   direct    - recalculate to the target, then recalculate straight back
-    #   remeasure - recalculate to the target, treat that as a fresh measurement, come back
-    #
-    # The second is the route a caller takes when reporting a sample at collection conditions
-    # and then re-deriving the bench values from it.
+    # There was a second, shorter route here — carry the result straight back — which is no
+    # longer possible: a collection state cannot be carried again, deliberately, because a
+    # sample has one set of collection conditions. Going through a declared fresh measurement
+    # is what replaces it, and tests the same inversion with one more step.
 
     @testset "Csys" begin
 
         @testset "Temperature Effect" begin
             measured = whole_system(pHtot=8.1, TA=2300, temp_c=20)
             at_target = at_collection_conditions(measured, temp_c=30)
-
-            back = at_collection_conditions(at_target, temp_c=20)
-            @test measured.pHtot ≈ back.pHtot atol=1e-6
 
             remeasured = whole_system(pHtot=at_target.pHtot, TA=2300, temp_c=30)
             @test measured.pHtot ≈ at_collection_conditions(remeasured, temp_c=20).pHtot atol=1e-6
@@ -28,9 +26,6 @@ const δBT_SW = 39.61  # modern seawater δ¹¹B, matches Isotopes.get_δBT()
             measured = whole_system(pHtot=8.1, TA=2300, pres_bar=0)
             at_target = at_collection_conditions(measured, pres_bar=400)
 
-            back = at_collection_conditions(at_target, pres_bar=0)
-            @test measured.pHtot ≈ back.pHtot atol=1e-6
-
             remeasured = whole_system(pHtot=at_target.pHtot, TA=2300, pres_bar=400)
             @test measured.pHtot ≈ at_collection_conditions(remeasured, pres_bar=0).pHtot atol=1e-6
         end
@@ -38,8 +33,10 @@ const δBT_SW = 39.61  # modern seawater δ¹¹B, matches Isotopes.get_δBT()
         @testset "Temperature and Pressure together" begin
             measured = whole_system(pHtot=8.1, TA=2300, temp_c=20, pres_bar=0)
             at_target = at_collection_conditions(measured, temp_c=2, pres_bar=400)
-            back = at_collection_conditions(at_target, temp_c=20, pres_bar=0)
-            @test measured.pHtot ≈ back.pHtot atol=1e-6
+
+            remeasured = whole_system(pHtot=at_target.pHtot, TA=2300, temp_c=2, pres_bar=400)
+            @test measured.pHtot ≈ at_collection_conditions(remeasured, temp_c=20,
+                                                            pres_bar=0).pHtot atol=1e-6
         end
 
     end
@@ -50,9 +47,6 @@ const δBT_SW = 39.61  # modern seawater δ¹¹B, matches Isotopes.get_δBT()
             measured = whole_system(pHtot=8.1, TA=2300, temp_c=20, δBT=δBT_SW)
             at_target = at_collection_conditions(measured, temp_c=30)
 
-            back = at_collection_conditions(at_target, temp_c=20)
-            @test measured.pHtot ≈ back.pHtot atol=1e-6
-
             remeasured = whole_system(pHtot=at_target.pHtot, TA=2300, temp_c=30, δBT=δBT_SW)
             @test measured.pHtot ≈ at_collection_conditions(remeasured, temp_c=20).pHtot atol=1e-6
         end
@@ -60,9 +54,6 @@ const δBT_SW = 39.61  # modern seawater δ¹¹B, matches Isotopes.get_δBT()
         @testset "Pressure Effect" begin
             measured = whole_system(pHtot=8.1, TA=2300, pres_bar=0, δBT=δBT_SW)
             at_target = at_collection_conditions(measured, pres_bar=400)
-
-            back = at_collection_conditions(at_target, pres_bar=0)
-            @test measured.pHtot ≈ back.pHtot atol=1e-6
 
             remeasured = whole_system(pHtot=at_target.pHtot, TA=2300, pres_bar=400, δBT=δBT_SW)
             @test measured.pHtot ≈ at_collection_conditions(remeasured, pres_bar=0).pHtot atol=1e-6

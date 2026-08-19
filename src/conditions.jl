@@ -60,6 +60,10 @@ measurement.
 Everything needed to re-solve — the conservative totals, the seawater composition, and every
 method choice — is carried on `result`, so nothing has to be restated.
 
+`result` must be a measured state. A sample has one set of collection conditions, so the result
+of this function cannot be passed back into it; to report the same measurement at some other
+conditions, carry the measured result again.
+
 The second form takes the same arguments positionally, which is what makes it broadcastable —
 Julia will not broadcast over keyword arguments. Scalars broadcast against vectors, so a value
 shared by every sample is just a number.
@@ -121,6 +125,15 @@ function _at_collection_conditions(result::CarbonateResult, temp_c, pres_bar,
                                    σ_temp_c, σ_pres_bar)
     _reject_vector_arguments(temp_c, pres_bar, σ_temp_c, σ_pres_bar)
 
+    # A sample has one set of collection conditions, so a second carry has nothing to mean.
+    # Refusing also closes a bookkeeping hole: the result below records the *measurement's*
+    # uncertainties on `input_errors`, not the collection ones, so chaining would silently drop
+    # σ(temp_c) from the first carry while `err` still reflected it.
+    result.is_collection_state && throw(ArgumentError(
+        "this result is already at its collection conditions, and a sample has only one set " *
+        "of those.\nTo report the same measurement somewhere else, carry the measured result " *
+        "again rather than this one."))
+
     core = _core_for(result.system)
     target = _target_inputs(result, temp_c, pres_bar)
 
@@ -148,7 +161,8 @@ function _at_collection_conditions(result::CarbonateResult, temp_c, pres_bar,
 
     if isempty(ad_errors)
         return CarbonateResult(core(; target...), nothing, result.input_keys,
-                               _settings(target), target, result.system, nothing)
+                               _settings(target), target, result.system, nothing;
+                               is_collection_state = true)
     end
 
     # Differentiate the whole chain, from the original independent measurements through to
@@ -178,7 +192,8 @@ function _at_collection_conditions(result::CarbonateResult, temp_c, pres_bar,
 
     res_data = propagate_errors(composed; inputs=ad_inputs, errors=ad_errors)
     return CarbonateResult(res_data.val, res_data.err, result.input_keys,
-                           _settings(target), target, result.system, result.input_errors)
+                           _settings(target), target, result.system, result.input_errors;
+                           is_collection_state = true)
 end
 
 """
