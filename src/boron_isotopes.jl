@@ -1,7 +1,6 @@
 module Isotopes
 
-include("boron.jl")
-using .Boron: calc_chiB
+using ..Boron: calc_chiB
 
 # α fractionation constant & ϵ
 """

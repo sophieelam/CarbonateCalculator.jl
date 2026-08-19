@@ -1,8 +1,6 @@
 module Carbon
 using Roots
 using ForwardDiff
-include("helpers.jl")
-using .Helpers
 
 export C_calculator, calc_revelle_factor, calc_buffer_capacity, fCO₂_to_CO₂,
 CO₂_to_fCO₂, fCO₂_to_pCO₂, pCO₂_to_fCO₂

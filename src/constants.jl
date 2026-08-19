@@ -13,8 +13,6 @@ const GAS_CONSTANT = 83.14472
 const MODERN_CALCIUM = Kgen.MODERN_CALCIUM
 const MODERN_MAGNESIUM = Kgen.MODERN_MAGNESIUM
 
-using ..Helpers
-
 # Helper function:
 function SWStoTOT(; ST, FT, KS, KF, kwargs...)
     return (1 + ST / KS) / (1 + ST / KS + FT / KF)
@@ -696,6 +694,23 @@ end
 # Calculate fH
 
 # Use GEOSECS's value for cases 1,2,3,4,5 (and 6) to convert pH scales.
+"""
+    calc_fH(temp_c, sal)
+
+Activity coefficient ratio linking the NBS and seawater pH scales, `a(H)_NBS / m(H)_SWS`.
+
+Takahashi et al, Chapter 3 in GEOSECS Pacific Expedition, v. 3, 1982 (p. 80), via CO2SYS.
+
+Temperature is in Celsius, as everywhere else in the package; the polynomial itself is
+fitted in Kelvin and the conversion happens here, so there is one place to get it wrong
+rather than one per call site. Expect ~0.71 for seawater.
+"""
+function calc_fH(temp_c, sal)
+    temp_k = temp_c + 273.15
+    a, b, c, d = (1.2948, -2.036e-3, 4.607e-4, -1.475e-6)
+    return a + b * temp_k + (c + d * temp_k) * sal^2
+end
+
 
 # Case #8: Millero, 1979: https://doi.org/10.1016/0016-7037(79)90184-4
 # Salinity of 0 PSU (freshwater), temperature between 0-50 C
@@ -718,12 +733,6 @@ function case7_fH(; temp_c, sal, kwargs...)
     # doesn't agree with the check value they give on p. 456.
     return (; fH=fH)
 end
-
-
-# fH for all other cases — Takahashi et al, Chapter 3 in GEOSECS Pacific Expedition, v. 3,
-# 1982 (p. 80) — lives in Helpers.calc_fH, which this module reaches through `using
-# ..Helpers`. case7_fH and case8_fH below are different formulations, not copies of it.
-
 
 # Calculate KB
 
@@ -1296,9 +1305,9 @@ function calculate_constants(; temp_c, sal, pres_bar=0.0, ST=nothing, FT=nothing
     # computed and discarded on what is the default code path.
     pressure = _pressure_table(K_method)
 
-    fH_val = Helpers.calc_fH(temp_c, sal)
-    KH2S_surface = calc_KH2S(; temp_c, sal)
-    KNH3_surface = _apply(Val(:KNH3_method), KNH3_method; temp_c, sal)
+    fH_val = calc_fH(temp_c, sal)
+    KH2S_surface = calc_KH2S(; temp_c, sal).KH2S
+    KNH3_surface = _apply(Val(:KNH3_method), KNH3_method; temp_c, sal).KNH3
 
     KH2S_at_pressure = KH2S_surface * _pressure_factor(temp_c, pres_bar, pressure.KH2S)
     KNH3_at_pressure = KNH3_surface * _pressure_factor(temp_c, pres_bar, pressure.KNH3)
