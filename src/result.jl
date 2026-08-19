@@ -10,15 +10,22 @@ const SETTING_KEYS = (:K_method, :KSO4_method, :BT_method, :KF_method, :KNH3_met
 """
 Pick out the `SETTING_KEYS` from a call's inputs.
 
-`NamedTuple{SETTING_KEYS}(inputs)` rather than filtering on `haskey`: the key set is then a
-compile-time constant instead of a value computed per call, which took this from 4.1 µs to
-negligible. Every caller — the four wrappers and `recalculate_at_target_conditions` — builds
-its inputs from a signature that declares all of these, so a missing key means a genuine
-programming error and should say so rather than silently produce a smaller tuple.
+`NamedTuple{SETTING_KEYS}(inputs)` rather than filtering on `haskey`, so the key set is a
+compile-time constant rather than something rebuilt on every call — worth several µs on a
+path every calculation takes.
+
+Raises on a missing key by design. Every caller builds its inputs from a signature that
+declares all of these, so an absent one is a programming error rather than an input the user
+left out, and should say so instead of quietly producing a smaller tuple.
 """
 _settings(inputs::NamedTuple) = NamedTuple{SETTING_KEYS}(inputs)
+# TODO: this should be in validation?W
+"""
+Arguments this package does not accept, mapped to what to use instead.
 
-"Arguments that were removed, and what to use instead."
+Read only to build an error message, so a name here costs nothing until someone uses it. Each
+entry is phrased as the replacement, because that is what the caller needs to type next.
+"""
 const RETIRED_ARGUMENTS = (
     T_in  = "temp_c",
     S_in  = "sal",
@@ -26,30 +33,23 @@ const RETIRED_ARGUMENTS = (
     T_out = "recalculate_at_target_conditions(result; temp_c=...)",
     S_out = "nothing - a sample's salinity does not change between collection and measurement",
     P_out = "recalculate_at_target_conditions(result; pres_bar=...)",
-    # Accepted and documented for years, threaded through every signature, and never once
-    # applied - `carbon_system(..., pdict=Dict(:temp_c=>2.0))` returned the same answer as
-    # omitting it. Julia splatting does the job natively and composes better, so the
-    # argument is gone rather than implemented.
+    # Julia splatting covers this natively and composes better.
     pdict = "splatting: carbon_system(; TA=2300.0, DIC=2000.0, your_parameters...)",
-    # Chose between one K_method for a whole array and one per sample - but only inside
-    # calculate_constants's array branch, which the public entry points could never reach
-    # because they reject arrays first. Both are gone; process many samples with a solver
-    # instead.
+    # Selected one K_method per array versus one per sample. The public entry points are
+    # scalar-only, so many samples are handled by broadcasting a solver instead.
     K_mode = "CarbonateSystem(:carbon; varying=(:TA, :DIC)), which builds a scalar " *
              "solver you can broadcast",
-    # A generic pH plus `scale` said exactly what the scale-specific arguments already say,
-    # at the cost of a permanently-`nothing` `pH` output field and a setting that existed
-    # only to disambiguate it. Nothing used it.
+    # A generic pH plus `scale` says what the scale-specific arguments already say.
     pH = "pHtot, pHsws, pHfree or pHNBS - name the scale directly",
     scale = "nothing - name the scale in the argument, e.g. pHsws=8.0",
 )
 
 """
-Reject arguments that no longer exist.
+Reject arguments this package does not accept.
 
-Every calculation function ends in `kwargs...`, so an unrecognised keyword is silently
-absorbed rather than raising. Without this check, a call still written against the old API
-would quietly compute at the default 25 °C and return a plausible wrong number.
+Every calculation function ends in `kwargs...`, which Julia fills silently with any keyword
+the signature does not declare. Unchecked, `carbon_system(TA=2300, DIC=2000, T_in=2.0)` would
+compute at the default 25 °C and return a plausible wrong number.
 """
 function _reject_retired_arguments(kwargs)
     found = [k for k in keys(kwargs) if haskey(RETIRED_ARGUMENTS, k)]
@@ -86,21 +86,19 @@ with `errors=`, or `nothing`.
   reporting an input back as a result.
 - `settings`: how the constants were calculated (see [`SETTING_KEYS`](@ref)).
 - `inputs`: the original call, verbatim.
-- `system`: which system was solved, `:carbon` or `:whole`. Needed so a result can be
+- `system`: which system was solved, `:carbon`, `:boron`, `:isotopes`, or `:whole`. Needed so a result can be
   re-solved without the caller having to say which function produced it.
 - `input_errors`: the uncertainties this calculation was given, or `nothing`.
 
-`settings`, `inputs`, `system` and `input_errors` exist so a result can be re-solved at
-other conditions without the caller restating anything — see
-`recalculate_at_target_conditions`. Keeping the *input* uncertainties, rather than only the
-propagated `err`, is what lets a re-solve differentiate the whole chain from the original
-independent measurements; propagating `err` forward instead would double-count any input
-that affects both conditions, and would lose the correlations between derived quantities.
+`settings`, `inputs`, `system` and `input_errors` exist so a result can be re-solved at other
+conditions without the caller restating anything — see `recalculate_at_target_conditions`.
+Keeping the *input* uncertainties, rather than only the propagated `err`, is what lets a
+re-solve differentiate the whole chain from the original independent measurements. Propagating
+`err` forward instead would double-count any input affecting both conditions, and would lose
+the correlations between derived quantities.
 
-`val` used to carry `Ks`, `unit`, and a `pH` field that was `nothing` on every call - the
-generic pH slot the core cleared after mapping it onto `pHtot`. Splitting the two metadata
-entries out and retiring the generic `pH` leaves `val` numeric throughout, which is what makes
-its field types concrete without any parameterisation gymnastics.
+`Ks` and `unit` are fields rather than entries in `val` so that `val` is numeric throughout,
+which is what gives its fields concrete types without any parameterisation gymnastics.
 
 The NamedTuples are held untyped rather than concretely parameterised so that
 `ForwardDiff.Dual` values pass through unchanged.

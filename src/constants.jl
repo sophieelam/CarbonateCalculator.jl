@@ -1,6 +1,11 @@
 module Constants
 using Kgen
 
+# Global Constants
+
+"The gas constant in ml bar⁻¹ K⁻¹ mol⁻¹. DOEv2 gives 83.14462618; this matches CO2SYS."
+const GAS_CONSTANT = 83.14472
+
 # Modern seawater composition, taken from Kgen so there is a single source of truth for
 # what "unspecified Ca/Mg" means. Ca and Mg default to `nothing` throughout the public
 # API: nothing leaves Ca_method in charge of the calcium used for saturation state, and
@@ -9,7 +14,6 @@ const MODERN_CALCIUM = Kgen.MODERN_CALCIUM
 const MODERN_MAGNESIUM = Kgen.MODERN_MAGNESIUM
 
 using ..Helpers
-
 
 # Helper function:
 function SWStoTOT(; ST, FT, KS, KF, kwargs...)
@@ -716,10 +720,9 @@ function case7_fH(; temp_c, sal, kwargs...)
 end
 
 
-# All other cases: Takahashi et al, Chapter 3 in GEOSECS Pacific Expedition, v. 3, 1982
-# (p. 80). This used to be a second copy of that polynomial; it now lives once, in
-# Helpers.calc_fH, which this module reaches through `using ..Helpers`. case7_fH and
-# case8_fH below are different formulations and stay.
+# fH for all other cases — Takahashi et al, Chapter 3 in GEOSECS Pacific Expedition, v. 3,
+# 1982 (p. 80) — lives in Helpers.calc_fH, which this module reaches through `using
+# ..Helpers`. case7_fH and case8_fH below are different formulations, not copies of it.
 
 
 # Calculate KB
@@ -859,7 +862,7 @@ function calc_KH2S(; temp_c, sal, kwargs...)
     TK = temp_c + 273.15
     lnKH2S = 225.838 - 13275.3 / TK - 34.6435 * log(TK) + 0.3449 * sqrt(sal) - 0.0247 * sal
     KH2S = exp(lnKH2S)
-    return KH2S
+    return (; KH2S=KH2S)
 end
 
 
@@ -872,7 +875,7 @@ function Millero_KNH3(; temp_c, sal, kwargs...)
     lnKNH3 = -6285.33 / TK + 0.0001635 * TK - 0.25444 + (0.46532 - 123.7184 / TK) *
     sqrt(sal) + (-0.01992 + 3.17556 / TK) * sal
     KNH3 = exp(lnKNH3)
-    return KNH3
+    return (; KNH3=KNH3)
 end
 
 
@@ -898,7 +901,7 @@ function Clegg_KNH3(; temp_c, sal, kwargs...)
     # 3. Convert from mol/kg-H2O to mol/kg-SW
     KNH3 = KNH3 * (1 - 0.001005109 * sal)
 
-    return KNH3
+    return (; KNH3=KNH3)
 end
 
 
@@ -925,24 +928,16 @@ end
 
 Pick the equilibrium-constant parameterisation best suited to the conditions.
 
-Tested in two stages, and the order between them is the point.
+Tested in two stages, and the order is important.
 
-**Domain first.** `sal < 1` and `sal > 50` leave the range every other parameterisation was
-fitted over, and Millero 1979 and Papadimitriou 2018 are the only ones that cover fresh
+**Domain first.** `sal < 1` and `sal > 50` can only be modelled by Millero 1979 and Papadimitriou 2018, which cover fresh
 water and brine respectively. Nothing may be preferred ahead of them.
 
 **Preference second.** Within the ordinary salinity range, the choice is between
 parameterisations that all apply, so temperature decides.
 
-The two stages used to be interleaved, with `temp_c > 35` tested before either salinity
-guard. That returned Millero 2006 for *every* sample above 35 °C whatever its salinity —
-including S = 0.5 and S = 55, both outside the range Millero 2006 was fitted over — and made
-the freshwater and brine branches unreachable for any warm sample, which is precisely where
-a hypersaline lagoon or a warm estuary lands.
-
-Note that Millero 2002 still takes precedence over GP 1989 at `34 < sal < 37`. That is a
-genuine preference between two parameterisations that both cover those conditions, not a
-domain error, so it is left alone.
+Millero 2002 does take precedence over GP 1989 at `34 < sal < 37`. That is a genuine
+preference between two parameterisations that both cover those conditions, not a domain error.
 """
 function which_K(; K_method="default", temp_c, sal, Ca=nothing,
     Mg=nothing, kwargs...)
@@ -983,10 +978,7 @@ Modern_Ca(; kwargs...) = MODERN_CALCIUM
 """
 How much of each dissolved species the water holds, by the name `*_method` selects.
 
-Composition, not speciation: these parameterisations give a *concentration* from salinity, so
-none of them is on a pH scale. That is the whole reason they live apart from
-[`SPECIATION`](@ref) — a table where half the rows carried a scale and half did not would
-invite reading the absence as an oversight.
+Composition, not speciation: these parameterisations give a *concentration* from salinity.
 
 Rows are `(fn = …)`. See [`SPECIATION`](@ref) for what the shared `default`/`options` shape
 is for.
@@ -1012,27 +1004,15 @@ const COMPOSITION = (
 The equilibrium constants, by the name `*_method` selects, each with the pH scale it is
 fitted on.
 
-Rows are `(fn = …, scale = …)`. **The scale is the fact these tables exist to hold.** It used
-to live ~250 lines away from the function, in a list of method names beside the conversion,
-so a parameterisation could be added to the `if/elseif` and forgotten in the list — which
-returns constants on the wrong pH scale without raising anything. `KNH3_method`'s multiplier
-had a second version of the same bug, written as `KNH3_method == "Millero" ? sws_factor : 1.0`
-so that `"default"` selected Millero's seawater-scale fit and then declined to convert it.
+Rows are `(fn = …, scale = …)`
 
 `:free` on KS and KF is recorded but never acted on: the free-scale values are exactly what
 `SWStoTOT` and `FREEtoTOT` are built from. It is here so the assumption sits with the
 parameterisation rather than in a comment beside a pressure correction.
 
-Together with [`COMPOSITION`](@ref) these replace six `if/elseif` chains. Five ended in a
-bare `else`, so an unrecognised name silently selected the default and `BT_method = "Uppstom"`
-returned a plausible wrong number — the trap `validation.jl` closes on keyword *names*, left
-open on their *values*. [`_apply`](@ref) closes it, and builds the list of valid names from
-the table so it cannot go stale.
-
 The call site for each argument is shared, so every row within one entry must take the same
 arguments and return the same shape. That works because every parameterisation in this file
-ends in `kwargs...`: one argument set calls all of them and each takes what it needs. The
-`*_KS`, `*_KF` and K1/K2 functions return a NamedTuple; the `*_KNH3` functions a bare number.
+ends in `kwargs...`: one argument set calls all of them and each takes what it needs. All functions return a NamedTuple.
 """
 const SPECIATION = (
     KSO4_method = (
@@ -1108,14 +1088,13 @@ end
 Call the parameterisation `name` selects for one `*_method` argument, resolving `"default"`
 and rejecting anything the table does not list.
 
-Generated from [`COMPOSITION`](@ref) and [`SPECIATION`](@ref) rather than looking the function
-up in them, which matters more than it looks. A `Dict` holding several functions can only be typed
-`Dict{String,Function}`, so calling through it is a dynamic dispatch returning `Any`, and
-that `Any` spreads into every constant derived from the result — leaving the whole bundle
-untyped. Measured, the lookup form cost 4.8 µs on a 1.3 µs function, and 15 % of a whole
-`carbon_system` call. Interpolating the function objects into a comparison chain keeps every
-call statically known, while the table stays the single place a parameterisation is
-registered.
+**Generated from [`COMPOSITION`](@ref) and [`SPECIATION`](@ref), not a lookup into them.** A
+`Dict` holding several different functions can only be typed `Dict{String,Function}`, so
+calling through it is a dynamic dispatch returning `Any` — and that `Any` spreads into every
+constant derived from the result, leaving the whole bundle untyped. Interpolating the function
+objects into a comparison chain at load time keeps every call statically known while the
+tables stay the single place a parameterisation is registered. Do not replace this with a
+`Dict` lookup - it is much slower.
 """
 function _apply end
 
@@ -1125,10 +1104,12 @@ function _apply end
 The pH scale the parameterisation `name` selects is fitted on.
 
 Generated from [`SPECIATION`](@ref) only — the composition parameterisations give
-concentrations, which are not on a pH scale. Resolves `"default"` the same way
-[`_apply`](@ref) does, which is the point: `KNH3_method`'s multiplier used to be written as
-`KNH3_method == "Millero" ? sws_factor : 1.0`, testing the *raw argument*, so the default
-selected Millero's seawater-scale fit and then declined to convert it.
+concentrations, which are not on a pH scale.
+
+Resolves `"default"` exactly as [`_apply`](@ref) does, which is the point of going through it
+at all: a scale test written against the raw argument, such as
+`KNH3_method == "Millero" ? sws_factor : 1.0`, silently misses the `"default"` that selects
+Millero, and leaves a seawater-scale constant in a total-scale bundle.
 """
 function _native_scale end
 
@@ -1179,9 +1160,6 @@ _to_total_mult(scale::Symbol, sws_factor, fH) =
 
 # --- Pressure corrections ------------------------------------------------------------------
 
-"The gas constant in ml bar⁻¹ K⁻¹ mol⁻¹. DOEv2 gives 83.14462618; this matches CO2SYS."
-const GAS_CONSTANT = 83.14472
-
 """
 Millero 1995 volume and compressibility coefficients, one row per constant.
 
@@ -1190,9 +1168,9 @@ Each row holds the two polynomials in temperature that [`_pressure_factor`](@ref
 correction is the same three lines of arithmetic for all sixteen constants and only these
 numbers differ.
 
-KspA and KspC are stated in the same ÷1000 convention as the rest. They were previously
-written with the factor folded into the literals (`-11.76e-3 + 0.3692e-3·T`), which rounds
-fractionally differently, so their pressure correction moves by an ulp or so.
+Every row uses the same ÷1000 convention, KspA and KspC included. Folding that factor into
+their literals instead (`-11.76e-3 + 0.3692e-3·T`) rounds fractionally differently and shifts
+their pressure correction by an ulp, so keep the convention uniform.
 """
 const PRESSURE_COEFFICIENTS = (
     K1   = (ΔV = (-25.5,  0.1271,  0.0),       κ = (-3.08,  0.0877, 0.0)),
@@ -1215,10 +1193,9 @@ const PRESSURE_COEFFICIENTS = (
 Millero 1983's coefficients, which the freshwater `Millero 1979` parameterisation uses in
 place of the rows above.
 
-Being a table rather than a branch is the point: the special case is now three numbers-only
-rows that `merge` overlays on `PRESSURE_COEFFICIENTS`. KB is zeroed rather than omitted, so
-the correction evaluates to a factor of exactly 1 — irrelevant either way, since BT is zero
-in freshwater.
+A table rather than a branch, so the special case is three rows that `merge` overlays on
+`PRESSURE_COEFFICIENTS`. KB is zeroed rather than omitted, which makes its correction a factor
+of exactly 1 — immaterial either way, since BT is ~zero in freshwater.
 """
 const MILLERO1979_PRESSURE = (
     K1 = (ΔV = (-30.54, 0.1849, -0.0023366), κ = (-5.74, 0.093,  -0.001896)),
@@ -1265,10 +1242,8 @@ separately-derived pieces could convert a pH scale using factors describing diff
 Anyone who wants a single constant on its own should call the parameterisation directly
 (`Lueker2000`, `calc_KB`, …) rather than take a slice of this.
 
-Scalar only. It used to carry an array branch, and a `K_mode` option choosing between one
-method for a whole array ("static") and one per sample ("dynamic"), but neither was
-reachable: the public entry points reject arrays before ever getting here. To process many
-samples, build a solver once and broadcast it — see `CarbonateSystem`.
+Scalar only - the public entry points reject arrays before reaching here. To process many
+samples, build a solver once and broadcast it; see [`CarbonateSystem`](@ref).
 
 # Method arguments
 
@@ -1329,25 +1304,23 @@ function calculate_constants(; temp_c, sal, pres_bar=0.0, ST=nothing, FT=nothing
     KNH3_at_pressure = KNH3_surface * _pressure_factor(temp_c, pres_bar, pressure.KNH3)
 
     if K_method == "MyAMI"
-        # final_ST, final_FT and final_BT are the ones computed above, which honour any
-        # explicitly supplied totals and the choice of BT_method. This branch used to
-        # recompute them from a second, disagreeing set of formulas, which silently
-        # discarded BT_method on what is the default code path.
+        # Pass the totals computed above rather than deriving new ones here: those honour any
+        # explicitly supplied ST/FT/BT and the choice of BT_method, and a second set of
+        # formulas would discard BT_method on what is the default code path.
 
-        # The seawater *composition* MyAMI corrects for: the explicit Ca/Mg if given,
-        # modern otherwise. Deliberately not final_Ca, which may have been derived from
-        # Ca_method and is then salinity-scaled - that is a concentration, not a
-        # composition, and feeding it here would read dilution as a low-Ca ocean.
+        # The seawater *composition* MyAMI corrects for: the explicit Ca/Mg if given, modern
+        # otherwise. Deliberately not final_Ca, which may have come from Ca_method and be
+        # salinity-scaled — that is a concentration, not a composition, and feeding it here
+        # would read dilution as a low-Ca ocean.
         Mg_val = something(Mg_in, MODERN_MAGNESIUM)
         Ca_val = something(Ca_in, MODERN_CALCIUM)
 
         mode_val = get(kwargs, :MyAMI_mode, "approximate")
 
         # Positional form, in Kgen's fixed order temp_c, sal, p_bar, magnesium, calcium.
-        # Julia cannot broadcast keyword arguments, so this is the form that survives if
-        # this branch is ever handed arrays directly. sulphate/fluorine/MyAMI_mode are
-        # keyword-only in Kgen and stay that way.
-        # Kgen owns the pressure correction, hence the pres_bar pass-through here and the
+        # Julia cannot broadcast keyword arguments, so this is the form that survives if this
+        # branch is ever handed arrays directly. sulphate/fluorine/MyAMI_mode are keyword-only
+        # in Kgen. Kgen owns the pressure correction, hence the pres_bar pass-through and the
         # absence of any correction block on this path.
         Ks = Kgen.calc_Ks(
             temp_c, sal, pres_bar, Mg_val, Ca_val;
@@ -1356,10 +1329,10 @@ function calculate_constants(; temp_c, sal, pres_bar=0.0, ST=nothing, FT=nothing
             MyAMI_mode = mode_val
         )
 
-        # Kgen's bundle is on the total scale, so KNH3 has to be converted onto it just as it
-        # is below — using Kgen's own KS and KF, which are the ones this bundle describes.
-        # This path used to skip the conversion entirely, leaving the default KNH3 about
-        # 2.2 % high; it reaches a result only through NH4T, which defaults to zero.
+        # Kgen's bundle is on the total scale, so KNH3 needs the same conversion it gets on
+        # the path below — built from Kgen's own KS and KF, which are the ones this bundle
+        # describes. Skipping it leaves the default (Millero, seawater-scale) KNH3 about 2.2 %
+        # high, visible only through NH4T, which defaults to zero.
         sws_factor = SWStoTOT(ST = final_ST, FT = final_FT, KS = Ks.KS, KF = Ks.KF)
         knh3_mult = _to_total_mult(_native_scale(Val(:KNH3_method), KNH3_method),
                                    sws_factor, fH_val)

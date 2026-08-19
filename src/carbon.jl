@@ -25,12 +25,11 @@ const PH_SEARCH_STEP = 0.5
 
 The type the Newton solver's internal state has to hold.
 
-The equilibrium constants are part of this and not an afterthought. Promoting over the
-concentrations alone is right only when the derivative is taken with respect to one of
-*them*; differentiate with respect to `temp_c` or `sal` instead and the constants become
-`Dual` while the concentrations stay `Float64`, so a `Float64` initial guess meets a `Dual`
-residual and `Roots` fails as `MethodError: no method matching Float64(::Dual)` raised from
-inside `init_state` — naming neither the input responsible nor uncertainty propagation.
+Promotes over the equilibrium constants as well as the concentrations, because either can
+carry `ForwardDiff.Dual`s. An uncertainty on `temp_c` or `sal` reaches the answer only through
+the constants, leaving the concentrations `Float64`; promoting over the concentrations alone
+would then start the solve at `Float64` against a `Dual` residual, and `Roots` raises
+`MethodError: no method matching Float64(::Dual)` from inside `init_state`.
 
 Resolved at compile time: every argument's type is known, so this folds to a constant.
 """
@@ -43,17 +42,16 @@ _newton_state_type(Ks::NamedTuple, concentrations...) =
 A starting point inside the root's basin, found by scanning [`PH_SEARCH_RANGE`](@ref) for a
 sign change and taking the midpoint of the interval that has one.
 
-Only ever reached once the default start has failed, so the scan's cost falls on the inputs
-that need it rather than on every call.
+Reached only when the default start fails, so the scan costs nothing on inputs that converge
+without it.
 
-Comparisons work directly on `ForwardDiff.Dual`s — Julia orders them by their value — so
-nothing has to be stripped. The result is converted to `T` because a `Float64` start meeting a
-`Dual` residual is exactly the failure [`_newton_state_type`](@ref) exists to prevent. Its
-partials do not matter: this is only where Newton begins, and Newton recovers them from the
-residual itself.
+Comparisons work directly on `ForwardDiff.Dual`s — Julia orders them by value — so nothing has
+to be stripped. The result is converted to `T` so a `Float64` start never meets a `Dual`
+residual (see [`_newton_state_type`](@ref)); its partials are irrelevant, since Newton
+recovers those from the residual itself.
 
-Returns the default guess unchanged when no sign change is found, leaving the caller to fail
-the way it would have anyway.
+Falls back to the default guess when no sign change is found, leaving the caller to fail as
+it otherwise would.
 """
 function _bracketed_guess(residual, ::Type{T}) where {T}
     low, high = PH_SEARCH_RANGE
@@ -77,19 +75,18 @@ end
 
 Newton from [`DEFAULT_PH_GUESS`](@ref), falling back to a bracketed start when that diverges.
 
-Starting every search at pH 8 is right for seawater and costs nothing, but it diverges once
-the answer is far away: measured over DIC 50-10000 µmol/kg, `TA+DIC` failed with
-`ConvergenceFailed` above pH 10.5 and `CO₂+TA` above pH 9.5. The first attempt therefore uses
+pH 8 converges immediately for seawater but diverges when the answer is far from it — beyond
+roughly pH 10.5 for `TA+DIC` and 9.5 for `CO₂+TA`. The first attempt goes through
 `Roots.solve`, which reports failure as `NaN` rather than throwing, so the retry is ordinary
-control flow. A genuinely unsolvable input still raises from the second attempt.
+control flow; an input with no root still raises from the second attempt.
 
 **Newton does the converging in both cases, deliberately.** `find_zero` given an *interval*
 returns a plain `Float64` whatever it is handed, so a `Dual` passed in comes back stripped of
-its partials and an uncertainty propagated through this path arrives as exactly zero. Newton's
-iteration is ordinary arithmetic, so `Dual`s survive it — the bracketing is used to place the
-starting point, never to find the root.
+its partials and any uncertainty propagated through this path arrives as exactly zero.
+Newton's iteration is ordinary arithmetic, so `Dual`s survive it — bracketing places the
+starting point, and never finds the root.
 
-Only for residuals that are monotonic in pH. `H_from_CO₃_TA` is not, and keeps its own solve.
+Only valid for residuals that are monotonic in pH, which is every pair that reaches here.
 """
 function _solve_pH(residual, derivative, ::Type{T}) where {T}
     from_default = Roots.solve(
@@ -111,13 +108,9 @@ Uses the cancellation-avoiding form rather than the textbook quadratic formula. 
 precision in exactly one of the two roots. Forming `q` with the signs aligned and taking
 `q/a` and `c/q` makes both of them quotients of well-conditioned quantities.
 
-The carbonate pairs that reduce to a quadratic use this instead of a root-finder. That is
-not only faster — it is what makes them differentiable. `find_zero(f, (1e-14, 1))` returns a
-`Float64` whatever `f` does, so a `Dual` going in loses its partials without error, and an
-uncertainty propagated through such a path used to come back as exactly zero.
-
-Callers pick the root they want by its sign or magnitude; which of the pair is which depends
-on `sign(b)`, so do not rely on the order.
+The carbonate pairs that reduce to a quadratic use this instead of a root-finder, which keeps them faster and differentiable.
+Callers pick the root they want by sign or magnitude; which of the pair is which depends on
+`sign(b)`, so do not rely on the order.
 """
 function _quadratic_roots(a, b, c)
     q = -(b + sign(b) * sqrt(b^2 - 4a * c)) / 2
@@ -170,13 +163,13 @@ end
 """
     _non_carbonate_alkalinity(H, BT, PT, SiT, ST, FT, H2ST, NH4T, Ks)
 
-Every contribution to alkalinity except the carbonate one, at a given [H⁺].
+Every contribution to alkalinity except the carbonate one, at a given [H⁺]: borate, hydroxide,
+phosphate, silicate, sulphide, ammonia, and the free-proton terms that subtract.
 
-These ten formulas were written out four times over — in the residuals for `CO₂+TA` and
-`TA+DIC`, in the `DIC`-from-`pH`-and-`TA` rearrangement, and in `calc_TA_components`. All four
-agree on the non-carbonate terms and differ only in where CAlk comes from and which way the
-sum runs, so this is the part worth having once: a change to how borate or phosphate is
-handled now lands everywhere rather than in three places out of four.
+Shared by the four places alkalinity is assembled — the residuals for `CO₂+TA` and `TA+DIC`,
+the `DIC`-from-`pH`-and-`TA` rearrangement, and `calc_TA_components` — which agree on all of
+these and differ only in where CAlk comes from and which way the sum runs. Changing how
+borate or phosphate is handled therefore means changing it here alone.
 
 Returned as a NamedTuple because `calc_TA_components` reports the breakdown, not just the sum.
 """
@@ -202,8 +195,7 @@ end
 What is left of `TA` once carbonate and every other contribution is taken out. Zero at the
 solution, which is what the iterative solves search for.
 
-The term order is load-bearing: it is the order CO2SYS sums in, and changing it moves results
-in the last bits. Passing `CAlk = 0` gives the carbonate alkalinity implied by a `TA` — the
+Passing `CAlk = 0` gives the carbonate alkalinity implied by a `TA` — the
 rearrangement `DIC_from_pH_TA` needs.
 """
 _alkalinity_residual(TA, CAlk, a) =
@@ -216,9 +208,10 @@ _carbonate_alkalinity(H, DIC, Ks) =
 
 
 """
-#4: Calculating pH from CO₂ and TA
-Taken from MatLab CO2SYS (which originally used a Newton-Raphson method) and
-adapted to be solved more efficiently with the Julia ForwardDiff auto-grad capabilites.
+#4: pH from CO₂ and TA
+
+Alkalinity as CO₂ and this pH imply it, less the alkalinity actually supplied. Solved by
+Newton with an analytic `ForwardDiff` derivative; see [`_solve_pH`](@ref).
 """
 function solve_pH_from_CO₂_TA(pH, CO₂, TA, BT, PT, SiT, ST, FT, H2ST, NH4T, Ks)
 
@@ -251,8 +244,8 @@ end
 Zeebe & Wolf-Gladrow, 2001, Appendix B
 
 `DIC·H² = CO₂·(H² + K₁H + K₁K₂)` rearranges to `(DIC − CO₂)H² − CO₂K₁H − CO₂K₁K₂ = 0`, so
-the answer is a quadratic root rather than a search. `DIC > CO₂` always, which makes the
-leading coefficient positive and the constant negative — one positive root, no ambiguity.
+the answer is a quadratic root. `DIC > CO₂` always, which makes the
+leading coefficient positive and the constant negative, so one positive root.
 
 Solved in closed form because iterating on this residual does not work: it is of order 1e-19
 near the root, so any absolute convergence test is satisfied before the iteration has done
@@ -388,12 +381,13 @@ function H_from_CO₃_TA(CO₃, TA, BT, PT, SiT, ST, FT, H2ST, NH4T, Ks)
     f(pH) = solve_H_from_CO₃_TA(10.0^(-pH), CO₃, TA, BT, PT, SiT, ST, FT, H2ST, NH4T, Ks)
     df(pH) = ForwardDiff.derivative(f, pH)
 
-    # Deliberately not `_solve_pH`. This residual is *not* monotonic in pH — at fixed CO₃ the
-    # implied DIC grows as H² while the free-proton terms eventually pull TA back down, so it
-    # has up to three sign changes over pH 3-13 and a sign-change scan would pick an arbitrary
-    # one of several roots. Measured, this pair is already wrong outside roughly pH 7-9; that
-    # is a question about which root is meant, not about where the search starts, and giving it
-    # a better starting point here would only move which wrong answer comes back.
+    # Not `_solve_pH`, which assumes a single root. This residual is not monotonic in pH: at
+    # fixed CO₃ the implied DIC grows as H² while the free-proton terms eventually pull TA
+    # back down, so every input has two solutions and both are physically valid. Which one
+    # Newton reaches depends on where it starts, and this pair carries nothing to choose on —
+    # answers should not be trusted.
+
+    # TODO: add a warning about this when this pair is used.
     initial_guess = convert(T, DEFAULT_PH_GUESS)
     sol_pH = find_zero((f, df), initial_guess, ROOT_METHOD())
 
@@ -418,9 +412,10 @@ end
 
 
 """
-#15: Calculating pH from TA and DIC
-Taken from MatLab CO2SYS (which originally used a Newton-Raphson method) and
-adapted to be solved more efficiently with Julia ForwardDiff autograd capabilites.
+#15: pH from TA and DIC
+
+The most-used pair. Alkalinity as DIC and this pH imply it, less the alkalinity supplied.
+Monotonic in pH, so it has exactly one root.
 """
 function solve_pH_from_TA_DIC(pH, TA, DIC, BT, PT, SiT, ST, FT, H2ST, NH4T, Ks)
     H = 10.0^(-pH)
@@ -524,7 +519,7 @@ Intended for a mixture of CO₂ and air at 1 atm (low CO₂ concentrations).
 function pCO₂_to_fCO₂(pCO₂, T)
     Tₖ = T + 273.15
     P = 1.01325 # in bar
-    RT = 83.14472 * Tₖ # originally used R = 83.14462618, however switched to 83.14472 to match CO2SYS
+    RT = 83.14472 * Tₖ # 83.14472, not the DOEv2 83.14462618, to match CO2SYS
     a₀, a₁, a₂, a₃ = (-1636.75, 12.0408, -3.27957e-2, 3.16528e-05)
     b₀, b₁ = (57.7, -0.118)
     B = a₀ + a₁ * Tₖ+ a₂ * Tₖ^2 + a₃ * Tₖ^3
@@ -547,7 +542,7 @@ Intended for a mixture of CO₂ and air at 1 atm (low CO₂ concentrations).
 function fCO₂_to_pCO₂(fCO₂, T)
     Tₖ = T + 273.15
     P = 1.01325 # in bar
-    RT = 83.14472 * Tₖ # originally used R = 83.14462618, however switched to 83.14472 to match CO2SYS
+    RT = 83.14472 * Tₖ # 83.14472, not the DOEv2 83.14462618, to match CO2SYS
     a₀, a₁, a₂, a₃ = (-1636.75, 12.0408, -3.27957e-2, 3.16528e-05)
     b₀, b₁ = (57.7, -0.118)
     B = a₀ + a₁ * Tₖ + a₂ * Tₖ^2 + a₃ * Tₖ^3
@@ -559,11 +554,10 @@ end
 """
 What to tell someone whose input reaches the carbonate solver without determining it.
 
-Reachable from `whole_system`, whose scope includes carbon but which only requires *two*
-constraints overall — so `whole_system(pHtot = 8.1, δBOH₄ = 16.0)` determines boron and its
-isotopes while leaving carbon with pH alone. Every branch below then falls through, and
-without this the failure surfaced as `UndefVarError: H not defined in local scope`, naming an
-internal variable rather than the missing input.
+`whole_system` requires two constraints overall rather than two *carbonate* ones, so
+`whole_system(pHtot = 8.1, δBOH₄ = 16.0)` determines boron and its isotopes while leaving
+carbon with pH alone. No branch of the solver matches, and the message has to name the
+missing input rather than let an internal variable go undefined.
 """
 function _underdetermined_carbon(pHtot, DIC, TA, CO₂, HCO₃, CO₃)
     supplied = [name for (name, value) in (("pH", pHtot), ("DIC", DIC), ("TA", TA),
@@ -724,11 +718,13 @@ function calc_revelle_factor(TA, DIC, BT, PT, SiT, ST, FT, H2ST, NH4T, Ks)
 end
 
 """
-Calculates the TA Buffer Capacity (∂TA / ∂pH) using Automatic Differentiation
+    calc_buffer_capacity(pH, DIC, BT, PT, SiT, ST, FT, H2ST, NH4T, Ks)
+
+Buffer capacity ∂TA/∂pH, in mol/kg per pH unit, by automatic differentiation.
 """
 function calc_buffer_capacity(pH, DIC, BT, PT, SiT, ST, FT, H2ST, NH4T, Ks)
-    # `calc_TA`, not `calc_TA_components`: differentiating the eleven-value breakdown raised
-    # `MethodError: no method matching extract_derivative`, so this threw for every input.
+    # `calc_TA`, not `calc_TA_components`: ForwardDiff needs a scalar-valued function, and the
+    # eleven-value breakdown gives `MethodError: no method matching extract_derivative`.
     f_TA(p) = calc_TA(10.0^(-p), DIC, BT, PT, SiT, ST, FT, H2ST, NH4T, Ks)
 
     return ForwardDiff.derivative(f_TA, pH)

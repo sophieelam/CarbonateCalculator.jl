@@ -19,9 +19,8 @@ const DERIVED_PARAMETERS = (:pH, :pHtot, :pHsws, :pHfree, :pHNBS,
 """
 The calculation that produced a result, as a keyword function.
 
-A result records the *scope* it was solved with, so re-solving it needs no guesswork about
-which entry point it came from — and works for any scope, not just the two that used to have
-their own cores.
+A result records the *scope* it was solved with, so re-solving needs no guesswork about which
+entry point produced it, and works for every scope.
 """
 _core_for(scope::Tuple{Vararg{Symbol}}) = (; kwargs...) -> _solve_core(scope, NamedTuple(kwargs))
 

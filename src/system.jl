@@ -89,10 +89,9 @@ function CarbonateSystem(scope::Symbol...; varying = (), varying_errors = (), se
         scope
         )
 
-    # Resolved once, here, and stored. Computing the accepted key set per call is what made
-    # an earlier version of this 50% slower than the wrappers it replaced: it rebuilt a
-    # NamedTuple from a runtime-computed key set on every call, the exact pattern phase 6c
-    # removed from `_settings`, `_rescale_to_unit` and `_finalise`.
+    # Resolved once here and stored on the solver. Building a NamedTuple from a
+    # runtime-computed key set is the expensive pattern in this package — doing it per call
+    # rather than per solver costs about 50% of a whole calculation.
     defaults = NamedTuple{_accepted_parameters(scope)}(PARAMETER_DEFAULTS)
 
     # Values are stand-ins: the determinacy check cares which parameters are present, not
@@ -182,11 +181,13 @@ const CARBONATE_PARAMETERS = (:TA, :DIC, :pHtot, :pCO₂, :fCO₂, :CO₃, :HCO�
 """
 Reject parameter names this scope does not accept, naming why.
 
-Uncertainties are checked by the same call, because `varying_errors` names parameters: a σ
-for something that is not a parameter is a typo, and fails when the solver is built. There
-is no exception for a name called `errors`. An earlier version excluded it, which meant
-`CarbonateSystem(:carbon; errors = (TA = 2.0,))` was accepted, stored as a *parameter*, and
-then silently propagated nothing — asking for uncertainties and getting none.
+Uncertainties go through the same check, because `varying_errors` names parameters: a σ for
+something that is not a parameter is a typo, and should fail when the solver is built rather
+than on the first row.
+
+`errors` gets no exemption. Exempting it makes `CarbonateSystem(:carbon; errors = (TA = 2.0,))`
+legal, stored as a *parameter*, and propagating nothing — uncertainties asked for and silently
+not delivered. Use `varying_errors` instead.
 """
 function _reject_unknown_parameters(names, accepted, scope::Tuple{Vararg{Symbol}})
     # Allocation-free on the success path; message detail is built only when it is needed.
@@ -259,19 +260,16 @@ Solve the boron isotope system alone. A preset over [`CarbonateSystem`](@ref) wi
 """
 boron_isotopes(; kwargs...) = BORON_ISOTOPES(; kwargs...)
 
-# Built once, at load. Constructing a solver resolves its accepted parameter set and its
-# defaults, which is cheap but not free — doing it inside the preset meant paying that on
-# every call, and made these 50% slower than the hand-written wrappers they replaced.
+# Built once at load, not inside the presets above. Constructing a solver resolves its
+# accepted parameter set and defaults; doing that per call costs about 50% of a calculation.
 const CARBON_SYSTEM = CarbonateSystem(:carbon)
 const WHOLE_SYSTEM = CarbonateSystem(:carbon, :boron, :isotopes)
 const BORON_SYSTEM = CarbonateSystem(:boron, :isotopes)
 const BORON_ISOTOPES = CarbonateSystem(:isotopes)
 
-# There is deliberately no `carbon_solver` / `whole_solver` pair. They were only
-# `CarbonateSystem(scope; varying = …)` with the scope baked in, and they existed for two of
-# the four presets — no `boron_solver`, no `isotopes_solver` — which is the tell that
-# "solver" was not a separate concept, just two of eight arbitrary combinations. Building one
-# is `CarbonateSystem(:carbon; varying = (:TA, :DIC))`, which reads the same for every scope.
+# There is deliberately no `carbon_solver` / `whole_solver` pair: a solver is just
+# `CarbonateSystem(scope; varying = …)`, which reads the same for every scope. Naming two of
+# the eight scope/varying combinations would imply "solver" is a separate concept.
 
 function Base.show(io::IO, sys::CarbonateSystem{scope, varying}) where {scope, varying}
     print(io, "CarbonateSystem(", join((":$s" for s in scope), ", "), ")")

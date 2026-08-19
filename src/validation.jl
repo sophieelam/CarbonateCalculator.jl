@@ -1,10 +1,10 @@
 # Input validation for the public entry points.
 #
 # Julia routes any keyword a function does not declare into its `kwargs...` sink, silently.
-# Every entry point in this package has such a sink, so `carbon_system(TA=2300, DIC=2000,
-# tempc=2.0)` computes at the default 25 °C and returns a plausible wrong number. That is
-# the same trap `_reject_retired_arguments` was added for during the conditions refactor;
-# this file generalises the guard to every unrecognised name.
+# Every entry point in this package has such a sink, so without a guard
+# `carbon_system(TA=2300, DIC=2000, tempc=2.0)` computes at the default 25 °C and returns a
+# plausible wrong number. These checks reject unrecognised names, contradictory ones, and
+# input that does not describe exactly one system.
 
 """
     _declared_keywords(entry_point) -> Vector{Symbol}
@@ -68,8 +68,8 @@ function _reject_unknown_arguments(kwargs, entry_point)
 
     throw(ArgumentError(
         "unrecognised argument(s) to $(_entry_name(entry_point)):\n  " * join(lines, "\n  ") *
-        "\nUnrecognised keywords used to be absorbed silently, which meant a typo returned " *
-        "a plausible result computed at the defaults."
+        "\nA keyword this function does not declare would otherwise be ignored, returning a " *
+        "plausible result computed at the defaults."
     ))
 end
 
@@ -118,21 +118,19 @@ end
 Reject input that does not describe exactly one system.
 
 Two independent constraints determine the carbonate system; fewer leaves it unsolvable, more
-over-determines it. Both used to fail silently. An under-determined call surfaced as
-`UndefVarError: H not defined in local scope`, naming an internal variable rather than the
-mistake. An over-determined one quietly discarded a supplied value and recomputed it, so
-`carbon_system(TA=2300, DIC=2000, pHtot=7.0)` returned `DIC = 2445.76` without a word — the
-worse of the two, because nothing in the result records that a measurement was dropped.
+over-determines it, and both have to be errors. Over-determined input is the more dangerous
+of the two: `carbon_system(TA=2300, DIC=2000, pHtot=7.0)` would otherwise discard one of the
+three and recompute it — returning `DIC = 2445.76` with nothing in the result to show that a
+supplied measurement was dropped.
 
-`require_two` is false for `whole_system`: its core already reports the under-determined
-case usefully, listing the boron and isotope routes to a solution, and duplicating that
-logic here would mean two places to keep in step.
+`require_two` is false for `whole_system`, whose scope can be determined by boron or isotope
+parameters instead. Its core reports the under-determined case, listing every route to a
+solution; duplicating that here would mean two places to keep in step.
 """
 function _check_determinacy(inputs::NamedTuple, entry_point; require_two::Bool)
-    # Counted without allocating, because this runs on every call. The first version built a
-    # Vector{Pair{Symbol,Vector{Symbol}}} to hold the same information and cost 7.6 µs - 24%
-    # of a whole `carbon_system` call, for a check that answers a yes/no question. Message
-    # construction is pushed onto the error paths, where allocation costs nothing.
+    # Counted without allocating, because this runs on every call and answers a yes/no
+    # question. Building the collections needed to *describe* the problem costs several µs,
+    # so that work is pushed onto the error paths where it happens once.
     groups = 0
     for (group, members) in pairs(PARAMETER_GROUPS)
         supplied = _supplied_in_group(inputs, members)
@@ -189,11 +187,13 @@ const CONDITION_RANGES = (temp_c = (-5.0, 50.0), sal = (0.0, 50.0), pres_bar = (
 
 Reject impossible conditions, and warn about implausible ones.
 
-Negative salinity used to surface as a `DomainError` from a `sqrt` several frames down, with
-nothing naming the input responsible. Out-of-range but physical values only warn: the
-package should still compute for a brine or a hydrothermal vent, and refusing would be worse
-than extrapolating. `maxlog=1` because this sits on the path of every call, and a warning
-per row would make a large batch unreadable.
+Impossible means the chemistry is undefined: a negative salinity makes the ionic-strength
+terms in the constants meaningless, and would otherwise surface as a `DomainError` from inside
+`sqrt` with nothing naming the input responsible.
+
+Out-of-range but physical values only warn. The package should still compute for a brine or a
+hydrothermal vent, where refusing would be worse than extrapolating. `maxlog=1` keeps a large
+batch readable, since this runs on every call.
 """
 function _check_conditions(temp_c, sal, pres_bar)
     # Arrays and ForwardDiff.Dual values reach here on some paths; only plain numbers can be

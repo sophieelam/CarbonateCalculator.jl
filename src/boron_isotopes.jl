@@ -13,11 +13,10 @@ function get_alphaB()
 end
 
 """
-δ¹¹B of modern seawater, in ‰. Used whenever the total boron isotope composition is not
-given explicitly.
+δ¹¹B of modern seawater, in ‰. Used whenever the total boron isotope composition is not given
+explicitly.
 
-NEEDS CITATION - carried over from the value that was previously hard-coded at three
-separate call sites.
+Foster et al., 2010, doi:10.1029/2010GC003201
 """
 function get_δBT()
     return 39.61

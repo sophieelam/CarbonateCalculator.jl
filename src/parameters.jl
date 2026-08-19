@@ -1,9 +1,8 @@
 # What the inputs are: every parameter the package accepts, and how they relate.
 #
 # One file, because these tables are read by three things that must agree — the solver's
-# accepted names and defaults, the input validation, and the solve-order dispatch. They were
-# previously split between core.jl and system.jl, which is how the descriptions of "what
-# determines the system" drifted apart in the first place.
+# accepted names and defaults, the input validation, and the solve-order dispatch. Split
+# across files, their descriptions of "what determines the system" drift apart.
 
 """
 Every parameter a calculation accepts, with its default.

@@ -4,9 +4,8 @@
 # concentrations — live in parameters.jl. This file is the procedure; that file describes the
 # inputs.
 #
-# The stages are named functions rather than one flag-driven block because the cores used to
-# mark them with comments (`# --- THE WAY IN ---`, `# Converting values back into their
-# original units`), which is the signal to split.
+# Each stage is a named function rather than a section of one long block, so the order of the
+# calculation is visible in `_solve_core` and each step can be read on its own.
 
 "Groups in `inputs` that are supplied, for one subsystem."
 function _constraints(inputs, subsystem::Symbol)
@@ -133,10 +132,9 @@ end
 """
 Convert a supplied saturation state into the [CO₃²⁻] that produces it.
 
-Ω is a statement about carbonate ion concentration, so this lets ΩA or ΩC stand in as one
-of the two carbonate parameters. It lived only in the carbon core, which is why
-`whole_system(TA=2300.0, ΩC=5.0)` used to fail with "Impossible! You haven't provided
-enough information" while `carbon_system` solved the same input.
+Ω is a statement about carbonate ion concentration, so this lets ΩA or ΩC stand in as one of
+the two carbonate parameters — `whole_system(TA=2300.0, ΩC=5.0)` and the `carbon_system`
+equivalent both work. Runs before the solvers, and for every scope that includes `:carbon`.
 """
 function _omega_to_CO₃(ps, ΩA, ΩC)
     calcium = ps.Ca * ps.sal / 35.0
@@ -184,11 +182,9 @@ _split_metadata(ps) = (Base.structdiff(ps, NamedTuple{(:Ks, :unit)}), ps.Ks, ps.
 
 # --- One core, driven by scope -----------------------------------------------------------
 #
-# Replaces four implementations of the same procedure: `carbon_system_core`,
-# `whole_system_core`, `boron_system` and `boron_isotopes`. They differed in which fields the
-# state carried and which calculators ran, both of which follow from the scope — so scope is
-# a type parameter, the branches on it fold during specialisation, and there is one copy of
-# the procedure to keep correct.
+# One procedure serves every scope. Which fields the state carries and which calculators run
+# both follow from the scope, so scope is a *type* parameter: the branches on it fold away
+# during specialisation, giving each scope its own compiled path from a single source.
 
 "The state a calculation starts from: inputs converted to internal units, plus the water."
 function _initial_state(scope, inputs, env, m, pHtot)
@@ -233,9 +229,10 @@ end
 Fill in the isotope quantities the solvers work in.
 
 δ is what people measure and A is what the equations use, so anything given as δ is converted
-here, and `αB` and `δBT` fall back to modern seawater. `alphaB` is *stored*: it used to be
-resolved into a local that was never merged, so the fractionation actually applied came back
-as `nothing`.
+here, and `αB` and `δBT` fall back to modern seawater when not supplied.
+
+`alphaB` is returned, not just used: it has to reach the solvers and the result, or the
+fractionation actually applied is not the one reported.
 """
 function _isotope_inputs(ps)
     δBT = (isnothing(ps.δBT) && isnothing(ps.ABT)) ? Isotopes.get_δBT() : ps.δBT

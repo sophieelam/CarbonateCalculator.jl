@@ -10,10 +10,10 @@ First-Order Taylor Series expansion (Automatic Differentiation).
 function propagate_errors(target_func; inputs::NamedTuple, errors::NamedTuple)
     error_keys = keys(errors)
 
-    # Checked *before* the conversion below, not after. This guard used to sit underneath it,
-    # so it could never fire: `Float64[...]` hit the `nothing` first and raised
+    # Must stay above the `Float64[...]` conversion below. Underneath it this could never
+    # fire, because the conversion meets the `nothing` first and raises
     # `MethodError: Cannot convert an object of type Nothing to an object of type Float64`,
-    # which says nothing about which parameter or why.
+    # which names neither the parameter nor the reason.
     for key in error_keys
         isnothing(getproperty(inputs, key)) && throw(ArgumentError(
             "an uncertainty was given for $key, but no value for $key was supplied.\n" *
