@@ -97,7 +97,7 @@ for case in sort(collect(keys(baseline)))
     kw, tc, pb = CASES[case]
     f = is_whole_system(case) ? whole_system : carbon_system
     pinned = merge(kw, old_totals(kw))
-    new = recalculate_at_target_conditions(f(; pinned...); temp_c=tc, pres_bar=pb).val
+    new = at_collection_conditions(f(; pinned...); temp_c=tc, pres_bar=pb).val
 
     worst_key, worst_rel = "", 0.0
     for (key, old) in baseline[case]
