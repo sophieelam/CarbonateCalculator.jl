@@ -102,6 +102,12 @@ function Base.propertynames(res::CarbonateResult, private::Bool=false)
     return (fieldnames(CarbonateResult)..., keys(getfield(res, :val))...)
 end
 
+# `propagate_errors` takes any function of the inputs, including the public entry points, which
+# hand back a result rather than a raw solved state. Delegating to `val` keeps one rule for what
+# the differentiated outputs are, and drops `Ks` and `unit` without having to test for them.
+_numeric_values(res::CarbonateResult) = _numeric_values(getfield(res, :val))
+_numeric_names(res::CarbonateResult) = _numeric_names(getfield(res, :val))
+
 function Base.iterate(res::CarbonateResult, state...)
     return iterate(getfield(res, :val), state...)
 end
