@@ -32,7 +32,8 @@ function _print_dynamic_vars(io, r)
         "HCO₃"           => [:HCO3, :HCO₃],
         "BOH₃"           => [:BOH3, :BOH₃, :BoricAcid],
         "BOH₄"           => [:BOH4, :BOH₄, :Borate],
-        "deltaBOH₄"      => [:deltaBOH4, :deltaBOH₄, :d11B_BOH4],
+        "δBOH₃"          => [:δBOH₃, :ABOH₃],
+        "δBOH₄"          => [:δBOH₄, :ABOH₄],
         "ΩA"             => [:OmegaA, :ΩA, :OmegaAragonite],
         "ΩC"             => [:OmegaC, :ΩC, :OmegaCalcite],
     ]
@@ -71,7 +72,7 @@ function _print_dynamic_vars(io, r)
             val = r.val[found_key]
             
             # Skip boron variables if they are empty/zero (standard system calls)
-            boron_names = ["BOH₃", "BOH₄", "deltaBOH₄"]
+            boron_names = ["BOH₃", "BOH₄", "δBOH₃", "δBOH₄"]
             if var_name in boron_names && (val === nothing || val == 0.0 || isnan(val))
                 continue
             end
@@ -87,15 +88,16 @@ function _print_dynamic_vars(io, r)
                     var_name == "DIC"       ? "DIC ($unit_label)" :
                     var_name == "BOH₃"      ? "B(OH)₃ ($unit_label)" :
                     var_name == "BOH₄"      ? "B(OH)₄⁻ ($unit_label)" :
-                    var_name == "deltaBOH₄" ? "δ¹¹B_borate (‰)" :
+                    var_name == "δBOH₃"     ? "δ¹¹B_B(OH)₃ (‰)" :
+                    var_name == "δBOH₄"     ? "δ¹¹B_B(OH)₄⁻ (‰)" :
                     var_name == "ΩA"        ? "Ω Aragonite" :
-                    var_name == "ΩC"        ? "Ω Calcite" : 
+                    var_name == "ΩC"        ? "Ω Calcite" : "Unknown"
             
             label_padded = rpad(label, 22)
             
             if err > 0.0
                 # Specific formatting for isotopes
-                if var_name == "deltaBOH₄"
+                if var_name in ("δBOH₃", "δBOH₄")
                     @printf(io, "    %s : %8.2f ± %.3f\n", label_padded, val, err)
                 else
                     # Dynamic precision based on unit scale

@@ -161,7 +161,7 @@ end
 
 "Run the pipeline for `scope` and package the result."
 function _solve(scope, inputs, errors)
-    provided = [k for k in CARBONATE_PARAMETERS
+    provided = [k for k in CONSTRAINING_PARAMETERS
                 if haskey(inputs, k) && !isnothing(inputs[k])]
 
     # `propagate_errors` differentiates a keyword function, so the scope is closed over.
@@ -176,8 +176,17 @@ function _solve(scope, inputs, errors)
                            scope, errors)
 end
 
-"Which carbonate parameters `show` treats as inputs rather than results."
-const CARBONATE_PARAMETERS = (:TA, :DIC, :pHtot, :pCO₂, :fCO₂, :CO₃, :HCO₃)
+"""
+Which parameters `show` treats as inputs rather than results.
+
+Read off `PARAMETER_GROUPS` rather than listed here, so it covers every scope. A hand-kept
+list went stale when boron and isotopes were added, and every non-carbon result reported an
+empty input set.
+
+Totals with defaults (`BT`, `δBT`, `ABT`) are absent for the same reason they are absent
+from `PARAMETER_GROUPS`: supplying one constrains nothing on its own.
+"""
+const CONSTRAINING_PARAMETERS = Tuple(Iterators.flatten(PARAMETER_GROUPS))
 
 """
 Reject parameter names this scope does not accept, naming why.
