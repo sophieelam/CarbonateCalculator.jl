@@ -94,31 +94,31 @@ API and printing.
 module CarbonateCalculator
 
 # Chemistry: the speciation equations and the equilibrium constants.
-include("carbon.jl")
+include("carbon.jl")  # all machinery for aqueous carbonate speciation and the carbonate system
 using .Carbon
-include("boron.jl")
+include("boron.jl")  # all machinery for aqueous boron speciation
 using .Boron
-include("boron_isotopes.jl")
+include("boron_isotopes.jl")  # all machinery for boron isotopes and their fractionation
 using .Isotopes
-include("constants.jl")
+include("constants.jl")  # all constants used in calculations, including the equilibrium constants and their temperature/salinity/pressure dependencies, as well as salinity-derived seawater composition.
 using .Constants
-include("helpers.jl")
+include("helpers.jl")  # currently just a helper function to convert pH scales (may be broken?)
 using .Helpers
 
 using Printf
 using ForwardDiff, LinearAlgebra, Roots
 
 # The package proper, in dependency order.
-include("errors.jl")        # uncertainty propagation
-include("result.jl")        # CarbonateResult
-include("tables.jl")        # a vector of results is a Tables.jl table
-include("parameters.jl")    # what the inputs are
-include("pipeline.jl")      # how a system is solved
-include("validation.jl")    # input checks
-include("display.jl")       # how a result prints
-include("system.jl")        # the solver, and the presets over it
-include("conditions.jl")    # re-solving at other conditions
-include("gradients.jl")     # buffer factors, on demand rather than by default
+include("errors.jl")        # Machinery for uncertainty propagation
+include("result.jl")        # CarbonateResult data type, which carries the results of a calculation and its uncertainties
+include("tables.jl")        # Tables.jl interface to a CarbonateResult (used to convert a vector of results to a DataFrame)
+include("parameters.jl")    # A map of possible inputs and degrees of freedom, defining calculation scopes for the solvers
+include("pipeline.jl")      # All the machinery that the solver uses to do the calculations
+include("validation.jl")    # Checks for validity of inputs
+include("display.jl")       # A pretty-printing method for CarbonateResult, and the logic to decide which variables to print
+include("system.jl")        # CarbonateSystem, the function to generate solvers, and some user-facing presets.
+include("conditions.jl")    # at_collection_conditions function, used to re-solve a result at the conditions the sample was collected at, rather than the conditions it was measured at.
+include("gradients.jl")     # Functions for calculating buffer factors and gradients (e.g. δpCO₂/δTA, δpH/δDIC, etc.) and their uncertainties
 
 export CarbonateSystem,  # the main solver
        carbon_system, whole_system, boron_system, boron_isotopes,  # user-facing convenience functions
