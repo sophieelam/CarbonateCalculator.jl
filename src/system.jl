@@ -12,12 +12,18 @@ during specialisation.
 
 Two ways to call one object:
 
-```julia
-sys = CarbonateSystem(:carbon)
-sys(TA = 2300.0, DIC = 2000.0)                      # keyword
+```jldoctest
+julia> sys = CarbonateSystem(:carbon);
 
-fast = CarbonateSystem(:carbon; varying = (:TA, :DIC, :temp_c))
-fast.([2300.0, 2310.0], [2000.0, 1990.0], [25.0, 2.0])   # positional, so it broadcasts
+julia> sys(TA = 2300.0, DIC = 2000.0).pHtot          # keyword
+8.045817868858586
+
+julia> fast = CarbonateSystem(:carbon; varying = (:TA, :DIC, :temp_c));
+
+julia> getproperty.(fast.([2300.0, 2310.0], [2000.0, 1990.0], [25.0, 2.0]), :pHtot)
+2-element Vector{Float64}:
+ 8.045817868858586
+ 8.440688849635196
 ```
 
 [`carbon_system`](@ref), [`whole_system`](@ref), [`boron_system`](@ref) and
@@ -42,12 +48,19 @@ the varying parameters. Every uncertainty is varying because a scalar broadcasts
 vector, so a σ that is the same for every sample needs no separate mechanism — just pass the
 number:
 
-```julia
-solve = CarbonateSystem(:carbon; varying = (:TA, :DIC), varying_errors = (:TA, :DIC))
+```jldoctest
+julia> solve = CarbonateSystem(:carbon; varying = (:TA, :DIC), varying_errors = (:TA, :DIC));
 
-TA, DIC = [2300.0, 2310.0], [2000.0, 1990.0]
-solve.(TA, DIC, [2.0, 3.0], [1.5, 2.0])   # a σ column per sample, in the order specified in the construcor
-solve.(TA, DIC, 2.0, 2.0)                 # or one σ for all of them
+julia> TA, DIC = [2300.0, 2310.0], [2000.0, 1990.0];
+
+julia> per_sample = solve.(TA, DIC, [2.0, 3.0], [1.5, 2.0]);   # a σ column per sample
+
+julia> shared = solve.(TA, DIC, 2.0, 2.0);                     # or one σ for all of them
+
+julia> getproperty.(getproperty.(shared, :err), :pHtot)
+2-element Vector{Float64}:
+ 0.004579987792009714
+ 0.004399710039342347
 ```
 
 Everything knowable from names alone is checked here rather than per call — an unrecognised
@@ -235,8 +248,9 @@ Solve the carbonate system. A preset over [`CarbonateSystem`](@ref) with scope `
 
 Every parameter it accepts, and every default, comes from `PARAMETER_DEFAULTS`.
 
-```julia
-carbon_system(TA = 2300.0, DIC = 2000.0, temp_c = 20.0).pHtot
+```jldoctest
+julia> carbon_system(TA = 2300.0, DIC = 2000.0, temp_c = 20.0).pHtot
+8.1217859325142
 ```
 """
 carbon_system(; kwargs...) = CARBON_SYSTEM(; kwargs...)

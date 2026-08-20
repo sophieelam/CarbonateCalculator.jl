@@ -69,10 +69,13 @@ Julia will not broadcast over keyword arguments. Scalars broadcast against vecto
 shared by every sample is just a number.
 
 # Examples
-```julia
-measured = carbon_system(TA=2300.0, DIC=2000.0, temp_c=20.0)   # on deck
-collected = at_collection_conditions(measured, temp_c=2.0, pres_bar=400.0)
-collected.pHtot
+```jldoctest
+julia> measured = carbon_system(TA = 2300.0, DIC = 2000.0, temp_c = 20.0);   # on deck
+
+julia> collected = at_collection_conditions(measured, temp_c = 2.0, pres_bar = 400.0);
+
+julia> collected.pHtot
+8.254156644905194
 ```
 
 Uncertainties given to the measurement are carried on `result` and do not have to be restated.
@@ -81,10 +84,12 @@ well known than the conditions the sample was measured at. Note that a measureme
 uncertainties is built with `varying_errors` and called positionally — the presets take no
 `errors` argument:
 
-```julia
-measured = CarbonateSystem(:carbon; varying_errors = (:TA, :DIC),
-                           TA = 2300.0, DIC = 2000.0, temp_c = 20.0)(2.0, 2.0)
-at_collection_conditions(measured; temp_c = 2.0, σ_temp_c = 0.5).err.pHtot
+```jldoctest collection
+julia> measured = CarbonateSystem(:carbon; varying_errors = (:TA, :DIC),
+                                  TA = 2300.0, DIC = 2000.0, temp_c = 20.0)(2.0, 2.0);
+
+julia> at_collection_conditions(measured; temp_c = 2.0, σ_temp_c = 0.5).err.pHtot
+0.009597793412851123
 ```
 
 The two contributions are independent and combine in quadrature. Whether uncertainty in the
@@ -94,8 +99,13 @@ and DIC it does, because TA is derived using constants at the measurement temper
 
 A whole cast at once, carrying per-sample uncertainty in the collection temperature:
 
-```julia
-collected = at_collection_conditions.([measured, measured], [2.0, 4.0], 400.0, [0.5, 0.2])
+```jldoctest collection
+julia> collected = at_collection_conditions.([measured, measured], [2.0, 4.0], 400.0, [0.5, 0.2]);
+
+julia> getproperty.(collected, :pHtot)
+2-element Vector{Float64}:
+ 8.254156644905194
+ 8.223138522847922
 ```
 """
 function at_collection_conditions(result::CarbonateResult;

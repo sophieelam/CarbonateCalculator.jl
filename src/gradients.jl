@@ -52,10 +52,14 @@ while ∂pCO₂/∂DIC at constant pH is a different quantity roughly ten times 
 Temperature, salinity and pressure are held by construction — they are not carbonate
 parameters, so nothing perturbs them.
 
-```julia
-result = carbon_system(TA = 2300.0, DIC = 2000.0, temp_c = 20.0)
-calc_gradient(result, :pCO₂, :DIC; constant = :TA)     # ∂pCO₂/∂DIC
-calc_gradient(result, :TA, :pHtot; constant = :DIC)    # buffer capacity, ∂TA/∂pH
+```jldoctest
+julia> result = carbon_system(TA = 2300.0, DIC = 2000.0, temp_c = 20.0);
+
+julia> calc_gradient(result, :pCO₂, :DIC; constant = :TA)     # ∂pCO₂/∂DIC
+1.5652379065320055
+
+julia> calc_gradient(result, :TA, :pHtot; constant = :DIC)    # buffer capacity, ∂TA/∂pH
+643.5639661290633
 ```
 
 See [`calc_relative_gradient`](@ref) for the normalised form, and [`revelle_factor`](@ref).
@@ -107,9 +111,11 @@ change in another, and therefore dimensionless.
 This is the form the named buffer factors take, the Revelle factor among them. Arguments are
 otherwise exactly [`calc_gradient`](@ref)'s.
 
-```julia
-result = carbon_system(TA = 2300.0, DIC = 2000.0, temp_c = 20.0)
-calc_relative_gradient(result, :pCO₂, :DIC; constant = :TA)   # the Revelle factor
+```jldoctest
+julia> result = carbon_system(TA = 2300.0, DIC = 2000.0, temp_c = 20.0);
+
+julia> calc_relative_gradient(result, :pCO₂, :DIC; constant = :TA)   # the Revelle factor
+9.665777870535363
 ```
 """
 function calc_relative_gradient(result::CarbonateResult, numerator::Symbol,
@@ -149,10 +155,12 @@ one: `input_errors` may name `pHtot`, which the collection state does not carry.
 Uses the same first-order, uncorrelated model as [`propagate_errors`](@ref), and inherits its
 one assumption.
 
-```julia
-measured = CarbonateSystem(:carbon; varying_errors = (:TA, :DIC),
-                           TA = 2300.0, DIC = 2000.0, temp_c = 20.0)(2.0, 2.0)
-calc_gradient_uncertainty(measured, :pCO₂, :DIC; constant = :TA)
+```jldoctest
+julia> measured = CarbonateSystem(:carbon; varying_errors = (:TA, :DIC),
+                                  TA = 2300.0, DIC = 2000.0, temp_c = 20.0)(2.0, 2.0);
+
+julia> calc_gradient_uncertainty(measured, :pCO₂, :DIC; constant = :TA)
+0.025660673217759673
 ```
 """
 function calc_gradient_uncertainty(result::CarbonateResult, numerator::Symbol,
@@ -250,8 +258,9 @@ alkalinity.
 A preset over [`calc_relative_gradient`](@ref). `fCO₂` and `pCO₂` differ by a factor fixed at
 constant temperature, salinity and pressure, so either gives the same number here.
 
-```julia
-revelle_factor(carbon_system(TA = 2300.0, DIC = 2000.0, temp_c = 20.0))
+```jldoctest
+julia> revelle_factor(carbon_system(TA = 2300.0, DIC = 2000.0, temp_c = 20.0))
+9.665777870535363
 ```
 """
 revelle_factor(result::CarbonateResult) =
@@ -276,9 +285,11 @@ gradient alone. When there is none the value is still added and `err` is left as
 `val` carries one name that `err` does not; a table built from such results simply has no `σ_`
 column for it.
 
-```julia
-result = carbon_system(TA = 2300.0, DIC = 2000.0, temp_c = 20.0)
-with_gradient(result, :revelle, :fCO₂, :DIC; constant = :TA, relative = true).revelle
+```jldoctest
+julia> result = carbon_system(TA = 2300.0, DIC = 2000.0, temp_c = 20.0);
+
+julia> with_gradient(result, :revelle, :fCO₂, :DIC; constant = :TA, relative = true).revelle
+9.665777870535363
 ```
 """
 function with_gradient(result::CarbonateResult, name::Symbol, numerator::Symbol,

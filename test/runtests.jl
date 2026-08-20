@@ -123,6 +123,13 @@ end
             include("internal/in_out_error_test.jl")
         end
 
+        # Every `jldoctest` example in the docstrings, run and compared against the output it
+        # claims. Last in the block because it is a documentation check rather than a
+        # chemistry one.
+        @testset "Doctests" begin
+            include("internal/doctest_test.jl")
+        end
+
     end
 
     # --- 2. Agreement with other carbonate calculators ----------------------------------

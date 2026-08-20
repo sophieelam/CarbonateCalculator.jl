@@ -13,16 +13,24 @@ subsystems to compute. The functions below are presets over it:
 | [`boron_system`](@ref) | `(:boron, :isotopes)` | boron speciation and its isotopes |
 | [`boron_isotopes`](@ref) | `(:isotopes,)` | the isotopes alone |
 
-```julia
-carbon_system(TA = 2300.0, DIC = 2000.0, temp_c = 20.0).pHtot
+```jldoctest overview
+julia> carbon_system(TA = 2300.0, DIC = 2000.0, temp_c = 20.0).pHtot
+8.1217859325142
 ```
 
 For many samples, name the varying parameters once and broadcast — Julia cannot broadcast
 over keyword arguments, so naming them up front is what makes a keyword API vectorisable:
 
-```julia
-solve = CarbonateSystem(:carbon; varying = (:TA, :DIC, :temp_c), K_method = "Lueker 2000")
-results = solve.([2300.0, 2310.0, 2290.0], [2000.0, 2010.0, 1990.0], [25.0, 10.0, 2.0])
+```jldoctest overview
+julia> solve = CarbonateSystem(:carbon; varying = (:TA, :DIC, :temp_c), K_method = "Lueker 2000");
+
+julia> results = solve.([2300.0, 2310.0, 2290.0], [2000.0, 2010.0, 1990.0], [25.0, 10.0, 2.0]);
+
+julia> getproperty.(results, :pHtot)
+3-element Vector{Float64}:
+ 8.045886181605269
+ 8.276233808810545
+ 8.40949674883427
 ```
 
 The vectors are typically columns of a table. Anything varying per sample goes in `varying`;
@@ -34,18 +42,26 @@ checked when the solver is built, so a mistake surfaces there rather than on row
 Name the uncertain parameters in `varying_errors` and give a σ for each, positionally after the
 values. `result.err` then carries a matching uncertainty for every computed quantity:
 
-```julia
-solve = CarbonateSystem(:carbon; varying = (:TA, :DIC), varying_errors = (:TA, :DIC),
-                        temp_c = 20.0)
-solve(2300.0, 2000.0, 2.0, 2.0).err.pHtot
+```jldoctest overview
+julia> solve = CarbonateSystem(:carbon; varying = (:TA, :DIC), varying_errors = (:TA, :DIC),
+                               temp_c = 20.0);
+
+julia> solve(2300.0, 2000.0, 2.0, 2.0).err.pHtot
+0.004620992184145955
 ```
 
 Uncertainties are propagated by automatic differentiation, so every derived quantity gets one
 without anyone writing an error formula. A σ shared by every sample is just a number, since
 scalars broadcast against vectors:
 
-```julia
-solve.([2300.0, 2310.0, 2290.0], [2000.0, 2010.0, 1990.0], 2.0, 2.0)
+```jldoctest overview
+julia> shared_sigma = solve.([2300.0, 2310.0, 2290.0], [2000.0, 2010.0, 1990.0], 2.0, 2.0);
+
+julia> getproperty.(getproperty.(shared_sigma, :err), :pHtot)
+3-element Vector{Float64}:
+ 0.004620992184145955
+ 0.004614381664736751
+ 0.0046276345876582175
 ```
 
 Inputs are assumed uncorrelated. Where one input reaches the answer by several routes — salinity
@@ -59,17 +75,24 @@ A sample is usually measured on deck and reported at the depth it came from.
 carrying the conservative totals, the seawater composition and every method choice across, so
 nothing has to be restated:
 
-```julia
-measured = carbon_system(TA = 2300.0, DIC = 2000.0, temp_c = 20.0)
-at_collection_conditions(measured; temp_c = 2.0, pres_bar = 400.0).pHtot
+```jldoctest overview
+julia> measured = carbon_system(TA = 2300.0, DIC = 2000.0, temp_c = 20.0);
+
+julia> at_collection_conditions(measured; temp_c = 2.0, pres_bar = 400.0).pHtot
+8.254156644905194
 ```
 
 It broadcasts too, taking the same arguments positionally, and `σ_temp_c` / `σ_pres_bar` add
 uncertainty in the collection conditions — which are often less well known than the conditions
 the sample was measured at:
 
-```julia
-at_collection_conditions.([measured, measured], [2.0, 4.0], 400.0, [0.5, 0.2])
+```jldoctest overview
+julia> cast = at_collection_conditions.([measured, measured], [2.0, 4.0], 400.0, [0.5, 0.2]);
+
+julia> getproperty.(cast, :pHtot)
+2-element Vector{Float64}:
+ 8.254156644905194
+ 8.223138522847922
 ```
 
 # Results in a table
@@ -77,9 +100,20 @@ at_collection_conditions.([measured, measured], [2.0, 4.0], 400.0, [0.5, 0.2])
 A vector of results is a Tables.jl table, one row per sample, so it goes straight into a
 `DataFrame` (or any other Tables.jl sink):
 
-```julia
-using DataFrames
-DataFrame(solve.([2300.0, 2310.0], [2000.0, 1990.0], 2.0, 2.0))
+```jldoctest overview
+julia> using DataFrames
+
+julia> df = DataFrame(solve.([2300.0, 2310.0], [2000.0, 1990.0], 2.0, 2.0));
+
+julia> df.pHtot
+2-element Vector{Float64}:
+ 8.1217859325142
+ 8.15376174968104
+
+julia> df.σ_pHtot
+2-element Vector{Float64}:
+ 0.004620992184145955
+ 0.004437417288202379
 ```
 
 Columns are the computed values, and where a result carries uncertainties each value gains a
