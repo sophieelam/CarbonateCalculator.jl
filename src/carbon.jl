@@ -1,3 +1,20 @@
+"""
+    Carbon
+
+Aqueous carbonate speciation: CO₂, HCO₃⁻ and CO₃²⁻, and the alkalinity they contribute to.
+
+Any two of `TA`, `DIC`, `pH`, `CO₂`, `HCO₃` and `CO₃` determine the system. Some pairs reduce
+to a quadratic and are solved in closed form; the rest go through Newton on an alkalinity
+residual. [`C_calculator`](@ref) picks the route and is the entry point.
+
+Equations follow Zeebe & Wolf-Gladrow (2001), with the gas corrections from CO2SYS.
+
+!!! warning
+    These functions take concentrations in mol/kg, gas terms in atm, and `Ks` as an
+    equilibrium-constant bundle — not the units a result is reported in. Passing values off
+    `result.val`, which are in the reporting unit (µmol/kg by default), gives a plausible
+    wrong answer.
+"""
 module Carbon
 using Roots
 using ForwardDiff
@@ -5,15 +22,8 @@ using ForwardDiff
 export C_calculator, fCO₂_to_CO₂,
 CO₂_to_fCO₂, fCO₂_to_pCO₂, pCO₂_to_fCO₂
 
-# `calc_revelle_factor` and `calc_buffer_capacity` are deliberately absent from the export list. Both
-# are superseded by `calc_gradient`, which reproduces them exactly, and both are easy to misuse
-# from outside: they run before `_rescale_to_unit`, so they take mol/kg, where the obvious thing
-# for a caller to do is pass values off `result.val` — which are in the reporting unit, and give
-# a plausible answer about 1% wrong. Kept in place, and still reachable within the package as
-# `Carbon.calc_revelle_factor`.
-
 # One knob for the iterative solves below. `const` matters: an untyped global would make
-# every `ROOT_METHOD()` a dynamic dispatch on the hot path.
+# every `ROOT_METHOD()` a dynamic dispatch.
 const ROOT_METHOD = Roots.Newton
 
 "Where the iterative solves start. Seawater sits near here, so most inputs converge at once."
@@ -35,8 +45,6 @@ carry `ForwardDiff.Dual`s. An uncertainty on `temp_c` or `sal` reaches the answe
 the constants, leaving the concentrations `Float64`; promoting over the concentrations alone
 would then start the solve at `Float64` against a `Dual` residual, and `Roots` raises
 `MethodError: no method matching Float64(::Dual)` from inside `init_state`.
-
-Resolved at compile time: every argument's type is known, so this folds to a constant.
 """
 _newton_state_type(Ks::NamedTuple, concentrations...) =
     promote_type(map(typeof, concentrations)..., map(typeof, Tuple(values(Ks)))...)
@@ -85,7 +93,7 @@ roughly pH 10.5 for `TA+DIC` and 9.5 for `CO₂+TA`. The first attempt goes thro
 `Roots.solve`, which reports failure as `NaN` rather than throwing, so the retry is ordinary
 control flow; an input with no root still raises from the second attempt.
 
-**Newton does the converging in both cases, deliberately.** `find_zero` given an *interval*
+**Newton does the converging in both cases, and has to.** `find_zero` given an *interval*
 returns a plain `Float64` whatever it is handed, so a `Dual` passed in comes back stripped of
 its partials and any uncertainty propagated through this path arrives as exactly zero.
 Newton's iteration is ordinary arithmetic, so `Dual`s survive it — bracketing places the
@@ -113,9 +121,9 @@ Uses the cancellation-avoiding form rather than the textbook quadratic formula. 
 precision in exactly one of the two roots. Forming `q` with the signs aligned and taking
 `q/a` and `c/q` makes both of them quotients of well-conditioned quantities.
 
-The carbonate pairs that reduce to a quadratic use this instead of a root-finder, which keeps them faster and differentiable.
-Callers pick the root they want by sign or magnitude; which of the pair is which depends on
-`sign(b)`, so do not rely on the order.
+The carbonate pairs that reduce to a quadratic use this instead of a root-finder, which keeps
+them faster and differentiable. Callers pick the root they want by sign or magnitude; which of
+the pair is which depends on `sign(b)`, so do not rely on the order.
 """
 function _quadratic_roots(a, b, c)
     q = -(b + sign(b) * sqrt(b^2 - 4a * c)) / 2
@@ -136,10 +144,12 @@ _positive_root(a, b, c) = max(_quadratic_roots(a, b, c)...)
 
 
 """
-#1: Calculating DIC from CO₂ and pH
-Zeebe & Wolf-Gladrow, 2001, Appendix B
-"""
+    DIC_from_CO₂_pH(CO₂, pH, Ks)
 
+Return DIC in mol/kg, from CO₂ and pH on the total scale.
+
+Zeebe & Wolf-Gladrow, 2001, Appendix B.
+"""
 function DIC_from_CO₂_pH(CO₂, pH, Ks)
     H = 10.0^(-pH)
     return CO₂ * (1.0 + Ks.K1/H + Ks.K1*Ks.K2/H^2)
@@ -147,8 +157,11 @@ end
 
 
 """
-#2: Calculating H⁺ from CO₂ and HCO₃⁻
-Zeebe & Wolf-Gladrow, 2001, Appendix B
+    H_from_CO₂_HCO₃(CO₂, HCO₃, Ks)
+
+Return [H⁺] in mol/kg, from CO₂ and HCO₃⁻.
+
+Zeebe & Wolf-Gladrow, 2001, Appendix B.
 """
 function H_from_CO₂_HCO₃(CO₂, HCO₃, Ks)
     return (Ks.K1 * CO₂) / HCO₃
@@ -156,8 +169,11 @@ end
 
 
 """
-#3: Calculating H⁺ from CO₂ and CO₃
-Zeebe & Wolf-Gladrow, 2001, Appendix B
+    H_from_CO₂_CO₃(CO₂, CO₃, Ks)
+
+Return [H⁺] in mol/kg, from CO₂ and CO₃²⁻.
+
+Zeebe & Wolf-Gladrow, 2001, Appendix B.
 """
 function H_from_CO₂_CO₃(CO₂, CO₃, Ks)
     # Using abs() just as a safety net against tiny floating-point noise around zero
@@ -213,9 +229,11 @@ _carbonate_alkalinity(H, DIC, Ks) =
 
 
 """
-#4: pH from CO₂ and TA
+    solve_pH_from_CO₂_TA(pH, CO₂, TA, BT, PT, SiT, ST, FT, H2ST, NH4T, Ks)
 
-Alkalinity as CO₂ and this pH imply it, less the alkalinity actually supplied. Solved by
+Return the alkalinity residual at `pH`, for the CO₂ and TA pair.
+
+Alkalinity as CO₂ and pH imply it, less the alkalinity actually supplied. Solved by
 Newton with an analytic `ForwardDiff` derivative; see [`_solve_pH`](@ref).
 """
 function solve_pH_from_CO₂_TA(pH, CO₂, TA, BT, PT, SiT, ST, FT, H2ST, NH4T, Ks)
@@ -245,8 +263,11 @@ end
 
 
 """
-#5: Calculating H⁺ from CO₂ and DIC
-Zeebe & Wolf-Gladrow, 2001, Appendix B
+    H_from_CO₂_DIC(CO₂, DIC, Ks)
+
+Return [H⁺] in mol/kg, from CO₂ and DIC.
+
+Zeebe & Wolf-Gladrow, 2001, Appendix B.
 
 `DIC·H² = CO₂·(H² + K₁H + K₁K₂)` rearranges to `(DIC − CO₂)H² − CO₂K₁H − CO₂K₁K₂ = 0`, so
 the answer is a quadratic root. `DIC > CO₂` always, which makes the
@@ -266,8 +287,11 @@ end
 
 
 """
-#6: Calculating DIC from pH and HCO₃
-Zeebe & Wolf-Gladrow, 2001, Appendix B
+    DIC_from_pH_HCO₃(pH, HCO₃, Ks)
+
+Return DIC in mol/kg, from pH on the total scale and HCO₃⁻.
+
+Zeebe & Wolf-Gladrow, 2001, Appendix B.
 """
 function DIC_from_pH_HCO₃(pH, HCO₃, Ks)
     H = 10.0^(-pH)
@@ -276,8 +300,11 @@ end
 
 
 """
-#7: Calculating DIC from pH and CO₃
-Zeebe & Wolf-Gladrow, 2001, Appendix B
+    DIC_from_pH_CO₃(pH, CO₃, Ks)
+
+Return DIC in mol/kg, from pH on the total scale and CO₃²⁻.
+
+Zeebe & Wolf-Gladrow, 2001, Appendix B.
 """
 function DIC_from_pH_CO₃(pH, CO₃, Ks)
     H = 10.0^(-pH)
@@ -286,8 +313,12 @@ end
 
 
 """
-#8: Calculating DIC from pH and TA
-Taken from MatLab CO2SYS
+    DIC_from_pH_TA(pH, TA, BT, PT, SiT, ST, FT, H2ST, NH4T, Ks)
+
+Return DIC in mol/kg, from pH on the total scale and total alkalinity.
+
+Takes the carbonate alkalinity left once every other contribution is removed, then inverts it
+for DIC — no iteration needed, since pH is already known. Follows MATLAB CO2SYS.
 """
 function DIC_from_pH_TA(pH, TA, BT, PT, SiT, ST, FT, H2ST, NH4T, Ks)
     H = 10.0^(-pH)
@@ -303,8 +334,11 @@ end
 
 
 """
-#9: Calculating CO₂ from pH and DIC
-Zeebe & Wolf-Gladrow, 2001, Appendix B
+    CO₂_from_pH_DIC(pH, DIC, Ks)
+
+Return CO₂ in mol/kg, from pH on the total scale and DIC.
+
+Zeebe & Wolf-Gladrow, 2001, Appendix B.
 """
 function CO₂_from_pH_DIC(pH, DIC, Ks)
     H = 10.0^(-pH)
@@ -313,17 +347,23 @@ end
 
 
 """
-#10: Calculating H⁺ from HCO₃ and CO₃
-Zeebe & Wolf-Gladrow, 2001, Appendix B
+    H_from_HCO₃_CO₃(HCO₃, CO₃, Ks)
+
+Return [H⁺] in mol/kg, from HCO₃⁻ and CO₃²⁻.
+
+Zeebe & Wolf-Gladrow, 2001, Appendix B.
 """
-function H_from_HCO₃_CO₃(HCO₃, CO₃, Ks) 
+function H_from_HCO₃_CO₃(HCO₃, CO₃, Ks)
     return Ks.K2 * HCO₃ / CO₃
 end
 
 
 """
-#11: Calculating H⁺ from HCO₃ and TA
-Zeebe & Wolf-Gladrow, 2001, Appendix B
+    solve_H_from_HCO₃_TA(H, HCO₃, TA, BT, PT, SiT, ST, FT, H2ST, NH4T, Ks)
+
+Return the alkalinity residual at `H`, for the HCO₃⁻ and TA pair.
+
+Zeebe & Wolf-Gladrow, 2001, Appendix B.
 """
 function solve_H_from_HCO₃_TA(H, HCO₃, TA, BT, PT, SiT, ST, FT, H2ST, NH4T, Ks)
     temp_DIC = HCO₃ * (H / Ks.K1 + 1.0 + Ks.K2 / H)
@@ -341,10 +381,15 @@ function H_from_HCO₃_TA(HCO₃, TA, BT, PT, SiT, ST, FT, H2ST, NH4T, Ks)
 end
 
 """
-#12: Calculating pH from HCO₃ and DIC
-Zeebe & Wolf-Gladrow, 2001, Appendix B
-Note: instead of using "find_zero", this calculation uses a basic quadratic 
-approach to save computational time
+    pH_from_HCO₃_DIC(HCO₃, DIC, Ks)
+
+Return pH on the total scale, from HCO₃⁻ and DIC.
+
+Solved as a quadratic rather than by a root-finder, which is both faster and differentiable.
+Returns `NaN` for a pair with no real root, which means HCO₃⁻ and DIC too close together to
+be physically consistent.
+
+Zeebe & Wolf-Gladrow, 2001, Appendix B.
 """
 function pH_from_HCO₃_DIC(HCO₃, DIC, Ks)
     # Rearranging the equation into aH^2 + bH + c = 0
@@ -369,10 +414,16 @@ end
 
 
 """
-#13: Calculating H⁺ from CO₃ and TA
-Zeebe & Wolf-Gladrow, 2001, Appendix B
-Uses Roots.Brent() (same as CBsys) to circumnavigate bracketing issues with
-root finding. However, this only works for pH values 5 < pH < 10.
+    solve_H_from_CO₃_TA(H, CO₃, TA, BT, PT, SiT, ST, FT, H2ST, NH4T, Ks)
+
+Return the alkalinity residual at `H`, for the CO₃²⁻ and TA pair.
+
+Zeebe & Wolf-Gladrow, 2001, Appendix B.
+
+!!! danger
+    This residual is not monotonic in pH. CO₃²⁻ and TA do not always determine a unique
+    system, so the root reached depends on where the solve starts, and a second root may
+    exist. Treat a result from this pair with suspicion outside roughly `5 < pH < 10`.
 """
 function solve_H_from_CO₃_TA(H, CO₃, TA, BT, PT, SiT, ST, FT, H2ST, NH4T, Ks)
     temp_DIC = CO₃ * (H^2 / (Ks.K1 * Ks.K2) + H / Ks.K2 + 1)
@@ -400,8 +451,11 @@ function H_from_CO₃_TA(CO₃, TA, BT, PT, SiT, ST, FT, H2ST, NH4T, Ks)
 end
 
 """
-#14: Calculating H⁺ from CO₃ and DIC
-Zeebe & Wolf-Gladrow, 2001, Appendix B
+    H_from_CO₃_DIC(CO₃, DIC, Ks)
+
+Return [H⁺] in mol/kg, from CO₃²⁻ and DIC.
+
+Zeebe & Wolf-Gladrow, 2001, Appendix B.
 
 `CO₃·(1 + H/K₂ + H²/(K₁K₂)) = DIC` is a quadratic in H with coefficients
 `CO₃/(K₁K₂)`, `CO₃/K₂` and `CO₃ − DIC`. `DIC > CO₃` always, so the constant term is negative
@@ -417,7 +471,9 @@ end
 
 
 """
-#15: pH from TA and DIC
+    solve_pH_from_TA_DIC(pH, TA, DIC, BT, PT, SiT, ST, FT, H2ST, NH4T, Ks)
+
+Return the alkalinity residual at `pH`, for the TA and DIC pair.
 
 The most-used pair. Alkalinity as DIC and this pH imply it, less the alkalinity supplied.
 Monotonic in pH, so it has exactly one root.
@@ -441,8 +497,11 @@ end
 
 
 """
-Calculating CO₂ from H⁺ and DIC
-Equation 1.1.9 from Zeebe & Wolf-Gladrow, 2001, Chapter 1
+    calc_CO₂(H, DIC, Ks)
+
+Return CO₂ in mol/kg, from [H⁺] and DIC.
+
+Zeebe & Wolf-Gladrow, 2001, equation 1.1.9.
 """
 function calc_CO₂(H, DIC, Ks)
     return DIC / (1 + Ks.K1 / H + Ks.K1 * Ks.K2 / H^2)
@@ -450,8 +509,11 @@ end
 
 
 """
-Calculating HCO₃ from H⁺ and DIC
-Equation 1.1.10 from Zeebe & Wolf-Gladrow, 2001, Chapter 1
+    calc_HCO₃(H, DIC, Ks)
+
+Return HCO₃⁻ in mol/kg, from [H⁺] and DIC.
+
+Zeebe & Wolf-Gladrow, 2001, equation 1.1.10.
 """
 function calc_HCO₃(H, DIC, Ks)
     return DIC / (1 + H / Ks.K1 + Ks.K2 / H)
@@ -459,8 +521,11 @@ end
 
 
 """
-Calculating CO₃ from H⁺ and DIC
-Equation 1.1.11 from Zeebe & Wolf-Gladrow, 2001, Chapter 1
+    calc_CO₃(H, DIC, Ks)
+
+Return CO₃²⁻ in mol/kg, from [H⁺] and DIC.
+
+Zeebe & Wolf-Gladrow, 2001, equation 1.1.11.
 """
 function calc_CO₃(H, DIC, Ks)
     return DIC / (1 + H / Ks.K2 + H^2 / (Ks.K1 * Ks.K2))
@@ -468,8 +533,12 @@ end
 
 
 """
-Calculating TA components
-Equation 1.5.80 from Zeebe & Wolf-Gladrow, 2001, Chapter 1
+    calc_TA_components(H, DIC, BT, PT, SiT, ST, FT, H2ST, NH4T, Ks)
+
+Return total alkalinity in mol/kg together with each contribution to it, as a tuple
+`(TA, CAlk, BAlk, PAlk, SiAlk, OH, Hfree, HSO₄, HF, Alk_H2S, Alk_NH3)`.
+
+Zeebe & Wolf-Gladrow, 2001, equation 1.5.80.
 """
 function calc_TA_components(H, DIC, BT, PT, SiT, ST, FT, H2ST, NH4T, Ks)
     CAlk = _carbonate_alkalinity(H, DIC, Ks)
@@ -482,19 +551,26 @@ function calc_TA_components(H, DIC, BT, PT, SiT, ST, FT, H2ST, NH4T, Ks)
 end
 
 """
-Calculating TA
-Equation 1.5.80 from Zeebe & Wolf-Gladrow, 2001, Chapter 1
+    calc_TA(H, DIC, BT, PT, SiT, ST, FT, H2ST, NH4T, Ks)
+
+Return total alkalinity in mol/kg, from [H⁺] and DIC.
+
+The sum alone; see [`calc_TA_components`](@ref) for the breakdown.
 """
 function calc_TA(H, DIC, BT, PT, SiT, ST, FT, H2ST, NH4T, Ks)
-    (TA, _, _, _, _, _, _, _, _, _, _) = calc_TA_components(H, DIC, BT, PT, SiT, ST, FT, H2ST, NH4T, Ks)
+    (TA, _, _, _, _, _, _, _, _, _, _) =
+        calc_TA_components(H, DIC, BT, PT, SiT, ST, FT, H2ST, NH4T, Ks)
 
     return TA
 end
 
 
 """
-Calculating CO₂ from fugacity
-Equation C.4.14 from Zeebe & Wolf-Gladrow, 2001, Appendix C
+    fCO₂_to_CO₂(fCO₂, Ks)
+
+Return dissolved CO₂ in mol/kg, from fugacity in atm.
+
+Zeebe & Wolf-Gladrow, 2001, equation C.4.14.
 """
 function fCO₂_to_CO₂(fCO₂, Ks)
     return fCO₂ * Ks.K0
@@ -502,8 +578,11 @@ end
 
 
 """
-Calculating fugacity from CO₂
-Equation C.4.14 from Zeebe & Wolf-Gladrow, 2001, Appendix C
+    CO₂_to_fCO₂(CO₂, Ks)
+
+Return CO₂ fugacity in atm, from dissolved CO₂ in mol/kg.
+
+Zeebe & Wolf-Gladrow, 2001, equation C.4.14.
 """
 function CO₂_to_fCO₂(CO₂, Ks)
     return CO₂ / Ks.K0
@@ -511,15 +590,18 @@ end
 
 
 """
-Calculating fCO₂ from pCO₂
-Taken from MatLab CO2SYS
+    pCO₂_to_fCO₂(pCO₂, T)
 
-Assumes a pressure of or near 1 atm, otherwise, the exponential pressure term
-will impact calculations (Weiss, R. F., Marine Chemistry 2:203-215, 1974).
+Return CO₂ fugacity from partial pressure, both in atm, at temperature `T` in °C.
 
-Intended for a mixture of CO₂ and air at 1 atm (low CO₂ concentrations).
+The virial correction for a mixture of CO₂ and air at low CO₂ concentration. `B` and `Δ` are
+virial coefficients in cm³/mol.
 
-Δ & B are in cm³/mol
+!!! warning
+    Assumes a total pressure at or near 1 atm. Away from it the exponential pressure term
+    matters and this correction no longer applies.
+
+Weiss, R. F., Marine Chemistry 2:203-215, 1974, via MATLAB CO2SYS.
 """
 function pCO₂_to_fCO₂(pCO₂, T)
     Tₖ = T + 273.15
@@ -534,15 +616,11 @@ end
 
 
 """
-Calculating pCO₂ from fCO₂
-Taken from MatLab CO2SYS
+    fCO₂_to_pCO₂(fCO₂, T)
 
-Assumes a pressure of or near 1 atm, otherwise, the exponential pressure term
-will impact calculations (Weiss, R. F., Marine Chemistry 2:203-215, 1974).
+Return CO₂ partial pressure from fugacity, both in atm, at temperature `T` in °C.
 
-Intended for a mixture of CO₂ and air at 1 atm (low CO₂ concentrations).
-
-Δ & B are in cm³/mol
+The inverse of [`pCO₂_to_fCO₂`](@ref), and subject to the same 1 atm assumption.
 """
 function fCO₂_to_pCO₂(fCO₂, T)
     Tₖ = T + 273.15
@@ -577,11 +655,16 @@ function _underdetermined_carbon(pHtot, DIC, TA, CO₂, HCO₃, CO₃)
 end
 
 
-# The Carbon Calculator
 """
-Calculates carbon system from any two of the following:
-CO₂, HCO₃⁻, CO₃²⁻, DIC, TA, pH
-Returns everything on the total scale.
+    C_calculator(; pHtot, DIC, TA, CO₂, HCO₃, CO₃, fCO₂, pCO₂, Ks, temp_c, sal, kwargs...)
+
+Solve the carbonate system from any two of `CO₂`, `HCO₃`, `CO₃`, `DIC`, `TA` and `pHtot`.
+
+Concentrations are in mol/kg and gas terms in atm; pH is returned on the total scale. The
+full speciation comes back along with the alkalinity breakdown.
+
+The nutrient and seawater totals (`BT`, `PT`, `SiT`, `ST`, `FT`, `H2ST`, `NH4T`) default to
+zero, so a caller that omits them gets alkalinity without those contributions.
 """
 function C_calculator(;
     pHtot=nothing, DIC=nothing, TA=nothing, CO₂=nothing, HCO₃=nothing, 
@@ -699,10 +782,21 @@ function C_calculator(;
     )
 end
 
-# Calculate the Revelle Factor
+# `calc_revelle_factor` and `calc_buffer_capacity` are not exported. Both are superseded by
+# `calc_gradient`, which reproduces them exactly, and both are easy to misuse from outside:
+# they run before `_rescale_to_unit`, so they take mol/kg, where the obvious thing for a
+# caller to do is pass values off `result.val` — which are in the reporting unit, and give a
+# plausible answer about 1% wrong. Still reachable within the package as
+# `Carbon.calc_revelle_factor`.
+
 """
-Calculating the Revelle Factor from CO₂ and DIC:
-ΔpCO₂ / ΔDIC
+    calc_revelle_factor(TA, DIC, BT, PT, SiT, ST, FT, H2ST, NH4T, Ks)
+
+Return the Revelle factor: the fractional change in CO₂ per fractional change in DIC, at
+constant alkalinity.
+
+Superseded by `calc_gradient`, which reproduces it exactly and takes a result rather than raw
+mol/kg values. See [`revelle_factor`](@ref).
 """
 function calc_revelle_factor(TA, DIC, BT, PT, SiT, ST, FT, H2ST, NH4T, Ks)
     # 1. First, determine baseline fCO2

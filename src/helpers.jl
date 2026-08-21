@@ -1,9 +1,23 @@
+"""
+    Helpers
+
+Conversion between the four pH scales.
+
+The scales differ in which proton species they count — free, plus sulphate, plus fluoride —
+and NBS additionally uses a different activity convention. A pH is meaningless without
+knowing which of them it is on.
+"""
 module Helpers
 import ..Constants: calc_fH
 
-# Calculate pH on all scales; used in calculator.jl
 """
-Calculates pH on all scales when provided with an initial pH.
+    calc_pH_scale(pHtot, pHfree, pHsws, pHNBS, ST, FT, temp_c, sal, Ks)
+
+Return pH on all four scales, given exactly one of them.
+
+Returns an empty tuple unless exactly one pH is supplied, since with none there is nothing to
+convert and with more than one the answer would be ambiguous. `ST` and `FT` are in mol/kg,
+`temp_c` in °C.
 """
 function calc_pH_scale(pHtot, pHfree, pHsws, pHNBS, ST, FT, temp_c, sal, Ks)
     npH = count(!isnothing, (pHtot, pHfree, pHsws, pHNBS))

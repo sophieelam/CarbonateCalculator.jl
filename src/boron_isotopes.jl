@@ -1,28 +1,57 @@
+"""
+    Isotopes
+
+Boron isotopes and the fractionation between the two dissolved species.
+
+¹¹B partitions unevenly between B(OH)₃ and B(OH)₄⁻, by a factor `alphaB`, so the isotopic
+composition of either species is a function of pH.
+
+Two notations appear throughout, and they are the same quantity written differently: `A`, the
+fractional abundance of ¹¹B, is what the equations use, and `δ`, the per-mil deviation from a
+standard, is what people measure. The `A11_to_δ11` family converts between them, along with
+the raw isotope ratio `R`.
+
+[`calc_B_isotopes`](@ref) is the entry point. Equations follow Branson (2017),
+*B systematics in cbsyst*; `alphaB` is from Klochko et al. (2006).
+
+!!! warning
+    These functions take concentrations in mol/kg and `Ks` as an equilibrium-constant bundle,
+    not the units a result is reported in. Fractional abundances are dimensionless and δ
+    values are in ‰.
+"""
 module Isotopes
 
 using ..Boron: calc_chiB
 
 # α fractionation constant & ϵ
 """
-Alpha for B fractionation
-Klochko, et al., 2006
+    get_alphaB()
+
+Return the boron isotope fractionation factor between B(OH)₃ and B(OH)₄⁻, dimensionless.
+
+Klochko et al., 2006, doi:10.1016/j.epsl.2006.05.034.
 """
 function get_alphaB()
     return 1.0272
 end
 
 """
-δ¹¹B of modern seawater, in ‰. Used whenever the total boron isotope composition is not given
-explicitly.
+    get_δBT()
 
-Foster et al., 2010, doi:10.1029/2010GC003201
+Return δ¹¹B of modern seawater, in ‰.
+
+Used whenever the total boron isotope composition is not given explicitly.
+
+Foster et al., 2010, doi:10.1029/2010GC003201.
 """
 function get_δBT()
     return 39.61
 end
 
 """
-Converts alpha (Klochko) to ϵ (which is in delta-space)
+    alphaB_to_ϵ(alphaB)
+
+Return the fractionation factor as ϵ in ‰, the form that works in δ-space.
 """
 function alphaB_to_ϵ(alphaB)
     return (alphaB - 1) * 1000
@@ -30,15 +59,21 @@ end
 
 
 """
-ϵ for B fractionation from Klochko alpha
+    get_ϵ()
+
+Return the boron isotope fractionation factor as ϵ in ‰.
+
+[`get_alphaB`](@ref) expressed in δ-space.
 """
 function get_ϵ()
-    return alpha_to_ϵ(get_alphaB())
+    return alphaB_to_ϵ(get_alphaB())
 end
 
 
 """
-Convert ϵ to alpha
+    ϵ_to_alpha(ϵ)
+
+Return the fractionation factor as a dimensionless alpha, from ϵ in ‰.
 """
 function ϵ_to_alpha(ϵ)
 return (ϵ/1000) + 1
@@ -46,9 +81,11 @@ end
 
 
 """
-Converts fractional abundnace (A11) to δ-notation
-SRM_ratio: the 11B/10B of SRM, default is NIST951 (4.04367)
-(Branson, 2017)
+    A11_to_δ11(A11, SRM_ratio = 4.04367)
+
+Return δ¹¹B in ‰, from the fractional abundance of ¹¹B.
+
+`SRM_ratio` is the ¹¹B/¹⁰B of the standard, NIST951 by default.
 """
 function A11_to_δ11(A11, SRM_ratio=4.04367)
     return ((A11 / (1 - A11) / SRM_ratio - 1)) * 1000
@@ -56,8 +93,9 @@ end
 
 
 """
-Converts fractional abundance (A11) to isotope ratio (R11)
-(Branson, 2017)
+    A11_to_R11(A11)
+
+Return the ¹¹B/¹⁰B ratio, from the fractional abundance of ¹¹B.
 """
 function A11_to_R11(A11)
     return A11 / (1 - A11)
@@ -65,9 +103,11 @@ end
 
 
 """
-Converts δ-notation (δ11) to fractional abundance (A11)
-SRM_ratio: the 11B/10B of SRM, default is NIST951 (4.04367)
-(Branson, 2017)
+    δ11_to_A11(δ11, SRM_ratio = 4.04367)
+
+Return the fractional abundance of ¹¹B, from δ¹¹B in ‰.
+
+`SRM_ratio` is the ¹¹B/¹⁰B of the standard, NIST951 by default.
 """
 function δ11_to_A11(δ11, SRM_ratio=4.04367)
     return SRM_ratio * (δ11 / 1000 + 1) / (SRM_ratio * (δ11 / 1000 + 1) + 1)
@@ -75,9 +115,11 @@ end
 
 
 """
-Converts δ-notation (δ11) to isotope ratio (R11)
-SRM_ratio: the 11B/10B of SRM, default is NIST951 (4.04367)
-(Branson, 2017)
+    δ11_to_R11(δ11, SRM_ratio = 4.04367)
+
+Return the ¹¹B/¹⁰B ratio, from δ¹¹B in ‰.
+
+`SRM_ratio` is the ¹¹B/¹⁰B of the standard, NIST951 by default.
 """
 function δ11_to_R11(δ11, SRM_ratio=4.04367)
     return (δ11 / 1000 + 1) * SRM_ratio
@@ -85,9 +127,11 @@ end
 
 
 """
-Converts isotope ratio (R11) to δ-notation (δ11)
-SRM_ratio: the 11B/10B of SRM, default is NIST951 (4.04367)
-(Branson, 2017)
+    R11_to_δ11(R11, SRM_ratio = 4.04367)
+
+Return δ¹¹B in ‰, from the ¹¹B/¹⁰B ratio.
+
+`SRM_ratio` is the ¹¹B/¹⁰B of the standard, NIST951 by default.
 """
 function R11_to_δ11(R11, SRM_ratio=4.04367)
     return (R11 / SRM_ratio - 1) * 1000
@@ -95,8 +139,9 @@ end
 
 
 """
-Converts isotope ratio (R11) to fractional abundance (A11)
-(Branson, 2017)
+    R11_to_A11(R11)
+
+Return the fractional abundance of ¹¹B, from the ¹¹B/¹⁰B ratio.
 """
 function R11_to_A11(R11)
     return R11 / (1 + R11)
@@ -104,9 +149,9 @@ end
 
 
 """
-Converts the isotope fractional abundnace of B(OH)₃ to isotope fractionation
-of B(OH)₄
-(Branson, 2017)
+    ABOH3_to_ABOH4(ABOH₃, alphaB)
+
+Return the fractional abundance of ¹¹B in B(OH)₄⁻, from that in B(OH)₃.
 """
 function ABOH3_to_ABOH4(ABOH₃, alphaB)
     return (1 / ((alphaB / ABOH₃) - alphaB + 1))
@@ -114,21 +159,26 @@ end
 
 
 """
-Helper function to determne if AB(OH)₃ or AB(OH)₄ is not provided
+    ABOH3_or_ABOH4(ABOH₃, ABOH₄, alphaB)
+
+Return AB(OH)₄ given either species, converting from AB(OH)₃ when AB(OH)₄ is absent.
+
+Raises when neither is given, so a caller may assign the result unconditionally.
 """
 function ABOH3_or_ABOH4(ABOH₃, ABOH₄, alphaB)
     if all(isnothing, (ABOH₃, ABOH₄))
         throw(ArgumentError("Either AB(OH)₃ or AB(OH)₄ must be specified."))
     elseif isnothing(ABOH₄)
-        ABOH₄ = ABOH3_to_ABOH4(ABOH₃, alphaB)
-        return ABOH₄
+        return ABOH3_to_ABOH4(ABOH₃, alphaB)
     end
+    return ABOH₄
 end
 
 
 """
-Calculates ABT from pH and ABOH₃ or ABOH₄
-(Branson, 2017)
+    calc_ABT(; H, Ks, alphaB, ABOH₄, ABOH₃)
+
+Return the fractional abundance of ¹¹B in total boron, from [H⁺] and one of the two species.
 """
 function calc_ABT(; H, Ks, alphaB, ABOH₄=nothing, ABOH₃=nothing)
     if isnothing(ABOH₄)
@@ -149,8 +199,11 @@ end
 
 
 """
-Calculates H⁺ from isotope fractional abundances of boron species
-(Branson, 2017)
+    H_from_ABOH3_ABOH4(; Ks, alphaB, ABT, ABOH₄, ABOH₃)
+
+Return [H⁺] in mol/kg, from total boron's isotopic composition and one of the two species.
+
+This is the step that makes δ¹¹B a pH proxy.
 """
 function H_from_ABOH3_ABOH4(; Ks, alphaB, ABT, ABOH₄=nothing, ABOH₃=nothing)
     if isnothing(ABOH₄)
@@ -163,8 +216,9 @@ end
 
 
 """
-Calculates AB(OH)₃ from H⁺ and ABT
-(Branson, 2017)
+    ABOH3_from_H_ABT(H, ABT, Ks, alphaB)
+
+Return the fractional abundance of ¹¹B in B(OH)₃, from [H⁺] and total boron.
 """
 function ABOH3_from_H_ABT(H, ABT, Ks, alphaB)
     chiB = calc_chiB(H, Ks)
@@ -185,8 +239,9 @@ end
 
 
 """
-Calculates AB(OH)₄ from H⁺ and ABT
-(Branson, 2017)
+    ABOH4_from_H_ABT(H, ABT, Ks, alphaB)
+
+Return the fractional abundance of ¹¹B in B(OH)₄⁻, from [H⁺] and total boron.
 """
 function ABOH4_from_H_ABT(H, ABT, Ks, alphaB)
     chiB = calc_chiB(H, Ks)
@@ -206,9 +261,9 @@ end
 
 
 """
-Calculates the fractionation factor (alpha) from isotope 
-fractionation abundance of ABT and AB(OH)₃
-(Branson, 2017)
+    alpha_from_ABT_ABOH3(H, Ks, ABT, ABOH₃)
+
+Return the fractionation factor, from [H⁺] and the composition of total boron and B(OH)₃.
 """
 function alpha_from_ABT_ABOH3(H, Ks, ABT, ABOH₃)
     return ((1
@@ -218,9 +273,9 @@ end
 
 
 """
-Calculates the fractionation factor (alpha) form isotope 
-fractionation abundance of ABT and AB(OH)₄
-(Branson, 2017)
+    alpha_from_ABT_ABOH4(H, Ks, ABT, ABOH₄)
+
+Return the fractionation factor, from [H⁺] and the composition of total boron and B(OH)₄⁻.
 """
 function alpha_from_ABT_ABOH4(H, Ks, ABT, ABOH₄)
     return ((1 / ABOH₄ - 1)
@@ -229,9 +284,11 @@ end
 
 
 """
-Calculates the stoichiometric equilibrium constant for boron
-from the fractional abundance of B(OH)₄
-(Branson, 2017)
+    calc_KB(H, alphaB, ABT, ABOH₄, ABOH₃)
+
+Return the stoichiometric equilibrium constant for boron, from the isotopic composition.
+
+Takes either species; give `ABOH₃` when `ABOH₄` is unknown.
 """
 function calc_KB(H, alphaB, ABT, ABOH₄=nothing, ABOH₃=nothing)
     ABOH₄ = ABOH3_or_ABOH4(ABOH₃, ABOH₄, alphaB)
@@ -243,10 +300,14 @@ end
 
 
 """
-Calculates pH, ABT, ABOH₃ and ABOH₄ when two of the four parameters are provided
-(Branson, 2017)
+    calc_B_isotopes(; pHtot, ABT, ABOH₃, ABOH₄, alphaB, Ks)
+
+Solve the boron isotope system from `pHtot`, or from `ABT` and one of the two species.
+
+Isotopic compositions are fractional abundances of ¹¹B, and pH is on the total scale.
+`alphaB` falls back to [`get_alphaB`](@ref). Returns `(; pHtot, ABT, ABOH₃, ABOH₄, H)`.
 """
-function calc_B_isotopes(; pHtot=nothing, ABT=nothing, ABOH₃=nothing, 
+function calc_B_isotopes(; pHtot=nothing, ABT=nothing, ABOH₃=nothing,
     ABOH₄ =nothing, alphaB=nothing, Ks=nothing, kwargs ...)
     if isnothing(alphaB)
         alphaB = get_alphaB() 
@@ -281,72 +342,88 @@ end
 
 
 """
-Calculates pH on the total scale from δ values
-(Branson, 2017)
+    pH_from_δ(KB, δ11BT, δ11B4, ϵ = get_ϵ())
+
+Return pH on the total scale, from the δ¹¹B of total boron and of B(OH)₄⁻, both in ‰.
+
+This is the boron isotope pH proxy. `KB` is the stoichiometric constant for boron and `ϵ` the
+fractionation in ‰.
+
+Inverts [`calc_δ11B4`](@ref).
 """
-function pH_from_δ(δ11BT, δ11B4, ϵ=get_ϵ())
-    # Calculates fractionation of species from δ values
+function pH_from_δ(KB, δ11BT, δ11B4, ϵ=get_ϵ())
     ABOH₄ = δ11_to_A11(δ11B4)
     ABT = δ11_to_A11(δ11BT)
     alphaB = ϵ_to_alpha(ϵ)
-    # Calculates pH from ABT, ABOH₃, and ABOH₄
-    return -log10(H_from_ABOH3_ABOH4(; Ks, alphaB, ABT, ABOH₄, ABOH₃))
+
+    return -log10(H_from_ABOH3_ABOH4(; Ks = (; KB), alphaB, ABT, ABOH₄))
 end
 
 
 """
-Calculates pKB from δ inputs
-(Branson, 2017)
+    pKB_from_δ(pH, δ11BT, δ11B4, ϵ = get_ϵ())
+
+Return pKB, from pH on the total scale and the δ¹¹B of total boron and of B(OH)₄⁻, in ‰.
+
+The inverse of [`pH_from_δ`](@ref): given an independently known pH, what `KB` the isotopes
+imply.
 """
 function pKB_from_δ(pH, δ11BT, δ11B4, ϵ=get_ϵ())
-    # Calculates fractionation of species from δ values
     ABOH₄ = δ11_to_A11(δ11B4)
     ABT = δ11_to_A11(δ11BT)
     H = 10.0^(-pH)
     alphaB = ϵ_to_alpha(ϵ)
-    # Calculates KB from ABT and ABOH₄
+
     return -log10(calc_KB(H, alphaB, ABT, ABOH₄))
 end
 
 
 """
-Calculates isotope ratio of total boron in δ units
-(Branson, 2017)
+    calc_δ11BT(pH, KB, δ11B4, ϵ = get_ϵ())
+
+Return δ¹¹B of total boron in ‰, from pH on the total scale and the δ¹¹B of B(OH)₄⁻.
+
+Inverts [`calc_δ11B4`](@ref).
 """
 function calc_δ11BT(pH, KB, δ11B4, ϵ=get_ϵ())
     ABOH₄ = δ11_to_A11(δ11B4)
     alphaB = ϵ_to_alpha(ϵ)
     H = 10.0^(-pH)
 
-    return A11_to_δ11(calc_ABT(; H, KB, alphaB, ABOH₄))
-    
+    return A11_to_δ11(calc_ABT(; H, Ks = (; KB), alphaB, ABOH₄))
 end
 
 
 """
-Calculates isotope ratio of B(OH)₄ in δ units
-(Branson, 2017)
+    calc_δ11B4(pH, KB, δ11BT, ϵ = get_ϵ())
+
+Return δ¹¹B of B(OH)₄⁻ in ‰, from pH on the total scale and the δ¹¹B of total boron.
+
+The inverse of [`calc_δ11BT`](@ref), and the quantity a carbonate archive records.
 """
 function calc_δ11B4(pH, KB, δ11BT, ϵ=get_ϵ())
-    ABT = δ11_toA11(δ11BT)
+    ABT = δ11_to_A11(δ11BT)
     alphaB = ϵ_to_alpha(ϵ)
 
-    return A11_to_δ11(ABOH4_from_H_ABT(10.0^(-pH), Ks, ABT, alphaB))
+    return A11_to_δ11(ABOH4_from_H_ABT(10.0^(-pH), ABT, (; KB), alphaB))
 end
 
 
 """
-Calculates the fractionation factor (ϵ) of B(OH)₃ and B(OH)₄ in δ units
-(Branson, 2017)
+    calc_ϵ(pH, KB, δ11BT, δ11B4)
+
+Return the fractionation factor ϵ in ‰, from pH and the δ¹¹B of total boron and of B(OH)₄⁻.
+
+Solves for the fractionation a measurement implies, rather than assuming
+[`get_ϵ`](@ref) — the calibration question behind the proxy.
 """
 function calc_ϵ(pH, KB, δ11BT, δ11B4)
-    ABOH₄ = δ11_to_A11(ABOH₄)
-    ABT = δ11_to_A11(ABT)
+    ABOH₄ = δ11_to_A11(δ11B4)
+    ABT = δ11_to_A11(δ11BT)
     H = 10.0^(-pH)
-    alphaB = alpha_from_ABT_ABOH4(H, KB, ABT, ABOH₄)
+    alphaB = alpha_from_ABT_ABOH4(H, (; KB), ABT, ABOH₄)
 
-    return alpha_to_ϵ(alphaB)
-    
+    return alphaB_to_ϵ(alphaB)
 end
 export calc_B_isotopes, A11_to_δ11
 end # module

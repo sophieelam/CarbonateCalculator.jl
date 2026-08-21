@@ -1,16 +1,34 @@
+"""
+    Boron
+
+Aqueous boron speciation: the partitioning of total boron between B(OH)₃ and B(OH)₄⁻.
+
+`KB` governs `B(OH)₃ + H₂O ⇌ B(OH)₄⁻ + H⁺`, so a single constraint beyond `BT` fixes the
+system. [`B_calculator`](@ref) is the entry point; the rest are the individual rearrangements
+it dispatches to.
+
+Equations follow Branson (2017), *B systematics in cbsyst*.
+
+!!! warning
+    These functions take concentrations in mol/kg and `Ks` as an equilibrium-constant bundle,
+    not the units a result is reported in. Passing values off `result.val`, which are in the
+    reporting unit (µmol/kg by default), gives a plausible wrong answer.
+"""
 module Boron
 
 """
-Calculation for Chi B
-(Branson, 2017)
+    calc_chiB(H, Ks)
+
+Return the fraction of total boron present as B(OH)₃, at a given [H⁺] in mol/kg.
 """
 function calc_chiB(H, Ks)
     return 1 / (1 + Ks.KB / H)
 end
 
 """
-#1: Calculating [H⁺] from BT and B(OH)₃
-Taken from CBsyst (Branson, 2017)
+    H_from_BT_BOH3(BT, BOH₃, Ks)
+
+Return [H⁺] in mol/kg, from total boron and B(OH)₃.
 """
 function H_from_BT_BOH3(BT, BOH₃, Ks)
     return Ks.KB / (BT / BOH₃ - 1)
@@ -18,8 +36,9 @@ end
 
 
 """
-#2: Calculating [H⁺] from BT and B(OH)₄
-Taken from CBsyst (Branson, 2017)
+    H_from_BT_BOH4(BT, BOH₄, Ks)
+
+Return [H⁺] in mol/kg, from total boron and B(OH)₄⁻.
 """
 function H_from_BT_BOH4(BT, BOH₄, Ks)
     return Ks.KB * (BT / BOH₄ - 1)
@@ -27,8 +46,9 @@ end
 
 
 """
-#3: Calculating BT from pH and B(OH)₃
-Taken from CBsyst (Branson, 2017)
+    BT_from_pH_BOH3(pH, BOH₃, Ks)
+
+Return total boron in mol/kg, from pH on the total scale and B(OH)₃.
 """
 function BT_from_pH_BOH3(pH, BOH₃, Ks)
     H = 10.0^(-pH)
@@ -37,8 +57,9 @@ end
 
 
 """
-#4: Calculating BT from pH and B(OH)₄
-Taken from CBsyst (Branson, 2017)
+    BT_from_pH_BOH4(pH, BOH₄, Ks)
+
+Return total boron in mol/kg, from pH on the total scale and B(OH)₄⁻.
 """
 function BT_from_pH_BOH4(pH, BOH₄, Ks)
     H = 10.0^(-pH)
@@ -48,8 +69,9 @@ end
 
 
 """
-Calculating B(OH)₄ from BT and H⁺
-Taken from CBsyst (Branson, 2017)
+    calc_BOH4(BT, H, Ks)
+
+Return B(OH)₄⁻ in mol/kg, from total boron and [H⁺].
 """
 function calc_BOH4(BT, H, Ks)
     return BT / (1 + H / Ks.KB)
@@ -57,8 +79,9 @@ end
 
 
 """
-Calculating B(OH)₃ from BT and H⁺
-Taken from CBsyst (Branson, 2017)
+    calc_BOH3(BT, H, Ks)
+
+Return B(OH)₃ in mol/kg, from total boron and [H⁺].
 """
 function calc_BOH3(BT, H, Ks)
     return BT / (1 + Ks.KB / H)
@@ -66,9 +89,12 @@ end
 
 
 """
-Calculates boron system from any two of the following: 
-pH, BT, B(OH)₃, B(OH)₄
-(Branson, 2017)
+    B_calculator(; pHtot, BT, BOH₃, BOH₄, Ks)
+
+Solve boron speciation from any two of `pHtot`, `BT`, `BOH₃` and `BOH₄`.
+
+Concentrations are in mol/kg and pH is on the total scale. Returns
+`(; pHtot, BT, BOH₃, BOH₄)`, with the two that were not supplied filled in.
 """
 function B_calculator(; pHtot=nothing, BT=nothing, BOH₃=nothing, BOH₄=nothing,
     Ks=nothing, kwargs...)
