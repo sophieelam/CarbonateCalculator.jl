@@ -2,7 +2,13 @@ using Printf
 
 # `CarbonateResult` itself is defined in result.jl; this file only defines how it prints.
 
-# Overload the Base.show method
+"""
+Print a `CarbonateResult` as a summary block: the conditions, the parameters supplied, and
+the quantities the calculation produced.
+
+Inputs are left out of the body, so what is shown is what was computed rather than what was
+handed in. The full state is always on `.val`.
+"""
 function Base.show(io::IO, ::MIME"text/plain", r::CarbonateResult)
     println(io, "══════════════════════════════════════════════════")
     println(io, "  CARBONATE SYSTEM RESULTS")
@@ -21,6 +27,13 @@ function Base.show(io::IO, ::MIME"text/plain", r::CarbonateResult)
     println(io, "══════════════════════════════════════════════════")
 end
 
+"""
+Print the computed quantities of `r`, one line each, skipping anything the caller supplied.
+
+Each row is looked up under several possible names so that the display survives a result
+whose keys differ by scope. Precision follows the reporting unit: mol/kg needs ten decimal
+places to show anything, µmol/kg needs four.
+"""
 function _print_dynamic_vars(io, r)
     # Define categories and potential keys found in the NamedTuple
     mapping = [

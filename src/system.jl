@@ -63,10 +63,31 @@ julia> getproperty.(getproperty.(shared, :err), :pHtot)
  0.004399710039342347
 ```
 
+# Arguments
+
+- `scope::Symbol...`: any combination of `:carbon`, `:boron` and `:isotopes`. Determines
+  which parameters the solver accepts; anything outside it is rejected by name.
+- `varying = ()`: the parameters supplied positionally, in this order. Naming them here is
+  what makes the solver broadcastable, since Julia cannot broadcast keyword arguments.
+- `varying_errors = ()`: the measurement uncertainties supplied positionally after the
+  varying values, in this order. Each σ is in the same unit as the parameter it belongs to.
+- `settings...`: every other parameter, fixed for the life of the solver. Takes the same
+  names, units and defaults as [`carbon_system`](@ref).
+
+# Extended help
+
 Everything knowable from names alone is checked here rather than per call — an unrecognised
 parameter, a scope that cannot use it, a set that does not determine the system, an
 uncertainty named for a value the solver does not have. A broadcast over a million rows
 therefore fails at construction, not on row 700,000.
+
+A parameter may be `varying` or a fixed setting, not both. What varies goes in `varying` and
+is passed per sample; what is constant is stated once here and cannot drift between rows.
+
+Uncertainties are reached only through this constructor. The four presets take no `errors`
+argument, which keeps the everyday call to just the chemistry — see [`carbon_system`](@ref).
+
+See also [`carbon_system`](@ref), [`propagate_errors`](@ref).
 """
 function CarbonateSystem(scope::Symbol...; varying = (), varying_errors = (), settings...)
     known = (:carbon, :boron, :isotopes)
@@ -104,8 +125,8 @@ function CarbonateSystem(scope::Symbol...; varying = (), varying_errors = (), se
         )
 
     # Resolved once here and stored on the solver. Building a NamedTuple from a
-    # runtime-computed key set is the expensive pattern in this package — doing it per call
-    # rather than per solver costs about 50% of a whole calculation.
+    # runtime-computed key set allocates and dispatches dynamically; doing it per call rather
+    # than per solver costs about half of a whole calculation.
     defaults = NamedTuple{_accepted_parameters(scope)}(PARAMETER_DEFAULTS)
 
     # Values are stand-ins: the determinacy check cares which parameters are present, not
@@ -190,18 +211,6 @@ function _solve(scope, inputs, errors)
 end
 
 """
-Which parameters `show` treats as inputs rather than results.
-
-Read off `PARAMETER_GROUPS` rather than listed here, so it covers every scope. A hand-kept
-list went stale when boron and isotopes were added, and every non-carbon result reported an
-empty input set.
-
-Totals with defaults (`BT`, `δBT`, `ABT`) are absent for the same reason they are absent
-from `PARAMETER_GROUPS`: supplying one constrains nothing on its own.
-"""
-const CONSTRAINING_PARAMETERS = Tuple(Iterators.flatten(PARAMETER_GROUPS))
-
-"""
 Reject parameter names this scope does not accept, naming why.
 
 Uncertainties go through the same check, because `varying_errors` names parameters: a σ for
@@ -242,45 +251,164 @@ _entry_name(entry_point) = nameof(entry_point)
 # --- The user-facing presets ------------------------------------------------------------
 
 """
-    carbon_system(; TA, DIC, temp_c, sal, ...)
+    carbon_system(; TA, DIC, temp_c = 25.0, sal = 35.0, pres_bar = 0.0, kwargs...)
 
-Solve the carbonate system. A preset over [`CarbonateSystem`](@ref) with scope `(:carbon,)`.
+Solve the carbonate system from any two carbonate parameters.
 
-Every parameter it accepts, and every default, comes from `PARAMETER_DEFAULTS`.
+Give exactly two of `TA`, `DIC`, `pHtot`, `CO₂`, `HCO₃`, `CO₃`, `pCO₂`, `fCO₂`, `ΩA` and `ΩC`.
+Fewer leaves the system unsolvable, more over-determines it, and both are errors.
 
 ```jldoctest
 julia> carbon_system(TA = 2300.0, DIC = 2000.0, temp_c = 20.0).pHtot
 8.1217859325142
 ```
+
+# Arguments
+
+Concentrations are in the unit `unit` names, µmol/kg by default. `nothing` means "not
+supplied" for a constraint, and "derive it from salinity" for a total.
+
+## The carbonate system — supply exactly two
+
+- `TA = nothing`: total alkalinity.
+- `DIC = nothing`: dissolved inorganic carbon.
+- `pHtot`, `pHsws`, `pHfree`, `pHNBS = nothing`: pH on the total, seawater, free and NBS
+  scales. Dimensionless; these are one measurement in four notations, so supply only one.
+- `CO₂`, `HCO₃`, `CO₃ = nothing`: the individual carbonate species.
+- `pCO₂`, `fCO₂ = nothing`: CO₂ partial pressure and fugacity, in µatm. One quantity in two
+  forms, related by a virial correction.
+- `ΩA`, `ΩC = nothing`: saturation state with respect to aragonite and calcite, dimensionless.
+  Each is a statement about [CO₃²⁻], so either may stand in as a carbonate parameter.
+
+## Conditions
+
+- `temp_c = 25.0`: temperature, °C.
+- `sal = 35.0`: practical salinity.
+- `pres_bar = 0.0`: hydrostatic pressure, bar.
+
+## Totals and seawater composition
+
+- `BT`, `ST`, `FT = nothing`: total boron, sulphate and fluoride. Derived from salinity when
+  not given; `BT` follows `BT_method`.
+- `PT`, `SiT`, `H2ST`, `NH4T = 0.0`: total phosphate, silicate, sulphide and ammonia. These
+  contribute to alkalinity, and default to zero rather than being derived.
+- `Ca`, `Mg = nothing`: calcium and magnesium. Modern seawater when not given.
+
+## Settings
+
+- `unit = "umol"`: the concentration unit values are reported in — one of `"mol"`, `"mmol"`,
+  `"umol"`, `"nmol"`, `"pmol"`, `"fmol"`.
+- `K_method = "default"`: the carbonic-acid parameterisation, `"KGen"` by default. See
+  [`calculate_constants`](@ref) for every option.
+- `KSO4_method`, `BT_method`, `KF_method`, `KNH3_method`, `Ca_method = "default"`: the
+  remaining parameterisation choices, each documented on [`calculate_constants`](@ref).
+- `MyAMI_mode = "approximate"`: how the KGen path corrects constants for Ca and Mg.
+  `"calculate"` runs the full MyAMI model, which is slower and more accurate.
+- `Ks = nothing`: a pre-computed constant bundle from [`calculate_constants`](@ref), used
+  instead of computing one. The conditions must match the ones it was built for.
+
+# Extended help
+
+This is a preset over [`CarbonateSystem`](@ref) with scope `(:carbon,)`, built once at load.
+The accepted names and defaults come from `PARAMETER_DEFAULTS`, so this list and the solver
+cannot drift apart.
+
+The keyword form takes no uncertainties. To propagate them, build a solver with
+`varying_errors` and call it positionally — see [`CarbonateSystem`](@ref). The same applies
+to solving many samples at once: keyword arguments cannot be broadcast over.
+
+Parameters outside this scope are rejected rather than ignored, so `carbon_system(δBT = 39.6)`
+is an error naming the scope. Use [`whole_system`](@ref) for boron and its isotopes.
+
+See also [`whole_system`](@ref), [`boron_system`](@ref), [`boron_isotopes`](@ref),
+[`at_collection_conditions`](@ref).
 """
 carbon_system(; kwargs...) = CARBON_SYSTEM(; kwargs...)
 
 """
-    whole_system(; TA, DIC, δBT, temp_c, sal, ...)
+    whole_system(; TA, DIC, δBT, temp_c = 25.0, sal = 35.0, kwargs...)
 
-Solve the carbonate, boron and boron-isotope systems together. A preset over
-[`CarbonateSystem`](@ref) with scope `(:carbon, :boron, :isotopes)`.
+Solve the carbonate, boron and boron-isotope systems together.
 
-Accepts everything `carbon_system` does, plus the boron speciation and isotope parameters.
+Accepts everything [`carbon_system`](@ref) does — see there for the full argument list — plus:
+
+- `BOH₃`, `BOH₄ = nothing`: the boron species, in `unit`.
+- `δBT`, `δBOH₃`, `δBOH₄ = nothing`: δ¹¹B of total boron and of each species, in ‰. `δBT`
+  falls back to modern seawater.
+- `ABT`, `ABOH₃`, `ABOH₄ = nothing`: the same compositions as fractional ¹¹B abundances,
+  dimensionless. δ and A are one value in two notations, so supply only one of each pair.
+- `alphaB = nothing`: the boron isotope fractionation factor, dimensionless. Defaults to
+  Klochko et al. (2006).
+
+```jldoctest
+julia> whole_system(TA = 2300.0, δBOH₄ = 16.0, temp_c = 20.0).pHtot
+7.878447421744326
+```
+
+Two constraints determine the system overall, not two *carbonate* ones: a boron or isotope
+measurement can supply one of them, which is what makes the example above solvable.
+
+# Extended help
+
+A preset over [`CarbonateSystem`](@ref) with scope `(:carbon, :boron, :isotopes)`.
+
+The three subsystems share pH, which is what couples them. Whichever has enough constraints
+to pin pH is solved first, and the other two follow from it — so `TA` and `δBOH₄` reaches the
+same state as `TA` and `DIC` would, by a different route.
+
+See also [`carbon_system`](@ref), [`boron_system`](@ref), [`boron_isotopes`](@ref).
 """
 whole_system(; kwargs...) = WHOLE_SYSTEM(; kwargs...)
 
 """
-    boron_system(; pHtot, BT, BOH₃, BOH₄, δBT, ...)
+    boron_system(; pHtot, BT, BOH₃, BOH₄, δBT, temp_c = 25.0, sal = 35.0, kwargs...)
 
-Solve boron speciation and its isotopes, without the carbonate system. A preset over
-[`CarbonateSystem`](@ref) with scope `(:boron, :isotopes)`.
+Solve boron speciation and its isotopes, without the carbonate system.
+
+Takes the boron speciation and isotope parameters listed on [`whole_system`](@ref), plus the
+conditions, totals and settings from [`carbon_system`](@ref). One constraint determines the
+system, because `BT` and `δBT` always have a value.
+
+```jldoctest
+julia> boron_system(pHtot = 8.1, temp_c = 20.0).BOH₄
+90.39376839787023
+```
 
 Carbonate parameters are not accepted: with no carbon in scope, `DIC` is an unrecognised
 parameter rather than a value quietly ignored.
+
+# Extended help
+
+A preset over [`CarbonateSystem`](@ref) with scope `(:boron, :isotopes)`.
+
+Alkalinity is not computed here, so the nutrient totals that contribute to it — `PT`, `SiT`,
+`H2ST`, `NH4T` — are also out of scope.
+
+See also [`whole_system`](@ref), [`boron_isotopes`](@ref).
 """
 boron_system(; kwargs...) = BORON_SYSTEM(; kwargs...)
 
 """
-    boron_isotopes(; pHtot, δBT, δBOH₃, δBOH₄, alphaB, ...)
+    boron_isotopes(; pHtot, δBT, δBOH₃, δBOH₄, alphaB, temp_c = 25.0, sal = 35.0, kwargs...)
 
-Solve the boron isotope system alone. A preset over [`CarbonateSystem`](@ref) with scope
-`(:isotopes,)`.
+Solve the boron isotope system alone.
+
+Takes the isotope parameters listed on [`whole_system`](@ref), plus the conditions, totals and
+settings from [`carbon_system`](@ref). One constraint determines the system.
+
+```jldoctest
+julia> boron_isotopes(pHtot = 8.1, temp_c = 20.0).δBOH₄
+18.04320008833349
+```
+
+Boron speciation is out of scope as well as carbon, so `BOH₄` is not accepted — the isotopes
+depend on the *ratio* of the two species, which pH fixes without needing their concentrations.
+
+# Extended help
+
+A preset over [`CarbonateSystem`](@ref) with scope `(:isotopes,)`.
+
+See also [`boron_system`](@ref), [`whole_system`](@ref).
 """
 boron_isotopes(; kwargs...) = BORON_ISOTOPES(; kwargs...)
 
@@ -291,7 +419,7 @@ const WHOLE_SYSTEM = CarbonateSystem(:carbon, :boron, :isotopes)
 const BORON_SYSTEM = CarbonateSystem(:boron, :isotopes)
 const BORON_ISOTOPES = CarbonateSystem(:isotopes)
 
-# There is deliberately no `carbon_solver` / `whole_solver` pair: a solver is just
+# There is no `carbon_solver` / `whole_solver` pair: a solver is just
 # `CarbonateSystem(scope; varying = …)`, which reads the same for every scope. Naming two of
 # the eight scope/varying combinations would imply "solver" is a separate concept.
 

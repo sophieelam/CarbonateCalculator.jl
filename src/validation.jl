@@ -174,8 +174,8 @@ solution; duplicating that here would mean two places to keep in step.
 """
 function _check_determinacy(inputs::NamedTuple, entry_point; require_two::Bool)
     # Counted without allocating, because this runs on every call and answers a yes/no
-    # question. Building the collections needed to *describe* the problem costs several µs,
-    # so that work is pushed onto the error paths where it happens once.
+    # question. Building the collections needed to *describe* the problem allocates, so that
+    # work is pushed onto the error paths, where it happens once.
     groups = 0
     for (group, members) in pairs(PARAMETER_GROUPS)
         supplied = _supplied_in_group(inputs, members)

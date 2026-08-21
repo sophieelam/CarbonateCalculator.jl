@@ -5,22 +5,14 @@
 # differentiated. The constants are AD-transparent, so this is exact rather than a finite
 # difference.
 #
-# These are deliberately not part of a solve. Each one costs a re-solve in Dual arithmetic,
-# most callers want none of them, and there are more of them than anyone would want by default.
+# These are not part of a solve. Each one costs a re-solve in Dual arithmetic, most callers
+# want none of them, and there are more of them than anyone would want by default.
 
-"""
-Every parameter that constrains the carbonate system, from the groups the determinacy check
-uses. All of them are stripped before the chosen pair goes back in, or whatever the result was
-originally solved from would over-determine it.
+# `CONSTRAINING_PARAMETERS` comes from parameters.jl, which is where the parameter tables
+# live. Every one of them is stripped before the pair a derivative is taken over goes back in.
 
-Taken from `PARAMETER_GROUPS` rather than listed again here, so a new parameter cannot be
-added to the solver and forgotten here — and so the boron and isotope constraints are covered
-without naming them.
-"""
-const CONSTRAINING_PARAMETERS = Tuple(unique(Iterators.flatten(values(PARAMETER_GROUPS))))
-
-# Built once. Rebuilding a NamedTuple from a key set per call is the expensive pattern in this
-# package, and this one never varies.
+# Built once. Rebuilding a NamedTuple from a key set per call costs an allocation and a
+# dynamic dispatch, and this one never varies.
 const _CLEARED_CONSTRAINTS =
     NamedTuple{CONSTRAINING_PARAMETERS}(ntuple(_ -> nothing, length(CONSTRAINING_PARAMETERS)))
 
@@ -131,6 +123,16 @@ The uncertainty in a gradient, propagated from the measurement uncertainties `re
 
 Returns `nothing` when the result has none, since there is then nothing to propagate.
 
+```jldoctest
+julia> measured = CarbonateSystem(:carbon; varying_errors = (:TA, :DIC),
+                                  TA = 2300.0, DIC = 2000.0, temp_c = 20.0)(2.0, 2.0);
+
+julia> calc_gradient_uncertainty(measured, :pCO₂, :DIC; constant = :TA)
+0.025660673217759673
+```
+
+# Extended help
+
 A gradient is itself a derivative, so its uncertainty is a second derivative — the whole chain
 is differentiated twice over, once inside to take the gradient and once outside to see how it
 moves with each measured input.
@@ -148,20 +150,14 @@ differentiate its whole chain rather than propagate an intermediate forward.
 For a result carried to its collection conditions the chain runs through both stages, from the
 measured inputs to the collection state to the gradient, using the provenance
 `at_collection_conditions` records on `result.source`. Uncertainty in the collection conditions
-themselves is included alongside the measurement's. Taking the uncertainties at face value at the
-collection conditions instead would be wrong whenever the measured pair was not the conservative
-one: `input_errors` may name `pHtot`, which the collection state does not carry.
+themselves is included alongside the measurement's. Taking the uncertainties at face value at
+the collection conditions instead would be wrong whenever the measured pair was not the
+conservative one: `input_errors` may name `pHtot`, which the collection state does not carry.
 
 Uses the same first-order, uncorrelated model as [`propagate_errors`](@ref), and inherits its
 one assumption.
 
-```jldoctest
-julia> measured = CarbonateSystem(:carbon; varying_errors = (:TA, :DIC),
-                                  TA = 2300.0, DIC = 2000.0, temp_c = 20.0)(2.0, 2.0);
-
-julia> calc_gradient_uncertainty(measured, :pCO₂, :DIC; constant = :TA)
-0.025660673217759673
-```
+See also [`calc_gradient`](@ref), [`with_gradient`](@ref).
 """
 function calc_gradient_uncertainty(result::CarbonateResult, numerator::Symbol,
                                    denominator::Symbol; constant::Symbol,
@@ -270,20 +266,19 @@ revelle_factor(result::CarbonateResult) =
     with_gradient(result, name, numerator, denominator; constant, relative = false)
 
 `result` with a gradient added to its computed values under `name`, so it travels with the
-sample and lands in a column of its own when a vector of results goes into a table.
+sample and gets a column of its own when a vector of results goes into a table.
 
 The name is given rather than derived from the arguments: a generated `∂pCO₂_∂DIC` would have
-to be built with a runtime `Symbol`, which is the expensive pattern this package avoids, and
-would read worse than whatever the caller would have called it.
+to be built with a runtime `Symbol`, and would read worse than whatever the caller would have
+called it.
 
 A new result is returned — `CarbonateResult` is immutable, and its values are concretely typed,
 which is what the Tables.jl schema reads.
 
 An uncertainty is added alongside it whenever there is one to compute — that is, when the result
-carries uncertainties at all (see [`calc_gradient_uncertainty`](@ref)). It costs about 2.4× the
-gradient alone. When there is none the value is still added and `err` is left as it was, so
-`val` carries one name that `err` does not; a table built from such results simply has no `σ_`
-column for it.
+carries uncertainties at all (see [`calc_gradient_uncertainty`](@ref)). When there is none the
+value is still added and `err` is left as it was, so `val` carries one name that `err` does not;
+a table built from such results simply has no `σ_` column for it.
 
 ```jldoctest
 julia> result = carbon_system(TA = 2300.0, DIC = 2000.0, temp_c = 20.0);

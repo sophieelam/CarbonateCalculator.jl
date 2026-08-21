@@ -1,14 +1,13 @@
 # What the inputs are: every parameter the package accepts, and how they relate.
 #
-# One file, because these tables are read by three things that must agree — the solver's
-# accepted names and defaults, the input validation, and the solve-order dispatch. Split
-# across files, their descriptions of "what determines the system" drift apart.
+# These tables are read by three things that have to agree: the solver's accepted names and
+# defaults, the input validation, and the solve-order dispatch.
 
 """
 Every parameter a calculation accepts, with its default.
 
-The single declaration of the input surface: the solver's accepted names, its defaults, and
-what the validation checks against all read from here.
+The solver's accepted names, its defaults, and what the validation checks against all read
+from here.
 """
 const PARAMETER_DEFAULTS = (
     # Carbonate system parameters.
@@ -42,12 +41,12 @@ const PARAMETER_DEFAULTS = (
 The scope each parameter belongs to. Anything absent applies to every scope.
 
 A solver only accepts the parameters its scope covers, so asking `carbon_system` for `δBT`
-is an unrecognised argument rather than a value silently ignored — and equally, a boron-only
-solver does not accept `DIC`.
+is an unrecognised argument rather than a value silently ignored, and a boron-only solver
+does not accept `DIC`.
 
-Absent, and so shared by every scope: pH on any scale (the unknown all three subsystems
-share), the totals `BT`/`ST`/`FT`, the seawater composition `Ca`/`Mg`, the conditions, and
-every setting. Those describe the water rather than one subsystem's chemistry.
+The parameters listed nowhere below — pH on any scale, the totals, the seawater composition,
+the conditions and every setting — describe the water rather than one subsystem's chemistry,
+so every scope takes them.
 """
 const PARAMETER_SCOPE = (
     # Carbonate system, including the nutrient contributions to alkalinity.
@@ -64,7 +63,7 @@ const PARAMETER_SCOPE = (
 "How many independent constraints a subsystem needs before it can be solved for pH."
 const CONSTRAINTS_NEEDED = (carbon = 2, boron = 1, isotopes = 1)
 
-"The parameter names a solver of this scope accepts."
+"Return the parameter names a solver of this scope accepts."
 function _accepted_parameters(scope::Tuple{Vararg{Symbol}})
     return Tuple(name for name in keys(PARAMETER_DEFAULTS)
                  if !haskey(PARAMETER_SCOPE, name) ||
@@ -74,13 +73,13 @@ end
 """
 Parameters grouped by the degree of freedom each constrains.
 
-Two members of one group are not two measurements. pH on four scales is one measurement
-expressed four ways; ΩA and ΩC are both statements about [CO₃²⁻]; pCO₂ and fCO₂ are both
-statements about dissolved CO₂; δ and A are the same isotope value in two notations.
+Two members of one group are not two measurements: pH on four scales is one measurement
+expressed four ways, ΩA and ΩC are both statements about [CO₃²⁻], and δ and A are the same
+isotope value in two notations.
 
-**`BT`, `δBT` and `ABT` are deliberately absent.** They are totals with defaults — `BT` from
-salinity, `δBT` from modern seawater — so supplying one constrains nothing on its own. It is
-the *speciated* member that carries the information.
+`BT`, `δBT` and `ABT` are absent because they are totals with defaults — `BT` from salinity,
+`δBT` from modern seawater — so supplying one constrains nothing on its own. It is the
+*speciated* member that carries the information.
 """
 const PARAMETER_GROUPS = (
     pH    = (:pHtot, :pHsws, :pHfree, :pHNBS),
@@ -99,11 +98,24 @@ const PARAMETER_GROUPS = (
 Which subsystem each group constrains.
 
 `pH` is `:shared` because it is the unknown that links the three: fix it in any one
-subsystem and the other two follow. That is the whole basis of the solve order below.
+subsystem and the other two follow. That is what the solve order in `pipeline.jl` turns on.
 """
 const GROUP_SUBSYSTEM = (pH = :shared, CO₂ = :carbon, CO₃ = :carbon, HCO₃ = :carbon,
                          DIC = :carbon, TA = :carbon, BOH₃ = :boron, BOH₄ = :boron,
                          δBOH₃ = :isotopes, δBOH₄ = :isotopes)
+
+"""
+Every parameter that constrains a system, flattened out of [`PARAMETER_GROUPS`](@ref).
+
+`show` uses it to tell an input apart from a result, and `gradients.jl` strips all of them
+before substituting in the pair a derivative is taken over — otherwise whatever the result was
+originally solved from would over-determine it.
+
+Flattened from the groups rather than listed again, so a parameter cannot be added to the
+solver and forgotten here, and the boron and isotope constraints are covered without naming
+them.
+"""
+const CONSTRAINING_PARAMETERS = Tuple(unique(Iterators.flatten(values(PARAMETER_GROUPS))))
 
 """
 Concentrations held internally in mol/kg that must be converted back to the caller's unit on

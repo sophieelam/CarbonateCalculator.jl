@@ -3,7 +3,7 @@
 # Broadcasting a solver hands back a `Vector{CarbonateResult}`, so that vector is what people
 # want in a DataFrame. Without this, Tables.jl has no interface to use and falls back to
 # reflecting over `propertynames` — which advertises the struct fields as well as the computed
-# values, purely so tab-completion shows both. That produced a frame carrying `val` twice over,
+# values, purely so tab-completion shows both. That gives a frame carrying `val` twice over,
 # once nested and once flattened, alongside columns of `Ks` and `nothing`.
 
 using Tables
@@ -11,8 +11,8 @@ using Tables
 """
 `σ_`-prefixed column names for an uncertainty NamedTuple.
 
-`@generated` because the names depend only on the type. Building them per row would intern ~38
-symbols for every sample, which costs more than the rest of the row put together.
+`@generated` because the names depend only on the type. Building them per row would intern a
+symbol per column for every sample, which costs more than the rest of the row put together.
 """
 @generated function _uncertainty_column_names(::Type{<:NamedTuple{names}}) where {names}
     return :($(map(name -> Symbol("σ_", name), names)))
@@ -65,7 +65,6 @@ The rows, materialised.
 `map` rather than a lazy generator so that the result is a `Vector` of one concrete NamedTuple
 type: Tables.jl reads the schema straight off that and builds concretely-typed columns, where an
 unknown schema would leave it discovering names row by row. The allocation is the same one
-`DataFrame([r.val for r in results])` already makes, so this costs nothing that the idiom it
-replaces did not.
+`DataFrame([r.val for r in results])` makes.
 """
 Tables.rows(results::AbstractVector{<:CarbonateResult}) = _fill_ragged_rows(map(_row, results))

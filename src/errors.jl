@@ -7,8 +7,7 @@ Substitute the perturbed values back into the inputs, keeping the result concret
 `Val` carries the key set as a type parameter, so the NamedTuple is built from a compile-time
 key list and a fixed-length tuple. `Tuple(values)` would not do: the length of a `Vector` is not
 known to the compiler, so the result would be a `Vararg` tuple and the types would be lost
-again. This used to go through a `Dict{Symbol, Any}` splatted as keyword arguments, which
-entered the solver with `Any`-typed values on every Dual pass.
+again, entering the solver as `Any` on every Dual pass.
 """
 _perturbed(inputs::NamedTuple, ::Val{names}, values) where {names} =
     merge(inputs, NamedTuple{names}(ntuple(i -> values[i], Val(length(names)))))
@@ -18,8 +17,8 @@ The numeric entries of a solved state, as the vector ForwardDiff differentiates.
 
 `@generated` so the numeric fields are chosen from the NamedTuple's *type*: a solved state also
 carries the equilibrium constants as a nested NamedTuple and the unit as a `String`, and
-filtering those out with a runtime `v isa Number` built a `Vector{Any}` in the middle of the
-hot loop.
+filtering those out with a runtime `v isa Number` would build a `Vector{Any}` on every
+differentiated pass.
 """
 @generated function _numeric_values(state::NamedTuple{names, types}) where {names, types}
     numeric = [:(state.$name) for (name, T) in zip(names, types.parameters) if T <: Number]
@@ -35,8 +34,8 @@ end
 Drop the derivative parts of a solved state, recovering the values the Jacobian pass computed.
 
 A Dual carries its primal through arithmetic untouched, so these are the same numbers a separate
-`Float64` evaluation produces — which is what this replaces. Over a whole table that is one
-saved solve per row, and the solve is the expensive part.
+`Float64` evaluation would produce, and taking them from the Jacobian pass saves one solve per
+row.
 """
 _strip_partials(x::ForwardDiff.Dual) = ForwardDiff.value(x)
 _strip_partials(x::NamedTuple) = map(_strip_partials, x)   # recurses into the constants
@@ -65,7 +64,12 @@ them are uncertain. Returns `(val, err)` — the solved state, and a matching σ
 quantity in it. Because the derivatives are taken rather than written down, every derived
 quantity gets an uncertainty without anyone deriving an error formula for it.
 
-# The model, and its one assumption
+!!! warning
+    Assumes the named inputs are uncorrelated. See below.
+
+# Extended help
+
+## The model, and its one assumption
 
 σ_out = √( Σᵢ (∂out/∂inᵢ · σᵢ)² ), which **assumes the named inputs are uncorrelated**. There is
 no covariance term, so uncertainties that share a common cause — the same instrument, a shared

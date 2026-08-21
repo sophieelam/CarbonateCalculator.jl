@@ -22,7 +22,8 @@ For many samples, name the varying parameters once and broadcast — Julia canno
 over keyword arguments, so naming them up front is what makes a keyword API vectorisable:
 
 ```jldoctest overview
-julia> solve = CarbonateSystem(:carbon; varying = (:TA, :DIC, :temp_c), K_method = "Lueker 2000");
+julia> solve = CarbonateSystem(:carbon; varying = (:TA, :DIC, :temp_c),
+                               K_method = "Lueker 2000");
 
 julia> results = solve.([2300.0, 2310.0, 2290.0], [2000.0, 2010.0, 1990.0], [25.0, 10.0, 2.0]);
 
@@ -36,6 +37,13 @@ julia> getproperty.(results, :pHtot)
 The vectors are typically columns of a table. Anything varying per sample goes in `varying`;
 anything constant stays a keyword, stated once and unable to drift between rows. Names are
 checked when the solver is built, so a mistake surfaces there rather than on row 700,000.
+
+Uncertainties are propagated by automatic differentiation — name them in `varying_errors` and
+`result.err` carries a σ for every computed quantity. [`at_collection_conditions`](@ref)
+re-solves a result at the depth a sample came from, and a vector of results is a Tables.jl
+table that goes straight into a `DataFrame`. All three are covered below.
+
+# Extended help
 
 # Uncertainties
 
@@ -128,37 +136,42 @@ API and printing.
 module CarbonateCalculator
 
 # Chemistry: the speciation equations and the equilibrium constants.
-include("carbon.jl")  # all machinery for aqueous carbonate speciation and the carbonate system
+include("carbon.jl")          # aqueous carbonate speciation and the carbonate system
 using .Carbon
-include("boron.jl")  # all machinery for aqueous boron speciation
+include("boron.jl")           # aqueous boron speciation
 using .Boron
-include("boron_isotopes.jl")  # all machinery for boron isotopes and their fractionation
+include("boron_isotopes.jl")  # boron isotopes and their fractionation
 using .Isotopes
-include("constants.jl")  # all constants used in calculations, including the equilibrium constants and their temperature/salinity/pressure dependencies, as well as salinity-derived seawater composition.
-using .Constants
-include("helpers.jl")  # currently just a helper function to convert pH scales (may be broken?)
+include("constants.jl")       # equilibrium constants, their T/S/P dependencies, and
+using .Constants              # salinity-derived seawater composition
+include("helpers.jl")         # pH-scale conversion
 using .Helpers
 
 using Printf
 using ForwardDiff, LinearAlgebra, Roots
 
 # The package proper, in dependency order.
-include("errors.jl")        # Machinery for uncertainty propagation
-include("result.jl")        # CarbonateResult data type, which carries the results of a calculation and its uncertainties
-include("tables.jl")        # Tables.jl interface to a CarbonateResult (used to convert a vector of results to a DataFrame)
-include("parameters.jl")    # A map of possible inputs and degrees of freedom, defining calculation scopes for the solvers
-include("pipeline.jl")      # All the machinery that the solver uses to do the calculations
-include("validation.jl")    # Checks for validity of inputs
-include("display.jl")       # A pretty-printing method for CarbonateResult, and the logic to decide which variables to print
-include("system.jl")        # CarbonateSystem, the function to generate solvers, and some user-facing presets.
-include("conditions.jl")    # at_collection_conditions function, used to re-solve a result at the conditions the sample was collected at, rather than the conditions it was measured at.
-include("gradients.jl")     # Functions for calculating buffer factors and gradients (e.g. δpCO₂/δTA, δpH/δDIC, etc.) and their uncertainties
+include("errors.jl")        # uncertainty propagation by automatic differentiation
+include("result.jl")        # the CarbonateResult type, carrying values and uncertainties
+include("tables.jl")        # Tables.jl interface, so a vector of results is a table
+include("parameters.jl")    # every accepted parameter, its default, and its scope
+include("pipeline.jl")      # the stages of a solve
+include("validation.jl")    # input checks
+include("display.jl")       # pretty-printing a CarbonateResult
+include("system.jl")        # CarbonateSystem, the solver, and the four presets
+include("conditions.jl")    # at_collection_conditions: re-solve at the collection conditions
+include("gradients.jl")     # buffer factors and gradients, and their uncertainties
 
-export CarbonateSystem,  # the main solver
-       carbon_system, whole_system, boron_system, boron_isotopes,  # user-facing convenience functions
-       propagate_errors, 
-       at_collection_conditions,  # re-solve a result at the conditions the sample was collected at
+export CarbonateSystem,  # the solver
+       carbon_system, whole_system, boron_system, boron_isotopes,  # presets over it
+       propagate_errors,
+       at_collection_conditions,  # re-solve at the conditions the sample was collected at
        calc_gradient, calc_relative_gradient, calc_gradient_uncertainty,  # buffer factors
        revelle_factor, with_gradient
+
+# Part of the API, but reached by qualified name rather than brought into a user's namespace:
+# `CarbonateResult` is what every calculation returns, and `calculate_constants` is the way to
+# a constant bundle on its own.
+public CarbonateResult, calculate_constants
 
 end # module

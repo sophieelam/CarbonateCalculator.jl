@@ -11,8 +11,8 @@ const SETTING_KEYS = (:K_method, :KSO4_method, :BT_method, :KF_method, :KNH3_met
 Pick out the `SETTING_KEYS` from a call's inputs.
 
 `NamedTuple{SETTING_KEYS}(inputs)` rather than filtering on `haskey`, so the key set is a
-compile-time constant rather than something rebuilt on every call — worth several µs on a
-path every calculation takes.
+compile-time constant rather than something rebuilt on every call — this is on the path every
+calculation takes.
 
 Raises on a missing key by design. Every caller builds its inputs from a signature that
 declares all of these, so an absent one is a programming error rather than an input the user
@@ -29,8 +29,18 @@ Computed values are reached directly — `result.pHtot` — and forwarded to the
 `val` NamedTuple. `result.err` holds matching uncertainties when the solver was built with
 `varying_errors` and given a σ for each, or `nothing`.
 
+```jldoctest
+julia> result = carbon_system(TA = 2300.0, DIC = 2000.0, temp_c = 20.0);
+
+julia> result.pHtot, result.unit
+(8.1217859325142, "umol")
+```
+
+A vector of results is a Tables.jl table, one row per sample, so it goes straight into a
+`DataFrame`.
+
 # Fields
-- `val`: the computed state. **Numbers only** - every entry is a concentration, a condition
+- `val`: the computed state. **Numbers only** — every entry is a concentration, a condition
   or a derived quantity, so `result.pHtot` has a concrete type and arithmetic on it never
   meets a `nothing`. The two non-numeric pieces live in their own fields below.
 - `Ks`: the equilibrium constants used.
@@ -40,32 +50,36 @@ Computed values are reached directly — `result.pHtot` — and forwarded to the
   reporting an input back as a result.
 - `settings`: how the constants were calculated (see [`SETTING_KEYS`](@ref)).
 - `inputs`: the original call, verbatim.
-- `system`: which system was solved, `:carbon`, `:boron`, `:isotopes`, or `:whole`. Needed so a result can be
-  re-solved without the caller having to say which function produced it.
+- `system`: which system was solved, `:carbon`, `:boron`, `:isotopes`, or `:whole`.
 - `input_errors`: the uncertainties this calculation was given, or `nothing`.
-- `source`: what this result was carried from, or `nothing` if it is a measurement. Set only by
-  [`at_collection_conditions`](@ref), so **`source` is also how a collection state is
-  recognised** — there is no separate flag, because a result has a source exactly when it has
-  been carried. `at_collection_conditions` refuses to run on a result that has one: a sample has
-  one set of collection conditions, so there is nothing a second carry could mean.
+- `source`: what this result was carried from, or `nothing` if it is a measurement. Set only
+  by [`at_collection_conditions`](@ref).
 
-  It holds `(inputs, errors, condition_errors)` — the measurement's inputs, the measurement's
-  uncertainties, and the uncertainties in the collection conditions themselves. A collection
-  state's own `inputs` are the *target* ones, with the derived parameters cleared and the
-  measurement's conditions overwritten, so this is the only record of what it came from.
+# Extended help
+
+`source` is also **how a collection state is recognised** — there is no separate flag, because
+a result has a source exactly when it has been carried. `at_collection_conditions` refuses to
+run on a result that has one: a sample has one set of collection conditions, so there is
+nothing a second carry could mean.
+
+It holds `(inputs, errors, condition_errors)` — the measurement's inputs, the measurement's
+uncertainties, and the uncertainties in the collection conditions themselves. A collection
+state's own `inputs` are the *target* ones, with the derived parameters cleared and the
+measurement's conditions overwritten, so this is the only record of what it came from.
 
 `settings`, `inputs`, `system` and `input_errors` exist so a result can be re-solved at other
-conditions without the caller restating anything — see `at_collection_conditions`.
-Keeping the *input* uncertainties, rather than only the propagated `err`, is what lets a
-re-solve differentiate the whole chain from the original independent measurements. Propagating
-`err` forward instead would double-count any input affecting both conditions, and would lose
-the correlations between derived quantities.
+conditions without the caller restating anything. Keeping the *input* uncertainties, rather
+than only the propagated `err`, is what lets a re-solve differentiate the whole chain from the
+original independent measurements. Propagating `err` forward instead would double-count any
+input affecting both conditions, and would lose the correlations between derived quantities.
 
 `Ks` and `unit` are fields rather than entries in `val` so that `val` is numeric throughout,
 which is what gives its fields concrete types without any parameterisation gymnastics.
 
 The NamedTuples are held untyped rather than concretely parameterised so that
 `ForwardDiff.Dual` values pass through unchanged.
+
+See also [`carbon_system`](@ref), [`at_collection_conditions`](@ref).
 """
 struct CarbonateResult{V<:NamedTuple, E<:Union{NamedTuple, Nothing}}
     val::V

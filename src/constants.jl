@@ -1,3 +1,16 @@
+"""
+    Constants
+
+Equilibrium constants, their temperature/salinity/pressure dependence, and the seawater
+composition derived from salinity.
+
+Every constant is available under several published parameterisations, selected by the
+`*_method` arguments and registered in [`COMPOSITION`](@ref) and [`SPECIATION`](@ref).
+[`calculate_constants`](@ref) assembles a complete set for one body of water;
+[`which_K`](@ref) chooses a parameterisation when asked to.
+
+Constants are returned on the total pH scale, pressure-corrected after Millero (1995).
+"""
 module Constants
 using Kgen
 
@@ -13,11 +26,12 @@ const GAS_CONSTANT = 83.14472
 const MODERN_CALCIUM = Kgen.MODERN_CALCIUM
 const MODERN_MAGNESIUM = Kgen.MODERN_MAGNESIUM
 
-# Helper function:
+"Return the factor converting a seawater-scale constant to the total scale."
 function SWStoTOT(; ST, FT, KS, KF, kwargs...)
     return (1 + ST / KS) / (1 + ST / KS + FT / KF)
 end
 
+"Return the factor converting a free-scale constant to the total scale."
 function FREEtoTOT(; ST, KS, kwargs...)
     return (1 + ST/KS)
 end
@@ -939,8 +953,9 @@ Pick the equilibrium-constant parameterisation best suited to the conditions.
 
 Tested in two stages, and the order is important.
 
-**Domain first.** `sal < 1` and `sal > 50` can only be modelled by Millero 1979 and Papadimitriou 2018, which cover fresh
-water and brine respectively. Nothing may be preferred ahead of them.
+**Domain first.** `sal < 1` and `sal > 50` can only be modelled by Millero 1979 and
+Papadimitriou 2018, which cover fresh water and brine respectively. Nothing may be preferred
+ahead of them.
 
 **Preference second.** Within the ordinary salinity range, the choice is between
 parameterisations that all apply, so temperature decides.
@@ -1021,7 +1036,8 @@ parameterisation rather than in a comment beside a pressure correction.
 
 The call site for each argument is shared, so every row within one entry must take the same
 arguments and return the same shape. That works because every parameterisation in this file
-ends in `kwargs...`: one argument set calls all of them and each takes what it needs. All functions return a NamedTuple.
+ends in `kwargs...`: one argument set calls all of them and each takes what it needs. All of
+them return a NamedTuple.
 """
 const SPECIATION = (
     KSO4_method = (
@@ -1242,25 +1258,43 @@ conversions between them.
 
 Returns a NamedTuple `(; Ks, ST, FT, BT, Ca, Mg, fH, tf_fac, ts_fac, method)`, where `Ks` is
 the inner bundle of 15 equilibrium constants and the rest is the water they were computed
-for. Every calculation in the package runs against one of these, and a solver given `Ks=` is
-given *this* value rather than the inner bundle — see `_solve_core`.
+for. Constants are on the total pH scale.
 
-The three parts are returned together because they are not independent. `tf_fac`, `ts_fac`
-and `fH` are built from the totals *and* the constants, so a caller that recombined
-separately-derived pieces could convert a pH scale using factors describing different water.
-Anyone who wants a single constant on its own should call the parameterisation directly
-(`Lueker2000`, `calc_KB`, …) rather than take a slice of this.
+```jldoctest
+julia> env = CarbonateCalculator.calculate_constants(temp_c = 20.0, sal = 35.0);
 
-Scalar only - the public entry points reject arrays before reaching here. To process many
+julia> env.Ks.K1
+1.2842425913487012e-6
+```
+
+Scalar only — the public entry points reject arrays before reaching here. To process many
 samples, build a solver once and broadcast it; see [`CarbonateSystem`](@ref).
 
-# Method arguments
+# Arguments
 
-Each selects a parameterisation, and `"default"` picks the recommended one.
+- `temp_c`: temperature, °C. Required.
+- `sal`: practical salinity. Required.
+- `pres_bar = 0.0`: hydrostatic pressure, bar.
+- `ST`, `FT`, `BT = nothing`: total sulphate, fluoride and boron in mol/kg, derived from
+  salinity when not given.
+- `Ca`, `Mg = nothing`: calcium and magnesium in mol/kg. Modern seawater when not given; an
+  explicit value overrides `Ca_method` entirely.
+- `MyAMI_mode = "approximate"`: how the KGen path corrects the constants for Ca and Mg.
+  `"calculate"` runs the full MyAMI model, which is slower and more accurate.
+
+Each `*_method` selects a parameterisation, and `"default"` picks the recommended one.
+
+`K_method` selects the carbonic-acid parameterisation, and defaults to `"KGen"`. Its options are
+`"KGen"`, `"Roy 1993"`, `"GP 1989"`, `"Hansson 1973"`, `"DM 1987"`, `"HM 1973"`,
+`"Mehrbach 1973 A"`, `"Mehrbach 1973 B"`, `"Millero 1979"`, `"CW 2003"`, `"Lueker 2000"`,
+`"MPM 2002"`, `"Millero 2002"`, `"Millero 2006"`, `"Millero 2010"`, `"Waters 2014"`,
+`"SB 2020"`, `"Papadimitriou 2018"`, `"Sulpis 2020"` and `"automatic"`, which picks the one
+best suited to the conditions — see [`which_K`](@ref).
+
+The rest:
 
 | argument | options | default |
 |---|---|---|
-| `K_method` | `"KGen"`, `"Roy 1993"`, `"GP 1989"`, `"Hansson 1973"`, `"DM 1987"`, `"HM 1973"`, `"Mehrbach 1973 A"`, `"Mehrbach 1973 B"`, `"Millero 1979"`, `"CW 2003"`, `"Lueker 2000"`, `"MPM 2002"`, `"Millero 2002"`, `"Millero 2006"`, `"Millero 2010"`, `"Waters 2014"`, `"SB 2020"`, `"Papadimitriou 2018"`, `"Sulpis 2020"`, `"automatic"` | `"KGen"` |
 | `KSO4_method` | `"Dickson"`, `"Khoo"`, `"WM13"` | `"Dickson"` (CO2SYS's recommendation) |
 | `BT_method` | `"Uppstrom"`, `"Lee"`, `"KSK18"` | `"Uppstrom"` (CO2SYS's recommendation) |
 | `KF_method` | `"Dickson"`, `"Perez"` | `"Dickson"` (CO2SYS's recommendation) |
@@ -1270,7 +1304,24 @@ Each selects a parameterisation, and `"default"` picks the recommended one.
 `Ca_method`'s default is modern seawater rather than Culkin because that is the composition
 Kgen assumes for the MyAMI correction, so the Ca used for saturation state and the Ca used to
 correct the constants agree. `"Culkin"` and `"RT67"` give salinity-scaled concentrations
-instead. An explicitly supplied `Ca` overrides `Ca_method` entirely.
+instead.
+
+# Extended help
+
+The three parts — constants, totals, and scale-conversion factors — are returned together
+because they are not independent. `tf_fac`, `ts_fac` and `fH` are built from the totals *and*
+the constants, so a caller that recombined separately-derived pieces could convert a pH scale
+using factors describing different water. Anyone who wants a single constant on its own
+should call the parameterisation directly (`Lueker2000`, `calc_KB`, …) rather than take a
+slice of this.
+
+Every calculation in the package runs against one of these, and a solver given `Ks=` is given
+*this* value rather than the inner bundle — see `_solve_core`.
+
+Pressure corrections follow Millero (1995), except under `"Millero 1979"`, which uses the
+1983 freshwater coefficients, and under `"KGen"`, where Kgen owns the correction.
+
+See also [`which_K`](@ref), [`CarbonateSystem`](@ref).
 """
 function calculate_constants(; temp_c, sal, pres_bar=0.0, ST=nothing, FT=nothing,
     BT=nothing, K_method="KGen", KSO4_method="Dickson", BT_method="Uppstrom",

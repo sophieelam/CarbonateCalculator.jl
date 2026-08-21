@@ -40,7 +40,7 @@ function _first_solvable(ps)
     # before the core is reached, so the order between them is not a precedence rule.
     _constraints(ps, :boron) >= CONSTRAINTS_NEEDED.boron && return :boron
     _constraints(ps, :isotopes) >= CONSTRAINTS_NEEDED.isotopes && return :isotopes
-    # The common case lands here: two carbonate parameters and no boron speciation, so
+    # The common case reaches here: two carbonate parameters and no boron speciation, so
     # carbon solves first and yields pH, and boron and the isotopes follow from it.
     _constraints(ps, :carbon) >= CONSTRAINTS_NEEDED.carbon && return :carbon
 

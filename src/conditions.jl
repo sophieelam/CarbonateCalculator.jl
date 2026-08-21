@@ -4,8 +4,8 @@
 # was *measured* at. This file re-solves that result at the conditions the sample was
 # *collected* at.
 #
-# Salinity is deliberately not a parameter: a water sample's salinity does not change
-# between collection and measurement, only its temperature and pressure do.
+# Salinity is not a parameter: a water sample's salinity does not change between collection
+# and measurement, only its temperature and pressure do.
 
 """
 Carbonate parameters that describe the *solved state* rather than the sample itself. They
@@ -46,7 +46,8 @@ end
 
 """
     at_collection_conditions(result; temp_c, pres_bar, σ_temp_c, σ_pres_bar)
-    at_collection_conditions(result, temp_c, pres_bar=nothing, σ_temp_c=nothing, σ_pres_bar=nothing)
+    at_collection_conditions(result, temp_c, pres_bar = nothing,
+                             σ_temp_c = nothing, σ_pres_bar = nothing)
 
 Re-solve a carbonate system at a different temperature and/or pressure.
 
@@ -56,17 +57,6 @@ the conditions it was *collected* at. Arguments left as `nothing` keep their mea
 
 Salinity is not an argument: a sample's salinity does not change between collection and
 measurement.
-
-Everything needed to re-solve — the conservative totals, the seawater composition, and every
-method choice — is carried on `result`, so nothing has to be restated.
-
-`result` must be a measured state. A sample has one set of collection conditions, so the result
-of this function cannot be passed back into it; to report the same measurement at some other
-conditions, carry the measured result again.
-
-The second form takes the same arguments positionally, which is what makes it broadcastable —
-Julia will not broadcast over keyword arguments. Scalars broadcast against vectors, so a value
-shared by every sample is just a number.
 
 # Examples
 ```jldoctest
@@ -78,11 +68,30 @@ julia> collected.pHtot
 8.254156644905194
 ```
 
+# Arguments
+
+- `result`: a measured state from [`carbon_system`](@ref) or [`whole_system`](@ref).
+- `temp_c = nothing`: collection temperature, °C. Keeps the measured value when `nothing`.
+- `pres_bar = nothing`: collection pressure, bar.
+- `σ_temp_c`, `σ_pres_bar = nothing`: uncertainty in the collection conditions, which are
+  often less well known than the conditions the sample was measured at.
+
+# Extended help
+
+Everything needed to re-solve — the conservative totals, the seawater composition, and every
+method choice — is carried on `result`, so nothing has to be restated.
+
+`result` must be a measured state. A sample has one set of collection conditions, so the
+result of this function cannot be passed back into it; to report the same measurement at some
+other conditions, carry the measured result again.
+
+The second form takes the same arguments positionally, which is what makes it broadcastable —
+Julia will not broadcast over keyword arguments. Scalars broadcast against vectors, so a value
+shared by every sample is just a number.
+
 Uncertainties given to the measurement are carried on `result` and do not have to be restated.
-`σ_temp_c` and `σ_pres_bar` add uncertainty in the *collection conditions*, which are often less
-well known than the conditions the sample was measured at. Note that a measurement carrying
-uncertainties is built with `varying_errors` and called positionally — the presets take no
-`errors` argument:
+A measurement carrying uncertainties is built with `varying_errors` and called positionally —
+the presets take no `errors` argument:
 
 ```jldoctest collection
 julia> measured = CarbonateSystem(:carbon; varying_errors = (:TA, :DIC),
@@ -93,20 +102,23 @@ julia> at_collection_conditions(measured; temp_c = 2.0, σ_temp_c = 0.5).err.pHt
 ```
 
 The two contributions are independent and combine in quadrature. Whether uncertainty in the
-*measurement* temperature reaches the collection state at all depends on what was measured: with
-TA and DIC it does not, because both are conservative and carried across unchanged, but with pH
-and DIC it does, because TA is derived using constants at the measurement temperature.
+*measurement* temperature reaches the collection state at all depends on what was measured:
+with TA and DIC it does not, because both are conservative and carried across unchanged, but
+with pH and DIC it does, because TA is derived using constants at the measurement temperature.
 
 A whole cast at once, carrying per-sample uncertainty in the collection temperature:
 
 ```jldoctest collection
-julia> collected = at_collection_conditions.([measured, measured], [2.0, 4.0], 400.0, [0.5, 0.2]);
+julia> collected = at_collection_conditions.([measured, measured], [2.0, 4.0],
+                                             400.0, [0.5, 0.2]);
 
 julia> getproperty.(collected, :pHtot)
 2-element Vector{Float64}:
  8.254156644905194
  8.223138522847922
 ```
+
+See also [`carbon_system`](@ref), [`CarbonateResult`](@ref).
 """
 function at_collection_conditions(result::CarbonateResult;
                                   temp_c = nothing,
@@ -218,8 +230,8 @@ The collection-condition uncertainties, under the internal names the AD path use
 One method per combination rather than a branch, so which uncertainties are present is settled
 by the argument types and folds away on specialisation — a broadcast passes `Float64` where a σ
 column was given and `Nothing` where a slot was skipped, and each call site compiles to one
-concrete NamedTuple. Building the key set at runtime instead is the expensive pattern in this
-package (see `CarbonateSystem`).
+concrete NamedTuple. Building the key set at runtime instead costs an allocation and a dynamic
+dispatch on every call (see `CarbonateSystem`).
 
 The `target_` prefix is applied here rather than mapped over user-supplied names, which is what
 makes a collision with a stage-1 uncertainty of the same name impossible.
@@ -234,8 +246,8 @@ _target_errors(σ_temp_c, σ_pres_bar) = (target_temp_c = σ_temp_c,
 Reject a vector handed to an argument that describes one sample.
 
 `at_collection_conditions.(results; temp_c = temps)` is syntactically valid and broadcasts over
-`results` alone, handing the whole vector of temperatures to every call. It used to surface as
-`isless(::Int64, ::Vector)` from inside the solver, or `convert(Float64, ::Vector)` from the
+`results` alone, handing the whole vector of temperatures to every call. Unchecked it surfaces
+as `isless(::Int64, ::Vector)` from inside the solver, or `convert(Float64, ::Vector)` from the
 uncertainty path — neither of which names the mistake.
 
 Written out rather than looped over, so each check folds away for the concrete argument types a
@@ -258,7 +270,8 @@ Reject keyword arguments that are not collection conditions.
 
 Named individually for the two people will actually reach for: `sal`, because a per-sample
 collection salinity is a reasonable thing to want and a wrong thing to ask for here, and
-`errors`, because it is what this function used to take.
+`errors`, because uncertainty in a measured quantity belongs to the measurement and is carried
+here on the result.
 """
 function _reject_collection_keywords(names)
     lines = map(collect(names)) do name
