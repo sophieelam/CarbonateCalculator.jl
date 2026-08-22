@@ -100,42 +100,46 @@ function CarbonateSystem(scope::Symbol...; varying = (), varying_errors = (), se
     varying_errors = Tuple(varying_errors)
     fixed = NamedTuple(settings)
 
+    # Check that no parameter is named more than once
     for (names, what) in ((varying, "varying"), (varying_errors, "varying_errors"))
         repeated = unique(n for n in names if count(==(n), names) > 1)
         isempty(repeated) || throw(ArgumentError(
             "$(join(repeated, ", ")) named more than once in `$what`"))
     end
 
+    # Check that no parameter is both varying and fixed
     overlap = [n for n in varying if haskey(fixed, n)]
     isempty(overlap) || throw(ArgumentError(
         "$(join(overlap, ", ")) given both as a varying parameter and as a fixed setting; " *
         "it has to be one or the other"))
 
-    # An uncertainty propagates from a measurement, so it needs a value to attach to.
+    # Check that every name in `varying_errors` is either in `varying` or in `fixed`.
     for name in varying_errors
         name in varying || haskey(fixed, name) || throw(ArgumentError(
             "$name is in `varying_errors`, but this solver has no value for it. Put $name " *
             "in `varying`, or give it as a fixed setting."))
     end
 
+    # Check that all parameters are valid for this scope.
     _reject_unknown_parameters(
         (varying..., varying_errors..., keys(fixed)...),
         _accepted_parameters(scope),
         scope
         )
 
-    # Resolved once here and stored on the solver. Building a NamedTuple from a
+    # Build a named tuple of default parameter values for the scope, so the solver can fill in 
+    # anything not supplied later.
+    # This is resolved once here and stored on the solver. Building a NamedTuple from a
     # runtime-computed key set allocates and dispatches dynamically; doing it per call rather
     # than per solver costs about half of a whole calculation.
     defaults = NamedTuple{_accepted_parameters(scope)}(PARAMETER_DEFAULTS)
 
-    # Values are stand-ins: the determinacy check cares which parameters are present, not
-    # what they hold.
-    if !isempty(varying) || !isempty(fixed)
+    # Check that the system is determined for the the scope.
+    if !isempty(varying)
         prototype = merge(fixed, NamedTuple{varying}(ntuple(_ -> 1.0, length(varying))))
-        isempty(varying) ||
-            _check_determinacy(prototype, scope; require_two = scope === (:carbon,))
+        _check_determinacy(prototype, scope; require_two = scope === (:carbon,))
     end
+
 
     return CarbonateSystem{scope, varying, varying_errors, typeof(defaults),
                            typeof(fixed)}(defaults, fixed)
@@ -145,18 +149,21 @@ scope_of(::CarbonateSystem{scope}) where {scope} = scope
 varying_of(::CarbonateSystem{scope, varying}) where {scope, varying} = varying
 
 """
-Solve, given parameters by keyword.
+Solve, given keyword parameters.
 
-There is no `errors` keyword here. Uncertainty propagation is reached by building a solver
-with `varying_errors` and calling it positionally, which keeps the everyday call — the one
-`carbon_system` and friends wrap — to just the chemistry.
+This version of the solver is not broadcastable, and does not propagate uncertainties. It 
+is the one that is used for simple, non-broadcasting calls.
+
+Uncertainty propagation is reached by building a solver with `varying_errors` and calling 
+it positionally, which keeps the everyday call — the one `carbon_system` and friends wrap 
+— to just the chemistry.
 """
 (sys::CarbonateSystem)(; kwargs...) = _run(sys, NamedTuple(kwargs), nothing)
 
 """
 Solve, given the `varying` parameters positionally, then the `varying_errors`.
 
-This is the form that broadcasts, because Julia will not broadcast over keyword arguments,
+This is the form that broadcasts (because Julia will not broadcast over keyword arguments),
 and the only form that propagates uncertainties.
 """
 function (sys::CarbonateSystem{scope, varying, varying_errors})(
@@ -209,44 +216,6 @@ function _solve(scope, inputs, errors)
     return CarbonateResult(result.val, result.err, provided, _settings(inputs), inputs,
                            scope, errors)
 end
-
-"""
-Reject parameter names this scope does not accept, naming why.
-
-Uncertainties go through the same check, because `varying_errors` names parameters: a σ for
-something that is not a parameter is a typo, and should fail when the solver is built rather
-than on the first row.
-
-`errors` gets no exemption. Exempting it makes `CarbonateSystem(:carbon; errors = (TA = 2.0,))`
-legal, stored as a *parameter*, and propagating nothing — uncertainties asked for and silently
-not delivered. Use `varying_errors` instead.
-"""
-function _reject_unknown_parameters(names, accepted, scope::Tuple{Vararg{Symbol}})
-    # Allocation-free on the success path; message detail is built only when it is needed.
-    all(n -> n in accepted, names) && return nothing
-
-    lines = map(collect(n for n in names if !(n in accepted))) do name
-        if haskey(PARAMETER_DEFAULTS, name)
-            "$name needs the :$(getproperty(PARAMETER_SCOPE, name)) system, " *
-            "but this solver's scope is $scope"
-        else
-            near = [k for k in keys(PARAMETER_DEFAULTS)
-                    if _normalise_keyword(k) == _normalise_keyword(name)]
-            isempty(near) ? "$name is not a parameter" :
-                "$name (did you mean $(join(near, " or "))?)"
-        end
-    end
-    throw(ArgumentError("unrecognised parameter(s):\n  " * join(lines, "\n  ")))
-end
-
-# Scope stands in for the entry point in validation messages.
-_entry_name(scope::Tuple{Vararg{Symbol}}) =
-    scope === (:carbon,) ? :carbon_system :
-    scope === (:carbon, :boron, :isotopes) ? :whole_system : Symbol("CarbonateSystem", scope)
-
-# boron_system and boron_isotopes are still plain functions, and reach the same checks.
-_entry_name(entry_point) = nameof(entry_point)
-
 
 # --- The user-facing presets ------------------------------------------------------------
 

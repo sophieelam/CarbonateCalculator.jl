@@ -7,24 +7,6 @@
 # input that does not describe exactly one system.
 
 """
-    _declared_keywords(entry_point) -> Vector{Symbol}
-
-The keyword names `entry_point` actually declares, read off its method signature.
-
-Used only to suggest a correction once a call has already failed, so it is never on the hot
-path, and reading the signature rather than maintaining a parallel list means the two cannot
-drift apart. The `kwargs...` sink itself appears as a name ending in `...` and is dropped.
-"""
-function _declared_keywords(entry_point)
-    names = Symbol[]
-    for method in methods(entry_point)
-        append!(names, Base.kwarg_decl(method))
-    end
-    filter!(name -> !endswith(String(name), "..."), names)
-    return sort!(unique!(names))
-end
-
-"""
 Collapse a keyword name to the form that survives the mistakes people actually make —
 dropped underscores and inconsistent case. `tempc`, `TempC` and `temp_c` all reduce to
 `tempc`, which is enough to catch the common typo without pulling in an edit-distance
@@ -32,17 +14,10 @@ implementation for the sake of it.
 """
 _normalise_keyword(name::Symbol) = lowercase(replace(String(name), "_" => ""))
 
-"""
-Parameter names whose normalised form matches `name`, for a 'did you mean' hint.
-
-Reads `PARAMETER_DEFAULTS` when the entry point is a solver, and the method signature when it
-is a plain function, so both paths get the same suggestion.
-"""
-function _similar_keywords(name::Symbol, entry_point)
+"Parameter names whose normalised form matches `name`, for a 'did you mean' hint."
+function _similar_keywords(name::Symbol)
     target = _normalise_keyword(name)
-    candidates = entry_point isa Tuple ? collect(keys(PARAMETER_DEFAULTS)) :
-                                         _declared_keywords(entry_point)
-    return [k for k in candidates if _normalise_keyword(k) == target]
+    return [k for k in keys(PARAMETER_DEFAULTS) if _normalise_keyword(k) == target]
 end
 
 """
@@ -72,7 +47,7 @@ const RETIRED_ARGUMENTS = (
 """
 Reject arguments this package no longer accepts.
 
-Kept separate from [`_reject_unknown_arguments`](@ref) so a retired name gets a message naming
+Kept separate from [`_reject_unknown_parameters`](@ref) so a retired name gets a message naming
 its replacement, rather than the 'did you mean' guess an unrecognised name gets.
 """
 function _reject_retired_arguments(kwargs)
@@ -91,31 +66,31 @@ function _reject_retired_arguments(kwargs)
 end
 
 """
-    _reject_unknown_arguments(kwargs, entry_point)
+Reject parameter names this scope does not accept, naming why.
 
-Reject keywords the calculation does not understand.
+Uncertainties go through the same check, because `varying_errors` names parameters: a σ for
+something that is not a parameter is a typo, and should fail when the solver is built rather
+than on the first row.
 
-`kwargs` is the entry point's keyword sink. Julia routes only *unmatched* keywords there, so
-anything present is by definition a name `entry_point` does not accept — the check needs no
-list of valid names, and cannot fall out of step with the signature.
-
-Retired condition names are handled first so they keep their more specific message, which
-names the replacement.
+`errors` gets no exemption. Exempting it makes `CarbonateSystem(:carbon; errors = (TA = 2.0,))`
+legal, stored as a *parameter*, and propagating nothing — uncertainties asked for and silently
+not delivered. Use `varying_errors` instead.
 """
-function _reject_unknown_arguments(kwargs, entry_point)
-    _reject_retired_arguments(kwargs)
-    isempty(kwargs) && return nothing
+function _reject_unknown_parameters(names, accepted, scope::Tuple{Vararg{Symbol}})
+    # Allocation-free on the success path; message detail is built only when it is needed.
+    all(n -> n in accepted, names) && return nothing
 
-    lines = map(collect(keys(kwargs))) do name
-        suggestions = _similar_keywords(name, entry_point)
-        isempty(suggestions) ? "$name" : "$name (did you mean $(join(suggestions, " or "))?)"
+    lines = map(collect(n for n in names if !(n in accepted))) do name
+        if haskey(PARAMETER_DEFAULTS, name)
+            "$name needs the :$(getproperty(PARAMETER_SCOPE, name)) system, " *
+            "but this solver's scope is $scope"
+        else
+            near = _similar_keywords(name)
+            isempty(near) ? "$name is not a parameter" :
+                "$name (did you mean $(join(near, " or "))?)"
+        end
     end
-
-    throw(ArgumentError(
-        "unrecognised argument(s) to $(_entry_name(entry_point)):\n  " * join(lines, "\n  ") *
-        "\nA keyword this function does not declare would otherwise be ignored, returning a " *
-        "plausible result computed at the defaults."
-    ))
+    throw(ArgumentError("unrecognised parameter(s):\n  " * join(lines, "\n  ")))
 end
 
 
@@ -157,8 +132,13 @@ function _supplied_names(inputs::NamedTuple)
     return names
 end
 
+# Scope stands in for the entry point in validation messages.
+_entry_name(scope::Tuple{Vararg{Symbol}}) =
+    scope === (:carbon,) ? :carbon_system :
+    scope === (:carbon, :boron, :isotopes) ? :whole_system : Symbol("CarbonateSystem", scope)
+
 """
-    _check_determinacy(inputs, entry_point; require_two)
+    _check_determinacy(inputs, scope; require_two)
 
 Reject input that does not describe exactly one system.
 
@@ -172,7 +152,8 @@ supplied measurement was dropped.
 parameters instead. Its core reports the under-determined case, listing every route to a
 solution; duplicating that here would mean two places to keep in step.
 """
-function _check_determinacy(inputs::NamedTuple, entry_point; require_two::Bool)
+function _check_determinacy(inputs::NamedTuple, scope::Tuple{Vararg{Symbol}};
+                            require_two::Bool)
     # Counted without allocating, because this runs on every call and answers a yes/no
     # question. Building the collections needed to *describe* the problem allocates, so that
     # work is pushed onto the error paths, where it happens once.
@@ -184,7 +165,7 @@ function _check_determinacy(inputs::NamedTuple, entry_point; require_two::Bool)
         if supplied > 1
             present = _supplied_names(inputs, members)
             throw(ArgumentError(
-                "$(_entry_name(entry_point)) was given $(join(present, ", ")), which all " *
+                "$(_entry_name(scope)) was given $(join(present, ", ")), which all " *
                 "describe $group. Supply one of them.\nThese are the same quantity " *
                 "expressed differently rather than independent measurements, so all but " *
                 "one would be silently ignored."
@@ -196,7 +177,7 @@ function _check_determinacy(inputs::NamedTuple, entry_point; require_two::Bool)
 
     if groups > 2
         throw(ArgumentError(
-            "$(_entry_name(entry_point)) was given $groups parameters " *
+            "$(_entry_name(scope)) was given $groups parameters " *
             "($(join(_supplied_names(inputs), ", "))); two determine the system.\n" *
             "Drop one: the extra value would be discarded and recomputed, with nothing in " *
             "the result to show that the supplied measurement disagreed."
@@ -206,7 +187,7 @@ function _check_determinacy(inputs::NamedTuple, entry_point; require_two::Bool)
     if require_two && groups < 2
         names = _supplied_names(inputs)
         throw(ArgumentError(
-            "$(_entry_name(entry_point)) needs two parameters to solve the system, but was " *
+            "$(_entry_name(scope)) needs two parameters to solve the system, but was " *
             "given $(isempty(names) ? "none" : "only $(only(names))").\nSupply two of: " *
             "TA, DIC, pH (or pHtot/pHsws/pHfree/pHNBS), CO₂ (or pCO₂/fCO₂), HCO₃, " *
             "CO₃ (or ΩA/ΩC)."
