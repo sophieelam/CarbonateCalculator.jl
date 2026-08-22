@@ -270,10 +270,10 @@ function _run_solvers(scope, ps)
     # Run the solvers in an order that works for the inputs. The first solver to run is the one
     # whose inputs determine pH; the others follow from it. Because of the block above, any solver that
     # is out of scope just returns the input unchanged, allowing the calls to be made in a chain.
-    first = _first_solvable(ps)
-    first === :boron && return isotopes(carbon(boron(ps)))
-    first === :isotopes && return carbon(boron(isotopes(ps)))
-    first === :carbon && return isotopes(boron(carbon(ps)))
+    solve_first = _first_solvable(ps)
+    solve_first === :boron && return isotopes(carbon(boron(ps)))
+    solve_first === :isotopes && return carbon(boron(isotopes(ps)))
+    solve_first === :carbon && return isotopes(boron(carbon(ps)))
     throw(ArgumentError(_underdetermined_message()))
 end
 
