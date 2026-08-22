@@ -260,10 +260,16 @@ unknown they share — whichever subsystem the inputs determine goes first and y
 the rest follow from it. See `_first_solvable`.
 """
 function _run_solvers(scope, ps)
+    # Decide which solvers are needed based on the scope. This creates
+    # temporary functions that have all the solver machinery *if* the
+    # scope requires it, otherwise does nothing and returns the input unchanged.
     carbon(p) = :carbon in scope ? merge(p, C_calculator(; p...)) : p
     boron(p) = :boron in scope ? merge(p, B_calculator(; p...)) : p
     isotopes(p) = :isotopes in scope ? merge(p, calc_B_isotopes(; p...)) : p
 
+    # Run the solvers in an order that works for the inputs. The first solver to run is the one
+    # whose inputs determine pH; the others follow from it. Because of the block above, any solver that
+    # is out of scope just returns the input unchanged, allowing the calls to be made in a chain.
     first = _first_solvable(ps)
     first === :boron && return isotopes(carbon(boron(ps)))
     first === :isotopes && return carbon(boron(isotopes(ps)))
@@ -301,21 +307,30 @@ function _solve_core(scope, inputs)
                               inputs.KNH3_method, inputs.Ca_method, inputs.MyAMI_mode) :
         inputs.Ks
 
+    # Convert whichever pH the caller gave to a single total-scale value, which is what the
+    # solvers work in.
     pHtot = _to_total_scale(inputs.pHtot, inputs.pHsws, inputs.pHfree, inputs.pHNBS, env)
 
+    # Build the initial state, which is the inputs converted to internal units plus the water.
     ps = _initial_state(scope, inputs, env, m, pHtot)
     :isotopes in scope && (ps = merge(ps, _isotope_inputs(ps)))
 
+    # If the caller gave ΩA or ΩC instead, convert it to CO₃²⁻; if the caller gave CO₂, fCO₂ or pCO₂, resolve the other two.
     if :carbon in scope
         ps = merge(ps, _resolve_gases(ps))
         ps = merge(ps, _omega_to_CO₃(ps, inputs.ΩA, inputs.ΩC))
     end
 
+    # run the appropriate solvers in an order that works depending on the inputs and scope.
     ps = _run_solvers(scope, ps)
+
+    # Convert the solved total-scale pH back to the other three scales.
     ps = merge(ps, _from_total_scale(ps.pHtot, env))
+    
+    # if isotopes are in scope, calculate the δ values from the solved fractional abundances.
     :isotopes in scope && (ps = merge(ps, _delta_values(ps, inputs)))
 
-    # Revelle factor and saturation state are carbonate quantities; the gases likewise.
+    # Calculate the saturation states from the solved [CO₃²⁻] and the water's Ca²⁺.
     if :carbon in scope
         ps = merge(ps, _saturation_states(ps))
     end
