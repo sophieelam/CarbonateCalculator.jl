@@ -98,6 +98,36 @@ using CarbonateCalculator
         @test carbon_system(TA=2300.0, DIC=2000.0, temp_c=60.0).pHtot > 0
     end
 
+    @testset "unit names" begin
+        # Every spelling of the same unit has to give the same answer, and report the name
+        # the package is keyed on rather than whatever was typed.
+        reference = carbon_system(TA=2300.0, DIC=2000.0)
+        for spelling in (:umol, "umol", "µmol", "μmol", "UMOL")
+            result = carbon_system(TA=2300.0, DIC=2000.0, unit=spelling)
+            @test result.unit == "umol"
+            @test result.pHtot ≈ reference.pHtot
+        end
+
+        # An unrecognised unit used to scale by 1.0 — mol/kg numbers under a µmol/kg label.
+        @test_throws ArgumentError carbon_system(TA=2300.0, DIC=2000.0, unit="umoles")
+        @test_throws ArgumentError carbon_system(TA=2300.0, DIC=2000.0, unit=:M)
+        @test_throws ArgumentError carbon_system(TA=2.3e-3, DIC=2.0e-3, unit=1e6)
+
+        message = try
+            carbon_system(TA=2300.0, DIC=2000.0, unit="umoles")
+        catch err
+            sprint(showerror, err)
+        end
+        @test occursin("umoles", message)
+        @test occursin("umol", message)
+
+        # A fixed unit is checked where it is named, not on the first solve.
+        @test_throws ArgumentError CarbonateSystem(:carbon; varying=(:TA, :DIC), unit=:M)
+        solver = CarbonateSystem(:carbon; varying=(:TA, :DIC), unit=:mol)
+        @test solver(2.3e-3, 2.0e-3).unit == "mol"
+        @test solver(2.3e-3, 2.0e-3).pHtot ≈ reference.pHtot
+    end
+
     @testset "uncertainty names" begin
         # Used to die inside propagate_errors as `type NamedTuple has no field tempc`.
         # Now the name is checked when the solver is built, before any row is computed.

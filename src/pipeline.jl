@@ -69,7 +69,22 @@ const UNIT_SCALES = Dict(
     "fmol" => 1.0e15,
 )
 
-_unit_multiplier(unit) = get(UNIT_SCALES, unit, 1.0)
+"""
+Reduce a unit to the name `UNIT_SCALES` is keyed on, or throw listing the names it accepts.
+
+`:umol`, `"UMOL"` and `"µmol"` all reduce to `"umol"`: a symbol or a string, any case, either
+micro sign — U+00B5 from a keyboard or U+03BC from a Greek layout, neither of them the ASCII
+`u` the table uses.
+"""
+function _normalise_unit(unit)
+    name = replace(lowercase(string(unit)), 'µ' => 'u', 'μ' => 'u')
+    haskey(UNIT_SCALES, name) || throw(ArgumentError("unknown unit $(repr(unit)); " *
+        "expected one of " * join(sort(collect(keys(UNIT_SCALES))), ", ")))
+    return name
+end
+
+# Every path normalises first, so a `KeyError` here is a bug rather than a bad argument.
+_unit_multiplier(unit) = UNIT_SCALES[unit]
 
 "A negative concentration is not a small one; it is a broken input, and NaN says so."
 _clean(x) = isnothing(x) ? nothing : (x < 0.0 ? NaN : x)

@@ -127,7 +127,11 @@ function CarbonateSystem(scope::Symbol...; varying = (), varying_errors = (), se
         scope
         )
 
-    # Build a named tuple of default parameter values for the scope, so the solver can fill in 
+    # `_run` normalises too; doing it here as well means a bad unit fails where it was named
+    # rather than on the first solve.
+    haskey(fixed, :unit) && (fixed = merge(fixed, (unit = _normalise_unit(fixed.unit),)))
+
+    # Build a named tuple of default parameter values for the scope, so the solver can fill in
     # anything not supplied later.
     # This is resolved once here and stored on the solver. Building a NamedTuple from a
     # runtime-computed key set allocates and dispatches dynamically; doing it per call rather
@@ -192,7 +196,9 @@ function _run(sys::CarbonateSystem{scope}, supplied_parameters, errors) where {s
     _reject_retired_arguments(supplied)
     _reject_unknown_parameters(keys(supplied), keys(sys.defaults), scope)
 
+    # A caller spells the unit however they like; everything downstream wants a table name.
     inputs = merge(sys.defaults, supplied)
+    inputs = merge(inputs, (unit = _normalise_unit(inputs.unit),))
 
     _check_determinacy(inputs, scope; require_two = scope === (:carbon,))
     _check_conditions(inputs.temp_c, inputs.sal, inputs.pres_bar)
@@ -266,7 +272,8 @@ supplied" for a constraint, and "derive it from salinity" for a total.
 ## Settings
 
 - `unit = "umol"`: the concentration unit values are reported in — one of `"mol"`, `"mmol"`,
-  `"umol"`, `"nmol"`, `"pmol"`, `"fmol"`.
+  `"umol"`, `"nmol"`, `"pmol"`, `"fmol"`. A symbol (`:umol`) and the written-out form
+  (`"µmol/kg"`) mean the same thing; anything else is an error.
 - `K_method = "default"`: the carbonic-acid parameterisation, `"KGen"` by default. See
   [`calculate_constants`](@ref) for every option.
 - `KSO4_method`, `BT_method`, `KF_method`, `KNH3_method`, `Ca_method = "default"`: the

@@ -52,19 +52,13 @@ function _print_dynamic_vars(io, r)
     ]
     
     # --- Unit & Precision Handling ---
-    # --- Unit & Precision Handling ---
-    # We check if :unit exists, and convert it to string to handle Symbols or Strings
-    raw_unit = r.unit
-    
-    if raw_unit == "mol" || raw_unit == "mol/kg"
-        unit_label = "mol/kg"
-        fmt_val = "%14.10f"  # Extra width and 10 decimals for molar
-        fmt_err = "%.10f"
-    else
-        unit_label = "μmol/kg"
-        fmt_val = "%8.4f"    # 4 decimals for micromolar
-        fmt_err = "%.4f"
-    end
+    unit_label = (r.unit == "umol" ? "μmol" : r.unit) * "/kg"
+
+    # Every unit prints at the resolution µmol/kg gets at four decimal places, so the digits
+    # shown follow the size of the numbers rather than the name they are reported under.
+    decimals = max(round(Int, 4 + log10(1e6 / _unit_multiplier(r.unit))), 0)
+    fmt_val = "%$(decimals + 4).$(decimals)f"
+    fmt_err = "%.$(decimals)f"
 
     for (var_name, synonyms) in mapping
         # Skip if this variable category was an input
