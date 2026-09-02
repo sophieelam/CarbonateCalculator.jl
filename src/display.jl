@@ -1,76 +1,40 @@
 using Printf
 
-# 1. Define the custom struct
-struct CarbonateResult
-    val::NamedTuple
-    err::Union{NamedTuple, Nothing}
-    input_keys::Vector{Symbol} 
-end
+# `CarbonateResult` itself is defined in result.jl; this file only defines how it prints.
 
-function Base.getproperty(res::CarbonateResult, s::Symbol)
-    # 1. Standard fields
-    if s in (:val, :err, :input_keys)
-        return getfield(res, s)
-    end
-    
-    v = getfield(res, :val)
-    
-    # 2. Priority: If it's a two-state system, return the "out" value as the default
-    s_out = Symbol(string(s), "_out")
-    if haskey(v, s_out)
-        return getproperty(v, s_out)
-    end
-    
-    # 3. Fallback: Return the base value (or the "in" value if that's all there is)
-    return getproperty(v, s)
-end
+"""
+Print a `CarbonateResult` as a summary block: the conditions, the parameters supplied, and
+the quantities the calculation produced.
 
-# Make tab-completion work for both the struct fields AND the math outputs
-function Base.propertynames(res::CarbonateResult, private::Bool=false)
-    return (fieldnames(CarbonateResult)..., keys(getfield(res, :val))...)
-end
-
-# Allow iteration so tools like ForwardDiff can treat the result like a tuple
-function Base.iterate(res::CarbonateResult, state...)
-    return iterate(getfield(res, :val), state...)
-end
-
-function Base.keys(res::CarbonateResult)
-    return keys(getfield(res, :val))
-end
-
-function Base.length(res::CarbonateResult)
-    return length(getfield(res, :val))
-end
-
-# 2. Overload the Base.show method
+Inputs are left out of the body, so what is shown is what was computed rather than what was
+handed in. The full state is always on `.val`.
+"""
 function Base.show(io::IO, ::MIME"text/plain", r::CarbonateResult)
-    is_two_state = haskey(r.val, :pHtot_in)
-    
     println(io, "══════════════════════════════════════════════════")
-    println(io, "  CARBONATE SYSTEM RESULTS (Dynamic View)")
+    println(io, "  CARBONATE SYSTEM RESULTS")
     println(io, "──────────────────────────────────────────────────")
-    
+
     input_str = join([string(k) for k in r.input_keys], ", ")
     println(io, "  [ Inputs provided: ", input_str, " ]")
+    @printf(io, "  [ Conditions: %.4g °C, S %.4g, %.4g bar ]\n",
+            r.val.temp_c, r.val.sal, r.val.pres_bar)
     println(io, "──────────────────────────────────────────────────")
 
-    if is_two_state
-        println(io, "  [ Surface / Input State ]")
-        _print_dynamic_vars(io, r, "_in")
-        println(io, "──────────────────────────────────────────────────")
-        println(io, "  [ Output State ]")
-        _print_dynamic_vars(io, r, "_out")
-    else
-        _print_dynamic_vars(io, r, "")
-    end
+    _print_dynamic_vars(io, r)
 
     println(io, "──────────────────────────────────────────────────")
     println(io, "  [ Full results: .val | Uncertainties: .err ]")
     println(io, "══════════════════════════════════════════════════")
 end
 
-function _print_dynamic_vars(io, r, suffix)
+"""
+Print the computed quantities of `r`, one line each, skipping anything the caller supplied.
+
+Each row is looked up under several possible names so that the display survives a result
+whose keys differ by scope. Precision follows the reporting unit: mol/kg needs ten decimal
+places to show anything, µmol/kg needs four.
+"""
+function _print_dynamic_vars(io, r)
     # Define categories and potential keys found in the NamedTuple
     mapping = [
         "TA"             => [:TA, :Alk, :TAlk, :TotalAlkalinity],
@@ -81,26 +45,20 @@ function _print_dynamic_vars(io, r, suffix)
         "HCO₃"           => [:HCO3, :HCO₃],
         "BOH₃"           => [:BOH3, :BOH₃, :BoricAcid],
         "BOH₄"           => [:BOH4, :BOH₄, :Borate],
-        "deltaBOH₄"      => [:deltaBOH4, :deltaBOH₄, :d11B_BOH4],
+        "δBOH₃"          => [:δBOH₃, :ABOH₃],
+        "δBOH₄"          => [:δBOH₄, :ABOH₄],
         "ΩA"             => [:OmegaA, :ΩA, :OmegaAragonite],
         "ΩC"             => [:OmegaC, :ΩC, :OmegaCalcite],
-        "revelle_factor" => [:revelle_factor, :Revelle, :RF]
     ]
     
     # --- Unit & Precision Handling ---
-    # --- Unit & Precision Handling ---
-    # We check if :unit exists, and convert it to string to handle Symbols or Strings
-    raw_unit = haskey(r.val, :unit) ? string(r.val[:unit]) : "umol"
-    
-    if raw_unit == "mol" || raw_unit == "mol/kg"
-        unit_label = "mol/kg"
-        fmt_val = "%14.10f"  # Extra width and 10 decimals for molar
-        fmt_err = "%.10f"
-    else
-        unit_label = "μmol/kg"
-        fmt_val = "%8.4f"    # 4 decimals for micromolar
-        fmt_err = "%.4f"
-    end
+    unit_label = (r.unit == "umol" ? "μmol" : r.unit) * "/kg"
+
+    # Every unit prints at the resolution µmol/kg gets at four decimal places, so the digits
+    # shown follow the size of the numbers rather than the name they are reported under.
+    decimals = max(round(Int, 4 + log10(1e6 / _unit_multiplier(r.unit))), 0)
+    fmt_val = "%$(decimals + 4).$(decimals)f"
+    fmt_err = "%.$(decimals)f"
 
     for (var_name, synonyms) in mapping
         # Skip if this variable category was an input
@@ -111,25 +69,9 @@ function _print_dynamic_vars(io, r, suffix)
         # Try to find a matching key
         found_key = nothing
         for s in synonyms
-            s_suffix = Symbol(string(s) * suffix)
-            
-            # 1. Look for the suffixed version (e.g., DIC_out)
-            # 1. Look for the suffixed version (e.g., DIC_out)
-            if haskey(r.val, s_suffix)
-                found_key = s_suffix
+            if haskey(r.val, s)
+                found_key = s
                 break
-            # 2. FALLBACK:
-            elseif suffix == "_out"
-                if haskey(r.val, s)        # Look for the base symbol first
-                    found_key = s
-                    break
-                else 
-                    s_in = Symbol(string(s) * "_in")
-                    if haskey(r.val, s_in) # Then fall back to _in
-                        found_key = s_in
-                        break
-                    end
-                end
             end
         end
 
@@ -137,7 +79,7 @@ function _print_dynamic_vars(io, r, suffix)
             val = r.val[found_key]
             
             # Skip boron variables if they are empty/zero (standard system calls)
-            boron_names = ["BOH₃", "BOH₄", "deltaBOH₄"]
+            boron_names = ["BOH₃", "BOH₄", "δBOH₃", "δBOH₄"]
             if var_name in boron_names && (val === nothing || val == 0.0 || isnan(val))
                 continue
             end
@@ -153,16 +95,16 @@ function _print_dynamic_vars(io, r, suffix)
                     var_name == "DIC"       ? "DIC ($unit_label)" :
                     var_name == "BOH₃"      ? "B(OH)₃ ($unit_label)" :
                     var_name == "BOH₄"      ? "B(OH)₄⁻ ($unit_label)" :
-                    var_name == "deltaBOH₄" ? "δ¹¹B_borate (‰)" :
+                    var_name == "δBOH₃"     ? "δ¹¹B_B(OH)₃ (‰)" :
+                    var_name == "δBOH₄"     ? "δ¹¹B_B(OH)₄⁻ (‰)" :
                     var_name == "ΩA"        ? "Ω Aragonite" :
-                    var_name == "ΩC"        ? "Ω Calcite" : 
-                    var_name == "revelle_factor" ? "Revelle Fact." : var_name
+                    var_name == "ΩC"        ? "Ω Calcite" : "Unknown"
             
             label_padded = rpad(label, 22)
             
             if err > 0.0
                 # Specific formatting for isotopes
-                if var_name == "deltaBOH₄"
+                if var_name in ("δBOH₃", "δBOH₄")
                     @printf(io, "    %s : %8.2f ± %.3f\n", label_padded, val, err)
                 else
                     # Dynamic precision based on unit scale
