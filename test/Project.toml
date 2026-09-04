@@ -16,6 +16,7 @@
 CSV = "336ed68f-0bac-5ca0-87d4-7b16caf5d00b"
 CarbonateCalculator = "a2b7c4d9-8e12-4f33-b1a9-9c8d7e6f5a4b"
 DataFrames = "a93c6f00-e57d-5684-b7b6-d8193f3e46c0"
+Documenter = "e30172f5-a6a5-5a46-863b-614d45cd2de4"
 Downloads = "f43a241f-c20a-4ad4-852c-f6b1247861c6"
 ForwardDiff = "f6369f11-7733-5829-9624-2563aa707210"
 Logging = "56ddb016-857b-54e1-b83d-db4d58db5568"
