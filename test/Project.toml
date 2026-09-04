@@ -1,3 +1,17 @@
+# Development dependencies. A user installing CarbonateCalculator gets the root
+# Project.toml only and needs none of these.
+#
+# This is what blocks 1 and 2 of the suite need — i.e. what `Pkg.test()` requires. Block 3
+# (CC_TESTS=all) additionally uses ZipFile, and CC_PLOTS=true uses Plots. Both are left out
+# on purpose: they are heavy, both are opt-in, and `optional_using` in
+# test/field_data/field_data_common.jl degrades to a warning naming the install command
+# rather than failing. Add them only if you run block 3:
+#
+#     julia --project=test -e 'using Pkg; Pkg.add(["ZipFile", "Plots"])'
+#
+# CarbonateCalculator is dev-linked to `..` so `julia --project=test test/runtests.jl` runs
+# without going through Pkg.test.
+
 [deps]
 CSV = "336ed68f-0bac-5ca0-87d4-7b16caf5d00b"
 CarbonateCalculator = "a2b7c4d9-8e12-4f33-b1a9-9c8d7e6f5a4b"

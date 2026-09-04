@@ -1,4 +1,3 @@
 *.zip
 test/field_data/data/*
-test/refactor_baseline/current_*.tsv.CondaPkg/
-.CondaPkg/
+test/refactor_baseline/current_*.tsv

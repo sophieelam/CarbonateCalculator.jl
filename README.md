@@ -55,8 +55,9 @@ rather than as a dependency of the package.
 | Subsystem Target | Required Inputs | Solved Quantities |
 | :--- | :--- | :--- |
 | **`:carbon`** | Any 2 of: `TA`, `DIC`, `pH`, `pCO2`, `fCO2`, `CO2`, `HCO3`, `CO3` | Complete carbon speciation, pH, $\Omega_\text{A}$, $\Omega_\text{C}$, $p\text{CO}\_2$ |
-| **`:boron`** | Any 1 of: `d11B_sw`, `d11B_borate`, `d11B_boric`, `pH` | Boron speciation and isotopic fractionations ($\delta^{11}\text{B}$) |
-| **`:whole`** | Any valid combination of carbon + boron parameters | Full carbon and boron system speciation and isotope systematics |
+| **`:boron`** | Any 1 of: `B_T`, `d11B`, `pH` | Boron speciation and isotopic fractionations ($\delta^{11}\text{B}$) |
+| **`:isotopes`** | Any 1 of: `d11B_sw`, `d11B_borate`, `d11B_boric`, `pH` | Boron speciation and isotopic fractionations ($\delta^{11}\text{B}$) |
+| **more than one subsystem** | Any valid combination of carbon + boron + boron isotopic parameters | Full carbon and boron system speciation and isotope systematics |
 
 ---
 
@@ -64,7 +65,7 @@ rather than as a dependency of the package.
 
 `CarbonateCalculator` provides two execution workflows tailored to different computational needs:
 
-* **Preset Functions (`carbon_system`, `whole_system`, etc.):** Best for quick, interactive, single-sample calculations using keyword arguments. Presets handle everyday calculations without requiring solver setup, but do not support Julia vector broadcasting or uncertainty propagation.
+* **Preset Functions (`carbon_system`, `whole_system`, `boron_system`, `boron_isotopes`):** Best for quick, interactive, single-sample calculations using keyword arguments. Presets handle everyday calculations without requiring solver setup, but do not support Julia vector broadcasting or uncertainty propagation.
 * **Compiled Solvers (`CarbonateSystem`):** Built for high-performance batch processing, array broadcasting, and uncertainty propagation. Building a solver object upfront resolves default settings and type parameters once at construction. This enables positional call syntax, seamless vector broadcasting over datasets, and formal uncertainty propagation through `varying_errors`.
 
 #### Preset Functions Example
@@ -78,6 +79,7 @@ res = carbon_system(TA = 2300.0, DIC = 2000.0, temp_c = 25.0)
 println("Calculated pH (total scale): ", res.pHtot)
 println("Calculated pCO₂ (μatm):       ", res.pCO₂)
 ```
+
 #### Compiled Solver Example
 
 ```julia
@@ -86,7 +88,7 @@ using CarbonateCalculator
 # Construct a reusable solver targeting the carbon subsystem
 sys = CarbonateSystem(:carbon; varying = (:TA, :DIC))
 
-# Pass parameter values positionally to the solver instance
+# Pass parameter values positionally (in the same order as `varying`) to the solver instance
 res = sys(2300.0, 2000.0)
 
 println("Calculated pH (total scale): ", res.pHtot)
@@ -132,7 +134,7 @@ Rather than mixing measurement and collection conditions into a single call with
 
 1. **Solves the Measurement State:** Calculates the full carbonate system at the laboratory/measurement conditions using supplied inputs (e.g., TA and DIC, or pH and TA).
 2. **Preserves Conservative Totals:** Conservative quantities—such as Total Alkalinity (TA), Dissolved Inorganic Carbon (DIC), and Total Boron ($B_T$)—are independent of temperature and pressure. `at_collection_conditions` carries these conserved totals forward.
-3. **Re-solves at Collection Conditions:** Re-evaluates equilibrium constants and speciation using the new collection temperature, pressure, and salinity, returning an updated result set with in-situ pH, saturation states ($\Omega_\text{A}$, $\Omega_\text{C}$) and $p\text{CO}\_2$.
+3. **Re-solves at Collection Conditions:** Re-evaluates equilibrium constants and speciation using the new collection temperature and pressure, returning an updated result set with in-situ pH, saturation states ($\Omega_\text{A}$, $\Omega_\text{C}$) and $p\text{CO}\_2$.
 
 #### Example
 
@@ -171,6 +173,7 @@ Julia's native dot broadcasting (`.`) allows compiled `CarbonateSystem` solvers 
 * **Zero-Allocation Inner Loops:** Reuses solver metadata across all elements in the input arrays.
 * **Flexible Vector Operations:** Combine scalar conditions (e.g., fixed temperature) with vector measurements (e.g., arrays of TA and DIC).
 * **Seamless Field Extraction:** Use standard comprehension syntax to extract vectors of calculated output variables.
+* **DataFrame Compatibility:** Input and output can be easily integrated with `DataFrames.jl` for structured data analysis.
 
 #### Example
 
@@ -187,21 +190,70 @@ DIC_vec = [1980.0, 2050.0, 2120.0]
 # 3. Broadcast the solver across both arrays
 results = sys.(TA_vec, DIC_vec)
 
-# 4. Extract calculated quantities across all samples
+# 4a. Extract calculated quantities across all samples
 pH_profile   = [r.pHtot for r in results]
 pCO2_profile = [r.pCO₂ for r in results]
+
+# 4b. Convert output to a DataFrame for structured analysis
+using DataFrames
+df = DataFrame(results)
+profiles = df[:, [:pHtot, :pCO₂]]
 ```
 
 ---
 
-### Equilibrium Constant & Composition Options
+## Chemical Constants
+
+All constants and composition functions are specified in [`constants.jl`](src/constants.jl).
+
+### Seawater Composition
+
+For conservative elements, composition is estimated from salinity using the following formulations:
+
+#### Total Boron ($B_T$) — `BT_method`
+
+| Key / Method | Reference | Formulation / Description |
+| :--- | :--- | :--- |
+| `"Uppstrom"`* | Uppström (1974) | Standard oceanographic ratio: $B_T = 0.0004157 \cdot S / 35$ |
+| `"Lee"` | Lee et al. (2010) | Higher boron formulation: $B_T = 0.0004326 \cdot S / 35$ |
+| `"KSK18"` | Kulik et al. (2018) | Non-zero intercept model: $B_T = (10.838 \cdot S + 13.821) \cdot 10^{-6}$ |
+
+#### Calcium Concentration ($[\text{Ca}^{2+}]$) — `Ca`
+
+| Key / Method | Reference | Formulation / Description |
+| :--- | :--- | :--- |
+| `"modern"`* | Modern seawater from `KGen` | $[\text{Ca}^{2+}] = 0.01028 \cdot S / 35\ \text{mol/kg-sw}$.
+| `"Culkin"` | Culkin (1965) | $[\text{Ca}^{2+}] = 0.01026 \cdot S / 35\ \text{mol/kg-sw}$.
+| `"RT67"` | Riley & Tongudai (1967) | $[\text{Ca}^{2+}] = (0.02128 / 40.087) \cdot S / 1.80655\ \text{mol/kg-sw}$.
+| `"[a number]"` | User-settable | The concentration of calcium in the seawater in $\text{mol/kg-sw}$ at 35.0 salinity. |
+
+#### Magnesium Concentration ($[\text{Mg}^{2+}]$) — `Mg`
+
+| Key / Method | Reference | Formulation / Description |
+| :--- | :--- | :--- |
+| `"modern"`* | Modern seawater from `KGen` | $[\text{Mg}^{2+}] = 0.0128 \cdot S / 35\ \text{mol/kg-sw}$.
+| `"[a number]"` | User-settable | The concentration of magnesium in the seawater in $\text{mol/kg-sw}$ at 35.0 salinity. |
+
+#### Total Sulphate ($S_T$)
+
+Morris, A. W., and Riley, J. P., Deep-Sea Research 13:699-705, 1966
+
+#### Total Fluoride ($F_T$)
+
+Riley, J. P., Deep-Sea Research 12:219-220, 1965
+
+### Equilibrium Constants
+
+Note that by default `K_method="Kgen"`, where *ALL* K values are calculated using [Kgen.jl](https://palaeocarbonatechemistry.github.io/Kgen/), overriding K-specific method flags below.
+[**KGen**](https://agupubs.onlinelibrary.wiley.com/doi/full/10.1029/2023GC011417) provides 'best practice' K values for modern seawater, and provides a polynomial parameterisation for the influence of Mg and Ca variation in palaeo-seawater. 
 
 Equilibrium constant parameterizations and seawater composition models can be specified using `*_method` arguments when constructing a solver or calling preset functions. Full BibTeX entries for all supported methods are available in [`references.bib`](references.bib).
 
-#### Carbonate Dissociation Constants ($K_1, K_2$) — `K_method`
+#### Carbonate ($K_1, K_2$) — `K_method`
 
 | Key / Method | Reference | Temp (°C) | Salinity | pH Scale & Notes |
 | :--- | :--- | :--- | :--- | :--- |
+| `"KGen"`* | Whiteford et al. (2025) | -2 to 50 | 0 to 50 | Total scale; modern & palaeo seawater |
 | `"Lueker2000"` | Lueker et al. (2000) | 2 to 35 | 19 to 43 | Total scale; refit of Mehrbach et al. (1973) |
 | `"Roy1993"` | Roy et al. (1993) | 0 to 45 | 5 to 45 | Total scale; artificial seawater |
 | `"Waters2014"` | Waters et al. (2014) | 0 to 50 | 1 to 50 | Seawater scale; update to Millero et al. (2010) |
@@ -220,40 +272,33 @@ Equilibrium constant parameterizations and seawater composition models can be sp
 | `"Sulpis2020"` | Sulpis et al. (2020) | 2 to 35 | 19 to 43 | Total scale |
 | `"Millero1979"` | Millero (1979) | 0 to 50 | 0 | Pure freshwater formulation ($S = 0$) |
 
----
 
-#### Total Boron ($B_T$) — `BT_method`
+#### Sulfate ($K_\text{SO4}$, $K_\text{HSO4}$) — `KSO4_method`
 
 | Key / Method | Reference | Formulation / Description |
 | :--- | :--- | :--- |
-| `"Uppstrom"` | Uppström (1974) | Standard oceanographic ratio: $B_T = 0.0004157 \cdot S / 35$ |
-| `"Lee"` | Lee et al. (2010) | Higher boron formulation: $B_T = 0.0004326 \cdot S / 35$ |
-| `"KSK18"` | Kulik et al. (2018) | Non-zero intercept model: $B_T = (10.838 \cdot S + 13.821) \cdot 10^{-6}$ |
+| `"Dickson"`* | Dickson (1990) | Standard oceanographic formulation. |
+| `"Kuo"` | Khoo et al. (1977) | Free pH scale formulation. |
+| `"WM13"` | Waters & Millero (2013) | Extended temperature and salinity parameterization.
 
----
+**This setting has no effect if `K_method="Kgen"`.**
 
-#### Sulfate & Fluoride Association Constants
+#### Hydrogen Fluoride ($K_\text{F}$) — `KF_method`
 
-**Sulfate Bisulfate ($K_\text{SO4}$) — `KSO4_method`**
-* `"Dickson"` (Dickson, 1990): Standard formulation converted to $\text{mol/kg-sw}$.
-* `"Khoo"` (Khoo et al., 1977): Free pH scale formulation.
-* `"WM13"` (Waters & Millero, 2013): Extended temperature and salinity parameterization.
+| Key / Method | Reference | Formulation / Description |
+| :--- | :--- | :--- |
+| `"Dickson"`* | Dickson & Riley (1979) | Standard oceanographic formulation. |
+| `"Perez"` | Pérez & Fraga (1987) | Alternative fit ($S = 10\text{--}40$, $T = 9\text{--}33^\circ\text{C}$).
 
-**Hydrogen Fluoride ($K_\text{F}$) — `KF_method`**
-* `"Dickson"` (Dickson & Riley, 1979): Standard oceanographic formulation.
-* `"Perez"` (Pérez & Fraga, 1987): Alternative fit ($S = 10\text{--}40$, $T = 9\text{--}33^\circ\text{C}$).
+**This setting has no effect if `K_method="Kgen"`.**
 
----
 
-#### Minor Species & Calcium Formulations
+#### Ammonia ($K_\text{NH3}$) — `KNH3_method`
 
-**Ammonia ($K_\text{NH3}$) — `KNH3_method`**
-* `"Millero"` (Yao & Millero, 1995): Seawater pH scale formulation.
-* `"Clegg"` (Clegg & Whitfield, 1995): Total pH scale fit ($S = 0\text{--}40$, $T = -2\text{--}40^\circ\text{C}$).
-
-**Calcium Concentration ($[\text{Ca}^{2+}]$) — `Ca_method`**
-* `"Culkin"` (Culkin, 1965): $[\text{Ca}^{2+}] = 0.01026 \cdot S / 35\ \text{mol/kg-sw}$.
-* `"RT67"` (Riley & Tongudai, 1967): $[\text{Ca}^{2+}] = (0.02128 / 40.087) \cdot S / 1.80655\ \text{mol/kg-sw}$.
+| Key / Method | Reference | Formulation / Description |
+| :--- | :--- | :--- |
+| `"Millero"`* | Yao & Millero (1995) | Seawater pH scale formulation. |
+| `"Clegg"` | Clegg & Whitfield (1995) | Total pH scale fit ($S = 0\text{--}40$, $T = -2\text{--}40^\circ\text{C}$).
 
 ---
 
@@ -267,7 +312,6 @@ The following constants use single default parameterizations across the package:
 * **Phosphoric Acid ($K_\text{P1}, K_\text{P2}, K_\text{P3}$) & Silicic Acid ($K_\text{Si}$):** Yao & Millero (1995)
 * **Solubility Products ($K_\text{spA}, K_\text{spC}$):** Mucci (1983)
 * **Hydrogen Sulfide ($K_\text{H2S}$):** Millero et al. (1988) / Yao & Millero (1995)
-* **Total Fluoride ($F_T$) & Total Sulfate ($S_T$):** Riley (1965) and Morris & Riley (1966)
 
 ## References
 

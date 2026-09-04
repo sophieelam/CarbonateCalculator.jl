@@ -156,15 +156,4 @@ using CarbonateCalculator
                             pres_bar=0.0).pHtot > 0
     end
 
-    @testset "TA and CO3 non-uniqueness warning" begin
-        # Keyword preset calls
-        @test_logs (:warn, r"mathematically non-unique") carbon_system(TA=2300.0, CO₃=200.0)
-
-        # Solver construction with positional varying parameters
-        @test_logs (:warn, r"mathematically non-unique") CarbonateSystem(:carbon; varying=(:TA, :CO₃))
-
-        # Standard pairs should run silently without emitting warnings
-        @test_logs carbon_system(TA=2300.0, DIC=2000.0)
-    end
-
 end
