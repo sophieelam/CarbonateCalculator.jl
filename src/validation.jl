@@ -246,29 +246,3 @@ function _check_conditions(temp_c, sal, pres_bar)
 
     return nothing
 end
-
-
-"Warn if TA and CO₃²⁻ are supplied together as the solving pair."
-function _check_ta_co3_pair(params)
-    has_ta = if params isa Tuple
-        :TA in params
-    else
-        haskey(params, :TA) && !isnothing(params.TA)
-    end
-
-    has_co3 = if params isa Tuple
-        :CO3 in params || :CO₃ in params
-    else
-        (haskey(params, :CO3) && !isnothing(params.CO3)) ||
-        (haskey(params, :CO₃) && !isnothing(params.CO₃))
-    end
-
-    if has_ta && has_co3
-        @warn """
-        The (TA, CO₃²⁻) parameter pair can be mathematically non-unique in certain oceanographic domains.
-        Depending on your values, the numerical root-finder may fail to converge or yield non-physical solutions.
-        Consult the TA vs. CO₃²⁻ stability heatmap in `examples.jl` to check if your inputs fall within the stable convergence domain.
-        Still computing.
-        """ maxlog=1
-    end
-end
