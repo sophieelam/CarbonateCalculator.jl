@@ -142,6 +142,7 @@ function CarbonateSystem(scope::Symbol...; varying = (), varying_errors = (), se
     if !isempty(varying)
         prototype = merge(fixed, NamedTuple{varying}(ntuple(_ -> 1.0, length(varying))))
         _check_determinacy(prototype, scope; require_two = scope === (:carbon,))
+        _check_ta_co3_pair(prototype)
     end
 
 
@@ -201,6 +202,7 @@ function _run(sys::CarbonateSystem{scope}, supplied_parameters, errors) where {s
     inputs = merge(inputs, (unit = _normalise_unit(inputs.unit),))
 
     _check_determinacy(inputs, scope; require_two = scope === (:carbon,))
+    _check_ta_co3_pair(inputs)
     _check_conditions(inputs.temp_c, inputs.sal, inputs.pres_bar)
 
     return _solve(scope, inputs, errors)
