@@ -54,7 +54,7 @@ rather than as a dependency of the package.
 
 | Subsystem Target | Required Inputs | Solved Quantities |
 | :--- | :--- | :--- |
-| **`:carbon`** | Any 2 of: `TA`, `DIC`, `pH`, `pCO2`, `fCO2`, `CO2`, `HCO3`, `CO3` | Complete carbon speciation, pH, $p\text{CO}_2$, $\Omega_\text{A}$, $\Omega_\text{C}$ |
+| **`:carbon`** | Any 2 of: `TA`, `DIC`, `pH`, `pCO2`, `fCO2`, `CO2`, `HCO3`, `CO3` | Complete carbon speciation, pH, $\Omega_\text{A}$, $\Omega_\text{C}$, $p\text{CO}\_2$ |
 | **`:boron`** | Any 1 of: `d11B_sw`, `d11B_borate`, `d11B_boric`, `pH` | Boron speciation and isotopic fractionations ($\delta^{11}\text{B}$) |
 | **`:whole`** | Any valid combination of carbon + boron parameters | Full carbon and boron system speciation and isotope systematics |
 
@@ -132,7 +132,7 @@ Rather than mixing measurement and collection conditions into a single call with
 
 1. **Solves the Measurement State:** Calculates the full carbonate system at the laboratory/measurement conditions using supplied inputs (e.g., TA and DIC, or pH and TA).
 2. **Preserves Conservative Totals:** Conservative quantities—such as Total Alkalinity (TA), Dissolved Inorganic Carbon (DIC), and Total Boron ($B_T$)—are independent of temperature and pressure. `at_collection_conditions` carries these conserved totals forward.
-3. **Re-solves at Collection Conditions:** Re-evaluates equilibrium constants and speciation using the new collection temperature, pressure, and salinity, returning an updated result set with in-situ pH, $p\text{CO}_2$, and saturation states ($\Omega_\text{A}$, $\Omega_\text{C}$).
+3. **Re-solves at Collection Conditions:** Re-evaluates equilibrium constants and speciation using the new collection temperature, pressure, and salinity, returning an updated result set with in-situ pH, saturation states ($\Omega_\text{A}$, $\Omega_\text{C}$) and $p\text{CO}\_2$.
 
 #### Example
 
