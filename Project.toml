@@ -3,6 +3,7 @@ uuid = "a2b7c4d9-8e12-4f33-b1a9-9c8d7e6f5a4b"
 version = "0.1.0"
 
 [deps]
+Documenter = "e30172f5-a6a5-5a46-863b-614d45cd2de4"
 ForwardDiff = "f6369f11-7733-5829-9624-2563aa707210"
 Kgen = "7a1a6138-c38b-48a7-84f8-c88177c60335"
 LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
@@ -17,3 +18,10 @@ ForwardDiff = "1.4.0"
 Kgen = "0.1"
 LinearAlgebra = "1.12.0"
 Tables = "1"
+
+[extras]
+Documenter = "e30172f5-a6a5-5a46-863b-614d45cd2de4"
+Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
+
+[targets]
+test = ["Documenter", "Test"]
