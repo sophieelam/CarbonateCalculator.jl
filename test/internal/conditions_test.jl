@@ -253,12 +253,12 @@ const δBT_MODERN = 39.61
         @test adjust(derived; temp_c=2.0).err.pHtot > 1e-4
     end
 
-    @testset "Arguments that are not collection conditions are refused" begin
+    @testset "Arguments adjust does not change are refused" begin
         m = carbon_system(; measured_kw...)
 
         # Salinity: the mistake people will actually make, so it explains itself rather than
         # reporting an unknown name.
-        @test_throws "not a collection condition" adjust(m; sal=34.0)
+        @test_throws "different water" adjust(m; sal=34.0)
         @test_throws "direct solve" adjust(m; sal=34.0)
         @test_throws "varying_errors" adjust(m; σ_sal=0.05)
 
@@ -277,7 +277,7 @@ const δBT_MODERN = 39.61
         @test_throws "Broadcast the positional form" adjust(m, [2.0, 4.0])
     end
 
-    @testset "A collection state cannot be carried again" begin
+    @testset "An adjusted result cannot be adjusted again" begin
         m = carbon_system(; measured_kw...)
         collected = adjust(m; temp_c=2.0)
 
@@ -285,7 +285,7 @@ const δBT_MODERN = 39.61
         @test isnothing(m.source)
         @test !isnothing(collected.source)
 
-        @test_throws "already at its collection conditions" adjust(
+        @test_throws "produced by `adjust`" adjust(
             collected; temp_c=4.0)
         # Positional form and no-argument form go through the same guard.
         @test_throws ArgumentError adjust(collected, 4.0)
