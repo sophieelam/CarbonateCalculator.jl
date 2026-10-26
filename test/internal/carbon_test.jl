@@ -195,8 +195,8 @@ end
     #
     # Each case is generated from (pH, DIC), which is analytic and unambiguous, then solved
     # back from the derived pair. These three pairs have residuals that are monotonic in pH,
-    # so there is one root and the expected answer is not in question. CO₃+TA and HCO₃+DIC are
-    # deliberately absent: both are multi-valued, and are open items rather than pinned here.
+    # so there is one root and the expected answer is not in question. CO₃+TA and HCO₃+DIC
+    # have two roots each, and are covered by "pairs with two solutions" below.
     env = CarbonateCalculator.Constants.calculate_constants(temp_c = 25.0, sal = 35.0)
     Ks = env.Ks
     totals = (BT = env.BT, PT = 0.0, SiT = 0.0, ST = env.ST, FT = env.FT,
@@ -231,6 +231,94 @@ end
     high_pH = solve(2300.0, 180.0, 2.0, 2.0)
     @test high_pH.pHtot > 10.0
     @test high_pH.err.pHtot > 0.0
+end
+
+
+@testset "pairs with two solutions return the root asked for" begin
+    # TA with CO₃²⁻ and DIC with HCO₃⁻ each usually have two pH solutions, both physically
+    # valid (Humphreys et al., 2022, GMD 15:15, Sect. 5.2). `CO3_root` and `HCO3_root` choose;
+    # the defaults are the conventional roots and match PyCO2SYS.
+
+    # Humphreys et al. (2022), Fig. 7: TA = 2300, CO₃²⁻ = 120 µmol/kg at 15 °C gives
+    # seawater-like water near pH 7.9 (DIC ≈ 2144) or hydroxide-dominated water near pH 10.8
+    # (DIC ≈ 122). Bounds are loose because the paper's constants are not KGen's.
+    low = carbon_system(TA = 2300.0, CO₃ = 120.0, temp_c = 15.0)
+    high = carbon_system(TA = 2300.0, CO₃ = 120.0, temp_c = 15.0, CO3_root = "high")
+    @test 7.7 < low.pHtot < 8.1
+    @test 10.5 < high.pHtot < 11.1
+    @test 2100.0 < low.DIC < 2190.0
+    @test 100.0 < high.DIC < 145.0
+    # Both are genuine solutions: the alkalinity each implies is the one supplied.
+    @test low.TA ≈ 2300.0 rtol = 1e-8
+    @test high.TA ≈ 2300.0 rtol = 1e-8
+    @test low.settings.CO3_root == "low"
+    @test high.settings.CO3_root == "high"
+
+    # Any case, string or symbol.
+    @test carbon_system(TA = 2300.0, CO₃ = 120.0, temp_c = 15.0, CO3_root = :HIGH).pHtot ≈
+          high.pHtot
+
+    # Ω stands for CO₃²⁻, so it takes the same choice.
+    @test carbon_system(TA = 2300.0, ΩA = high.ΩA, temp_c = 15.0, CO3_root = "high").pHtot ≈
+          high.pHtot rtol = 1e-8
+
+    # The default is always the lower root, wherever there are two — the property the old
+    # start-at-pH-8 solve lacked. Inputs with no solution have none for either choice.
+    solve_low = CarbonateSystem(:carbon; varying = (:TA, :CO₃))
+    solve_high = CarbonateSystem(:carbon; varying = (:TA, :CO₃), CO3_root = "high")
+    solved_or_nothing(solve, TA, CO₃) = try solve(TA, CO₃) catch err
+        err isa ArgumentError || rethrow(); nothing end
+    pairs_with_two = 0
+    for TA in (300.0, 900.0, 1500.0, 2300.0, 3000.0, 4000.0), CO₃ in (5.0, 60.0, 150.0, 400.0)
+        l = solved_or_nothing(solve_low, TA, CO₃)
+        h = solved_or_nothing(solve_high, TA, CO₃)
+        @test isnothing(l) == isnothing(h)
+        isnothing(l) && continue
+        @test l.pHtot < h.pHtot
+        @test l.TA ≈ TA rtol = 1e-8
+        @test h.TA ≈ TA rtol = 1e-8
+        pairs_with_two += 1
+    end
+    @test pairs_with_two >= 10
+
+    # Too little alkalinity for this much carbonate ion: no water satisfies both.
+    @test_throws ArgumentError carbon_system(TA = 100.0, CO₃ = 300.0)
+
+    # Uncertainties propagate through either root, so Newton kept the partials.
+    with_σ(root) = CarbonateSystem(:carbon; varying = (:TA, :CO₃),
+                                   varying_errors = (:TA, :CO₃), temp_c = 15.0,
+                                   CO3_root = root)(2300.0, 120.0, 2.0, 2.0)
+    @test with_σ("low").err.pHtot > 0.0
+    @test with_σ("high").err.pHtot > 0.0
+
+    # DIC with HCO₃⁻: the same HCO₃⁻ fits either side of the bicarbonate peak.
+    hco3_high = carbon_system(DIC = 2000.0, HCO₃ = 1800.0)
+    hco3_low = carbon_system(DIC = 2000.0, HCO₃ = 1800.0, HCO3_root = "low")
+    @test 7.6 < hco3_high.pHtot < 8.4
+    @test 6.4 < hco3_low.pHtot < 7.2
+    # Each is a real solution: solving back from (DIC, pH) recovers the HCO₃⁻ supplied.
+    for r in (hco3_high, hco3_low)
+        @test carbon_system(DIC = 2000.0, pHtot = r.pHtot).HCO₃ ≈ 1800.0 rtol = 1e-8
+    end
+
+    # A bad choice fails whatever the pair, at construction or on the call.
+    @test_throws ArgumentError carbon_system(TA = 2300.0, DIC = 2000.0, CO3_root = "middle")
+    @test_throws ArgumentError CarbonateSystem(:carbon; varying = (:TA, :DIC), HCO3_root = 2)
+end
+
+
+@testset "nutrient totals come back in the unit they went in" begin
+    # PT and SiT were converted back to the caller's unit and H2ST and NH4T were not, so a
+    # sulphide total given as 2 µmol/kg was reported as 2.0e-6.
+    in_umol = carbon_system(TA = 2300.0, DIC = 2000.0, PT = 2.0, SiT = 2.0, H2ST = 2.0,
+                            NH4T = 2.0)
+    in_mmol = carbon_system(TA = 2.3, DIC = 2.0, PT = 0.002, SiT = 0.002, H2ST = 0.002,
+                            NH4T = 0.002, unit = "mmol")
+    for key in (:PT, :SiT, :H2ST, :NH4T)
+        @test getproperty(in_umol, key) ≈ 2.0
+        @test getproperty(in_mmol, key) ≈ 0.002
+    end
+    @test in_mmol.pHtot ≈ in_umol.pHtot rtol = 1e-10
 end
 
 

@@ -143,6 +143,96 @@ constant term is *positive* have two positive roots and no such shortcut; they t
 _positive_root(a, b, c) = max(_quadratic_roots(a, b, c)...)
 
 
+# --- Pairs with two valid solutions -------------------------------------------------------
+#
+# TA with CO₃²⁻ and DIC with HCO₃⁻ do not determine a unique system: each usually has two pH
+# solutions, and both are real chemistry — waters that could be made up in a laboratory or
+# found in nature, not artefacts of the algebra (Humphreys et al., 2022, GMD 15:15, Sect. 5.2
+# and Fig. 7). Nothing in the pair itself says which was meant, so the caller chooses, with
+# `CO3_root` and `HCO3_root`. The defaults are the conventional choices, and match PyCO2SYS:
+# the lower-pH root for TA–CO₃²⁻, which is the seawater-like one, and the higher-pH root for
+# DIC–HCO₃⁻, as advised by Zeebe & Wolf-Gladrow (2001).
+
+"The values `CO3_root` and `HCO3_root` accept."
+const ROOT_CHOICES = ("low", "high")
+
+"""
+    _root_choice(value, name) -> "low" | "high"
+
+Reduce a root setting to `"low"` or `"high"`, or throw naming what is accepted. A symbol or a
+string, in any case, so `:high`, `"High"` and `"high"` all work.
+"""
+function _root_choice(value, name::Symbol)
+    choice = lowercase(string(value))
+    choice in ROOT_CHOICES || throw(ArgumentError(
+        "$name must be \"low\" or \"high\" (the lower- or higher-pH solution), got " *
+        "$(repr(value))"))
+    return choice
+end
+
+"Where the two-root search looks for sign changes. Wide on purpose: it locates, it does not judge."
+const TWO_ROOT_SEARCH_RANGE = (-1.0, 15.0)
+
+"Resolution of that search, in pH units. Fine enough not to step over a close pair of roots."
+const TWO_ROOT_SEARCH_STEP = 0.05
+
+"""
+    _solve_pH_two_roots(residual, derivative, T, root) -> pH
+
+The lower- or higher-pH solution of a residual that can have two, chosen by `root`.
+
+Scans [`TWO_ROOT_SEARCH_RANGE`](@ref) for every sign change, takes the first (`"low"`) or last
+(`"high"`), narrows that interval by bisection, and lets Newton finish from inside it. Newton
+does the final converging for the same reason as in [`_solve_pH`](@ref): its iteration is
+ordinary arithmetic, so `ForwardDiff.Dual`s survive and uncertainties propagate. A start this
+close to the root cannot wander off to the other one.
+
+A single sign change means the two roots coincide or the other lies outside the search, so
+that one is returned whichever was asked for. None means no pH satisfies the pair at all;
+that returns `NaN`, and the caller says what was wrong with its inputs.
+
+Choosing explicitly replaces starting Newton at pH 8, which reached whichever root's basin
+pH 8 fell into. Over a grid of TA and CO₃²⁻ values like the one in `examples.jl`, that was the
+higher-pH root for about 2% of inputs, with nothing in the result to say so.
+"""
+function _solve_pH_two_roots(residual, derivative, ::Type{T}, root::String) where {T}
+    low, high = TWO_ROOT_SEARCH_RANGE
+    steps = round(Int, (high - low) / TWO_ROOT_SEARCH_STEP)
+
+    # The interval holding the root we want. For "low" the first sign change wins; for
+    # "high" each one found replaces the last.
+    chosen = nothing
+    left = convert(T, low)
+    f_left = residual(left)
+    for step in 1:steps
+        right = convert(T, low + step * TWO_ROOT_SEARCH_STEP)
+        f_right = residual(right)
+        if isfinite(f_left) && isfinite(f_right) && (f_left > 0) != (f_right > 0)
+            chosen = (left, right, f_left > 0)
+            root == "low" && break
+        end
+        left, f_left = right, f_right
+    end
+
+    isnothing(chosen) && return convert(T, NaN)
+
+    # Narrow by bisection on values alone (Duals compare by value), then hand Newton a start
+    # well inside the root's basin. 12 halvings of a 0.05-wide interval leave ~1e-5 in pH.
+    #
+    # Deliberately not closer. The start carries no partials (it is built from plain grid
+    # values), so the uncertainty comes entirely from Newton's own steps. A start so close
+    # that Roots judges it converged before stepping would return those empty partials, and
+    # σ would come back as exactly zero; ~1e-5 guarantees a few real iterations.
+    a, b, a_positive = chosen
+    for _ in 1:12
+        mid = (a + b) / 2
+        (residual(mid) > 0) == a_positive ? (a = mid) : (b = mid)
+    end
+
+    return find_zero((residual, derivative), (a + b) / 2, ROOT_METHOD())
+end
+
+
 """
     DIC_from_CO₂_pH(CO₂, pH, Ks)
 
@@ -381,7 +471,7 @@ function H_from_HCO₃_TA(HCO₃, TA, BT, PT, SiT, ST, FT, H2ST, NH4T, Ks)
 end
 
 """
-    pH_from_HCO₃_DIC(HCO₃, DIC, Ks)
+    pH_from_HCO₃_DIC(HCO₃, DIC, Ks; root = "high")
 
 Return pH on the total scale, from HCO₃⁻ and DIC.
 
@@ -389,9 +479,15 @@ Solved as a quadratic rather than by a root-finder, which is both faster and dif
 Returns `NaN` for a pair with no real root, which means HCO₃⁻ and DIC too close together to
 be physically consistent.
 
+The quadratic usually has two positive roots, and both are valid solutions: at the same DIC,
+the same HCO₃⁻ can sit on the CO₂ side of the bicarbonate peak or on the CO₃²⁻ side.
+`root = "high"`, the default, returns the higher-pH one, as advised by Zeebe & Wolf-Gladrow
+(2001) and as PyCO2SYS does (CBSyst's choice differs); `root = "low"` returns the other. Set
+it for a calculation with `HCO3_root`.
+
 Zeebe & Wolf-Gladrow, 2001, Appendix B.
 """
-function pH_from_HCO₃_DIC(HCO₃, DIC, Ks)
+function pH_from_HCO₃_DIC(HCO₃, DIC, Ks; root = "high")
     # Rearranging the equation into aH^2 + bH + c = 0
     a = HCO₃ / Ks.K1
     b = HCO₃ - DIC
@@ -403,13 +499,14 @@ function pH_from_HCO₃_DIC(HCO₃, DIC, Ks)
     # rather than a failure of the algebra.
     b^2 - 4a * c < 0 && return NaN
 
-    # The smaller root, i.e. the higher pH. Taken from `_quadratic_roots` rather than
+    # Smaller [H⁺] is the higher pH. Both are taken from `_quadratic_roots` rather than
     # written out because the smaller one is precisely the root the textbook formula
     # computes badly: it comes from -b - sqrt(disc), a subtraction of two close numbers
     # once 4ac is small next to b². At HCO₃ = 400, DIC = 2400 µmol that costs four digits.
-    smaller_H = min(_quadratic_roots(a, b, c)...)
+    H_roots = _quadratic_roots(a, b, c)
+    H = _root_choice(root, :HCO3_root) == "high" ? min(H_roots...) : max(H_roots...)
 
-    return -log10(smaller_H) # This doesn't match CBsyst, but matches test suite
+    return -log10(H)
 end
 
 
@@ -420,10 +517,8 @@ Return the alkalinity residual at `H`, for the CO₃²⁻ and TA pair.
 
 Zeebe & Wolf-Gladrow, 2001, Appendix B.
 
-!!! danger
-    This residual is not monotonic in pH. CO₃²⁻ and TA do not always determine a unique
-    system, so the root reached depends on where the solve starts, and a second root may
-    exist. Treat a result from this pair with suspicion outside roughly `5 < pH < 10`.
+This residual is not monotonic in pH, so CO₃²⁻ and TA do not determine a unique system — see
+[`H_from_CO₃_TA`](@ref).
 """
 function solve_H_from_CO₃_TA(H, CO₃, TA, BT, PT, SiT, ST, FT, H2ST, NH4T, Ks)
     temp_DIC = CO₃ * (H^2 / (Ks.K1 * Ks.K2) + H / Ks.K2 + 1)
@@ -431,21 +526,33 @@ function solve_H_from_CO₃_TA(H, CO₃, TA, BT, PT, SiT, ST, FT, H2ST, NH4T, Ks
     return calc_TA_val - TA
 end
 
-function H_from_CO₃_TA(CO₃, TA, BT, PT, SiT, ST, FT, H2ST, NH4T, Ks)
+"""
+    H_from_CO₃_TA(CO₃, TA, BT, PT, SiT, ST, FT, H2ST, NH4T, Ks; root = "low")
+
+Return [H⁺] in mol/kg, from CO₃²⁻ and TA.
+
+At fixed CO₃²⁻, the alkalinity implied by a pH falls as pH rises (DIC and HCO₃⁻ shrink), then
+rises again as OH⁻ takes over. Any TA above that minimum is therefore matched at two pH values,
+and both are physically valid: Humphreys et al. (2022, Fig. 7) show TA = 2300 and CO₃²⁻ = 120
+µmol/kg at 15 °C giving either seawater-like water at pH ≈ 7.9 (DIC ≈ 2144 µmol/kg) or
+hydroxide-dominated water at pH ≈ 10.8 (DIC ≈ 122 µmol/kg).
+
+`root = "low"`, the default, returns the lower-pH, seawater-like solution, as PyCO2SYS does;
+`root = "high"` returns the other. Set it for a calculation with `CO3_root`. A TA below the
+minimum has no solution at all, and throws.
+"""
+function H_from_CO₃_TA(CO₃, TA, BT, PT, SiT, ST, FT, H2ST, NH4T, Ks; root = "low")
     T = _newton_state_type(Ks, CO₃, TA, BT)
 
     f(pH) = solve_H_from_CO₃_TA(10.0^(-pH), CO₃, TA, BT, PT, SiT, ST, FT, H2ST, NH4T, Ks)
     df(pH) = ForwardDiff.derivative(f, pH)
 
-    # Not `_solve_pH`, which assumes a single root. This residual is not monotonic in pH: at
-    # fixed CO₃ the implied DIC grows as H² while the free-proton terms eventually pull TA
-    # back down, so every input has two solutions and both are physically valid. Which one
-    # Newton reaches depends on where it starts, and this pair carries nothing to choose on —
-    # answers should not be trusted.
+    sol_pH = _solve_pH_two_roots(f, df, T, _root_choice(root, :CO3_root))
 
-    # TODO: add a warning about this when this pair is used.
-    initial_guess = convert(T, DEFAULT_PH_GUESS)
-    sol_pH = find_zero((f, df), initial_guess, ROOT_METHOD())
+    isnan(sol_pH) && throw(ArgumentError(
+        "no pH satisfies this TA and CO₃²⁻ together: the alkalinity is lower than any water " *
+        "with this much carbonate ion can have.\nThe minimum is reached where HCO₃⁻ and OH⁻ " *
+        "are both small; raise TA or lower CO₃²⁻ (or ΩA/ΩC, which stand for it)."))
 
     return 10.0^(-sol_pH)
 end
@@ -665,12 +772,17 @@ full speciation comes back along with the alkalinity breakdown.
 
 The nutrient and seawater totals (`BT`, `PT`, `SiT`, `ST`, `FT`, `H2ST`, `NH4T`) default to
 zero, so a caller that omits them gets alkalinity without those contributions.
+
+Two pairs have two valid solutions. `CO3_root` chooses between them for TA with CO₃²⁻
+(default `"low"`, the lower-pH root) and `HCO3_root` for DIC with HCO₃⁻ (default `"high"`);
+see [`H_from_CO₃_TA`](@ref) and [`pH_from_HCO₃_DIC`](@ref). Every other pair has one solution
+and ignores both.
 """
 function C_calculator(;
     pHtot=nothing, DIC=nothing, TA=nothing, CO₂=nothing, HCO₃=nothing, 
     CO₃=nothing, fCO₂=nothing, pCO₂=nothing, fH=nothing, BT=0.0, PT=0.0, SiT=0.0,
     ST=0.0, FT=0.0, H2ST=0.0, NH4T=0.0, Ks=nothing, temp_c=25.0, sal=35.0, 
-    kwargs...)
+    CO3_root="low", HCO3_root="high", kwargs...)
 
     # If fCO₂ is given but CO₂ is not, calculate CO₂:
     if isnothing(CO₂)
@@ -732,11 +844,11 @@ function C_calculator(;
         pHtot = -log10(H)
     # 12. HCO₃ and DIC; calculate H⁺ and pHtot
     elseif !isnothing(HCO₃) && !isnothing(DIC)
-        pHtot = pH_from_HCO₃_DIC(HCO₃,DIC, Ks)
+        pHtot = pH_from_HCO₃_DIC(HCO₃, DIC, Ks; root = HCO3_root)
         H = 10.0^(-pHtot)
     #13. CO₃ and TA; calculate H⁺ and DIC
     elseif !isnothing(CO₃) && !isnothing(TA)
-        H = H_from_CO₃_TA(CO₃, TA, BT, PT, SiT, ST, FT, H2ST, NH4T, Ks)
+        H = H_from_CO₃_TA(CO₃, TA, BT, PT, SiT, ST, FT, H2ST, NH4T, Ks; root = CO3_root)
         DIC = CO₃ * (H^2 / (Ks.K1 * Ks.K2) + H / Ks.K2 + 1.0)
         pHtot = -log10(H)
     #14. CO₃ and DIC; calculate H⁺

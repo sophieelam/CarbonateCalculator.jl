@@ -51,7 +51,7 @@ using CarbonateCalculator
         @test all(pair -> first(pair) === result, tuple.(result, [2.0, 4.0]))
 
         # The case this exists for: one sample carried to several target conditions.
-        at_target(r, t) = at_collection_conditions(r; temp_c = t)
+        at_target(r, t) = adjust(r; temp_c = t)
         cooled = at_target.(result, [2.0, 4.0])
         @test length(cooled) == 2
         @test cooled[1].pHtot != cooled[2].pHtot

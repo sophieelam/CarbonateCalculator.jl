@@ -29,6 +29,10 @@ const PARAMETER_DEFAULTS = (
     K_method = "default", KSO4_method = "default", BT_method = "default",
     KF_method = "default", KNH3_method = "default", Ca_method = "default",
 
+    # Which solution to return for the two pairs that have two (see `H_from_CO₃_TA` and
+    # `pH_from_HCO₃_DIC`): "low" or "high" pH. Ignored by every other pair.
+    CO3_root = "low", HCO3_root = "high",
+
     # Boron speciation.
     BOH₃ = nothing, BOH₄ = nothing,
 
@@ -126,7 +130,7 @@ alkalinity, and the boron system is about it.
 """
 const SHARED_CONCENTRATIONS = (:BT,)
 
-const CARBON_CONCENTRATIONS = (:DIC, :TA, :CO₂, :HCO₃, :CO₃, :PT, :SiT,
+const CARBON_CONCENTRATIONS = (:DIC, :TA, :CO₂, :HCO₃, :CO₃, :PT, :SiT, :H2ST, :NH4T,
                                :CAlk, :BAlk, :PAlk, :OH, :SiAlk, :HSO₄, :Hfree, :HF,
                                :Alk_H2S, :Alk_NH3)
 

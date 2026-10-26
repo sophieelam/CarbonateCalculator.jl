@@ -1,6 +1,5 @@
-# Tests for the two-stage conditions API: carbon_system/whole_system solve at the conditions
-# a sample was measured at, at_collection_conditions re-solves at the conditions it
-# was collected at.
+# Tests for `adjust`: carbon_system/whole_system solve at the conditions they are given, and
+# adjust re-solves the same water at another temperature and pressure.
 
 const δBT_MODERN = 39.61
 
@@ -20,7 +19,7 @@ const δBT_MODERN = 39.61
 
         for k in k_methods
             m = carbon_system(; measured_kw..., K_method=k)
-            r = at_collection_conditions(m)
+            r = adjust(m)
             @test r.val.pHtot ≈ m.val.pHtot rtol=1e-12
             @test r.val.CO₃ ≈ m.val.CO₃ rtol=1e-12
             @test r.val.ΩC ≈ m.val.ΩC rtol=1e-12
@@ -29,14 +28,14 @@ const δBT_MODERN = 39.61
         for kso4 in ["default", "Khoo", "WM13"], kf in ["default", "Perez"]
             m = carbon_system(; measured_kw..., K_method="Lueker 2000",
                               KSO4_method=kso4, KF_method=kf)
-            r = at_collection_conditions(m)
+            r = adjust(m)
             @test r.val.pHtot ≈ m.val.pHtot rtol=1e-12
             @test r.val.pHfree ≈ m.val.pHfree rtol=1e-12
         end
 
         for bt in ["default", "Lee", "KSK18"], ca in ["default", "Culkin", "RT67"]
             m = carbon_system(; measured_kw..., BT_method=bt, Ca_method=ca)
-            r = at_collection_conditions(m)
+            r = adjust(m)
             @test r.val.pHtot ≈ m.val.pHtot rtol=1e-12
             @test r.val.ΩA ≈ m.val.ΩA rtol=1e-12
             @test r.val.Ca ≈ m.val.Ca rtol=1e-12
@@ -44,7 +43,7 @@ const δBT_MODERN = 39.61
 
         for knh3 in ["default", "Clegg"]
             m = whole_system(; measured_kw..., δBT=δBT_MODERN, KNH3_method=knh3)
-            r = at_collection_conditions(m)
+            r = adjust(m)
             @test r.val.pHtot ≈ m.val.pHtot rtol=1e-12
             @test r.val.δBOH₄ ≈ m.val.δBOH₄ rtol=1e-9
             # Looser than the rest, and not because anything is being dropped. A no-op
@@ -61,7 +60,7 @@ const δBT_MODERN = 39.61
         # some other conditions must equal solving there directly with the same settings.
         for (tc, pb) in ((2.0, 0.0), (30.0, 0.0), (20.0, 400.0), (2.0, 400.0))
             for k in ("KGen", "Lueker 2000")
-                staged = at_collection_conditions(
+                staged = adjust(
                     carbon_system(; measured_kw..., K_method=k); temp_c=tc, pres_bar=pb)
                 direct = carbon_system(; measured_kw..., K_method=k, temp_c=tc, pres_bar=pb)
                 @test staged.val.pHtot ≈ direct.val.pHtot rtol=1e-12
@@ -82,7 +81,7 @@ const δBT_MODERN = 39.61
               (:carbon, :boron, :isotopes)
 
         # ...and survive a recalculation, or the second hop would lose them.
-        r = at_collection_conditions(m; temp_c=2.0)
+        r = adjust(m; temp_c=2.0)
         @test r.settings.KSO4_method == "Khoo"
         @test r.system === (:carbon,)
     end
@@ -96,15 +95,15 @@ const δBT_MODERN = 39.61
         # because at the default 39.61 a dropped value and the default coincide and the test
         # would pass either way.
         m = whole_system(; measured_kw..., δBT=38.0)
-        r = at_collection_conditions(m; temp_c=2.0)
+        r = adjust(m; temp_c=2.0)
         @test r.val.δBT ≈ 38.0
         @test r.val.δBT ≈ m.val.δBT
 
         # KSO4_method reaches the target conditions.
-        khoo = at_collection_conditions(
+        khoo = adjust(
             carbon_system(; measured_kw..., K_method="Lueker 2000", KSO4_method="Khoo");
             temp_c=2.0)
-        dflt = at_collection_conditions(
+        dflt = adjust(
             carbon_system(; measured_kw..., K_method="Lueker 2000");
             temp_c=2.0)
         @test khoo.val.pHsws != dflt.val.pHsws
@@ -112,16 +111,16 @@ const δBT_MODERN = 39.61
             K_method="Lueker 2000", KSO4_method="Khoo").val.pHsws rtol=1e-12
 
         # H2ST and NH4T contribute to alkalinity at the target conditions.
-        with = at_collection_conditions(
+        with = adjust(
             carbon_system(; measured_kw..., H2ST=5.0, NH4T=3.0); temp_c=2.0)
-        without = at_collection_conditions(
+        without = adjust(
             carbon_system(; measured_kw...); temp_c=2.0)
         @test with.val.pHtot != without.val.pHtot
     end
 
     @testset "Only temperature and pressure move" begin
         m = carbon_system(; measured_kw...)
-        r = at_collection_conditions(m; temp_c=2.0, pres_bar=400.0)
+        r = adjust(m; temp_c=2.0, pres_bar=400.0)
 
         @test r.val.temp_c == 2.0
         @test r.val.pres_bar == 400.0
@@ -131,8 +130,8 @@ const δBT_MODERN = 39.61
         @test r.val.pHtot != m.val.pHtot      # ...but the speciation does move
 
         # An omitted argument keeps its measured value.
-        @test at_collection_conditions(m; temp_c=2.0).val.pres_bar == m.val.pres_bar
-        @test at_collection_conditions(m; pres_bar=400.0).val.temp_c == m.val.temp_c
+        @test adjust(m; temp_c=2.0).val.pres_bar == m.val.pres_bar
+        @test adjust(m; pres_bar=400.0).val.temp_c == m.val.temp_c
     end
 
     @testset "Uncertainties" begin
@@ -144,7 +143,7 @@ const δBT_MODERN = 39.61
         m = measured(:TA, :DIC)(2.0, 2.0)
 
         # Carried on the result, so not restated.
-        r = at_collection_conditions(m; temp_c=2.0)
+        r = adjust(m; temp_c=2.0)
         @test r.err.pHtot > 0.0
 
         # Differentiating the whole chain must agree with solving directly at the target,
@@ -154,14 +153,14 @@ const δBT_MODERN = 39.61
         @test r.err.pHtot ≈ direct.err.pHtot rtol=1e-8
 
         # Uncertainty in the collection conditions widens the result.
-        @test at_collection_conditions(m; temp_c=2.0, σ_temp_c=0.5).err.pHtot > r.err.pHtot
+        @test adjust(m; temp_c=2.0, σ_temp_c=0.5).err.pHtot > r.err.pHtot
 
         # Salinity uncertainty reaches the target state through the constants.
         ms = measured(:TA, :DIC, :sal)(2.0, 2.0, 0.05)
-        @test at_collection_conditions(ms; temp_c=2.0).err.pHtot > r.err.pHtot
+        @test adjust(ms; temp_c=2.0).err.pHtot > r.err.pHtot
 
         # No uncertainties in, none out.
-        @test isnothing(at_collection_conditions(
+        @test isnothing(adjust(
             carbon_system(; measured_kw...); temp_c=2.0).err)
     end
 
@@ -172,26 +171,26 @@ const δBT_MODERN = 39.61
         temperatures = [2.0, 6.0, 10.0]
         pressures = [400.0, 200.0, 0.0]
 
-        @test at_collection_conditions(m, 2.0).pHtot ==
-              at_collection_conditions(m; temp_c=2.0).pHtot
-        @test at_collection_conditions(m, 2.0, 400.0).pHtot ==
-              at_collection_conditions(m; temp_c=2.0, pres_bar=400.0).pHtot
+        @test adjust(m, 2.0).pHtot ==
+              adjust(m; temp_c=2.0).pHtot
+        @test adjust(m, 2.0, 400.0).pHtot ==
+              adjust(m; temp_c=2.0, pres_bar=400.0).pHtot
 
-        broadcast_results = at_collection_conditions.(m, temperatures, pressures)
-        loop_results = [at_collection_conditions(m; temp_c=t, pres_bar=p)
+        broadcast_results = adjust.(m, temperatures, pressures)
+        loop_results = [adjust(m; temp_c=t, pres_bar=p)
                         for (t, p) in zip(temperatures, pressures)]
         @test length(broadcast_results) == 3
         # Identical, not approximately so: both paths run the same code.
         @test [r.pHtot for r in broadcast_results] == [r.pHtot for r in loop_results]
 
         # A skipped slot holds that condition at its measured value.
-        @test at_collection_conditions(m, nothing, 400.0).temp_c == m.temp_c
+        @test adjust(m, nothing, 400.0).temp_c == m.temp_c
 
         # A vector of measurements against a vector of collection conditions, which is the
         # case the positional form exists for.
         solve = CarbonateSystem(:carbon; varying=(:TA,), DIC=2000.0, temp_c=20.0, sal=35.0)
         casts = solve.([2300.0, 2310.0, 2290.0])
-        @test length(at_collection_conditions.(casts, temperatures)) == 3
+        @test length(adjust.(casts, temperatures)) == 3
     end
 
     @testset "Per-row uncertainties broadcast too" begin
@@ -201,7 +200,7 @@ const δBT_MODERN = 39.61
         temperatures = [2.0, 6.0, 10.0]
         σ_temperatures = [0.5, 0.2, 0.1]
 
-        results = at_collection_conditions.(casts, temperatures, nothing, σ_temperatures)
+        results = adjust.(casts, temperatures, nothing, σ_temperatures)
 
         @test length(results) == 3
         @test all(r -> r.err.pHtot > 0.0, results)
@@ -210,14 +209,14 @@ const δBT_MODERN = 39.61
         # ...and each must match the scalar call it stands for.
         for (cast, result, t, σ) in zip(casts, results, temperatures, σ_temperatures)
             @test result.err.pHtot ==
-                  at_collection_conditions(cast; temp_c=t, σ_temp_c=σ).err.pHtot
+                  adjust(cast; temp_c=t, σ_temp_c=σ).err.pHtot
         end
 
         # σ on a condition that was not changed: "the collection temperature equals the
         # measured one, but is uncertain" is legitimate and needs no special case.
-        held = at_collection_conditions(casts[1], nothing, nothing, 0.5)
+        held = adjust(casts[1], nothing, nothing, 0.5)
         @test held.temp_c == 20.0
-        @test held.err.pHtot > at_collection_conditions(casts[1]).err.pHtot
+        @test held.err.pHtot > adjust(casts[1]).err.pHtot
     end
 
     @testset "Uncertainties in both stages combine in quadrature" begin
@@ -233,10 +232,10 @@ const δBT_MODERN = 39.61
             with_measurement_σ = CarbonateSystem(:carbon; varying_errors=(:temp_c,),
                                                  inputs...)(0.1)
 
-            collection_only = at_collection_conditions(plain; temp_c=2.0, σ_temp_c=0.5).err.pHtot
-            measurement_only = at_collection_conditions(with_measurement_σ; temp_c=2.0).err.pHtot
-            both = at_collection_conditions(with_measurement_σ;
-                                            temp_c=2.0, σ_temp_c=0.5).err.pHtot
+            collection_only = adjust(plain; temp_c=2.0, σ_temp_c=0.5).err.pHtot
+            measurement_only = adjust(with_measurement_σ; temp_c=2.0).err.pHtot
+            both = adjust(with_measurement_σ;
+                          temp_c=2.0, σ_temp_c=0.5).err.pHtot
 
             @test both ≈ sqrt(collection_only^2 + measurement_only^2) rtol=1e-9
         end
@@ -246,12 +245,12 @@ const δBT_MODERN = 39.61
         # it ever becomes materially nonzero, something is leaking out of stage 1.
         conservative = CarbonateSystem(:carbon; varying_errors=(:temp_c,),
                                        TA=2300.0, DIC=2000.0, base...)(0.1)
-        @test at_collection_conditions(conservative; temp_c=2.0).err.pHtot < 1e-10
+        @test adjust(conservative; temp_c=2.0).err.pHtot < 1e-10
 
         # With pH measured, TA is *derived* at the measurement temperature, so it does.
         derived = CarbonateSystem(:carbon; varying_errors=(:temp_c,),
                                   pHtot=8.04, DIC=2000.0, base...)(0.1)
-        @test at_collection_conditions(derived; temp_c=2.0).err.pHtot > 1e-4
+        @test adjust(derived; temp_c=2.0).err.pHtot > 1e-4
     end
 
     @testset "Arguments that are not collection conditions are refused" begin
@@ -259,48 +258,48 @@ const δBT_MODERN = 39.61
 
         # Salinity: the mistake people will actually make, so it explains itself rather than
         # reporting an unknown name.
-        @test_throws "not a collection condition" at_collection_conditions(m; sal=34.0)
-        @test_throws "direct solve" at_collection_conditions(m; sal=34.0)
-        @test_throws "varying_errors" at_collection_conditions(m; σ_sal=0.05)
+        @test_throws "not a collection condition" adjust(m; sal=34.0)
+        @test_throws "direct solve" adjust(m; sal=34.0)
+        @test_throws "varying_errors" adjust(m; σ_sal=0.05)
 
         # `errors=` is what this function used to take, so it names its replacement.
-        @test_throws "σ_temp_c and σ_pres_bar" at_collection_conditions(m;
+        @test_throws "σ_temp_c and σ_pres_bar" adjust(m;
                                                                        errors=(temp_c=0.5,))
 
-        @test_throws ArgumentError at_collection_conditions(m; temperature=2.0)
+        @test_throws ArgumentError adjust(m; temperature=2.0)
 
         # A vector handed to the keyword form used to die as `isless(::Int64, ::Vector)` from
         # inside the solver, or `convert(Float64, ::Vector)` from the uncertainty path.
-        @test_throws "Broadcast the positional form" at_collection_conditions(m;
+        @test_throws "Broadcast the positional form" adjust(m;
                                                                              temp_c=[2.0, 4.0])
-        @test_throws "Broadcast the positional form" at_collection_conditions(m;
+        @test_throws "Broadcast the positional form" adjust(m;
                                                                              σ_temp_c=[0.5, 0.2])
-        @test_throws "Broadcast the positional form" at_collection_conditions(m, [2.0, 4.0])
+        @test_throws "Broadcast the positional form" adjust(m, [2.0, 4.0])
     end
 
     @testset "A collection state cannot be carried again" begin
         m = carbon_system(; measured_kw...)
-        collected = at_collection_conditions(m; temp_c=2.0)
+        collected = adjust(m; temp_c=2.0)
 
         # Having a `source` is what marks a result as already carried; there is no separate flag.
         @test isnothing(m.source)
         @test !isnothing(collected.source)
 
-        @test_throws "already at its collection conditions" at_collection_conditions(
+        @test_throws "already at its collection conditions" adjust(
             collected; temp_c=4.0)
         # Positional form and no-argument form go through the same guard.
-        @test_throws ArgumentError at_collection_conditions(collected, 4.0)
-        @test_throws ArgumentError at_collection_conditions(collected)
+        @test_throws ArgumentError adjust(collected, 4.0)
+        @test_throws ArgumentError adjust(collected)
 
         # Carrying the *measurement* somewhere else is the supported route, and stays open.
-        @test at_collection_conditions(m; temp_c=4.0).pHtot != collected.pHtot
+        @test adjust(m; temp_c=4.0).pHtot != collected.pHtot
 
         # The source is recorded down the uncertainty path too, which builds the result on a
         # different branch — and the intermediate measured state inside it must not get one.
         uncertain = CarbonateSystem(:carbon; varying_errors=(:TA,), measured_kw...)(2.0)
-        @test !isnothing(at_collection_conditions(uncertain; temp_c=2.0, σ_temp_c=0.5).source)
-        @test_throws ArgumentError at_collection_conditions(
-            at_collection_conditions(uncertain; temp_c=2.0); temp_c=4.0)
+        @test !isnothing(adjust(uncertain; temp_c=2.0, σ_temp_c=0.5).source)
+        @test_throws ArgumentError adjust(
+            adjust(uncertain; temp_c=2.0); temp_c=4.0)
     end
 
     @testset "Target conditions are validated" begin
@@ -309,27 +308,63 @@ const δBT_MODERN = 39.61
         # in silence while stage 1 warned or threw for the same values.
         m = carbon_system(; measured_kw...)
 
-        @test_throws ArgumentError at_collection_conditions(m; pres_bar=-50.0)
-        @test_throws ArgumentError at_collection_conditions(m; temp_c=NaN)
+        @test_throws ArgumentError adjust(m; pres_bar=-50.0)
+        @test_throws ArgumentError adjust(m; temp_c=NaN)
 
         # Out of range warns rather than throwing: the package should still compute for a
         # hydrothermal vent, so the value has to come back as well as the warning.
-        hot = @test_logs (:warn,) match_mode=:any at_collection_conditions(m;
+        hot = @test_logs (:warn,) match_mode=:any adjust(m;
                                                                                   temp_c=200.0)
         @test hot.temp_c == 200.0
 
         # In range stays quiet, including on the uncertainty path — the check runs before the
         # AD call, where the values are still plain numbers rather than Duals.
-        @test_logs at_collection_conditions(m; temp_c=2.0)
+        @test_logs adjust(m; temp_c=2.0)
         uncertain = CarbonateSystem(:carbon; varying_errors=(:TA,), measured_kw...)(2.0)
-        @test_logs at_collection_conditions(uncertain; temp_c=2.0)
+        @test_logs adjust(uncertain; temp_c=2.0)
 
         # Known blind spot, pinned rather than fixed: `_check_conditions` returns early for
         # anything that is not `Real`, and `missing isa Real` is false, so a `missing` target
         # still fails from deep inside the solver instead of being named here. The exception
         # type depends on which parameterisation the solve reaches, so only the failure is
         # asserted, not its shape.
-        @test_throws Exception at_collection_conditions(m; temp_c=missing)
+        @test_throws Exception adjust(m; temp_c=missing)
+    end
+
+    @testset "Only a non-conservative pair repeats the original solve" begin
+        # From TA and DIC, nothing at the original conditions can reach the adjusted state,
+        # so uncertainty in the original temperature adds nothing.
+        from_TA_DIC = CarbonateSystem(:carbon; varying_errors = (:TA, :DIC, :temp_c),
+                                      measured_kw...)(2.0, 2.0, 0.5)
+        without_T = CarbonateSystem(:carbon; varying_errors = (:TA, :DIC),
+                                    measured_kw...)(2.0, 2.0)
+        @test adjust(from_TA_DIC; temp_c = 2.0).err.pHtot ≈
+              adjust(without_T; temp_c = 2.0).err.pHtot rtol = 1e-10
+
+        # From pH and TA, DIC was derived with constants at the original temperature, so its
+        # uncertainty does reach the adjusted state.
+        ph_kw = (TA = 2300.0, pHtot = 8.0, temp_c = 20.0, sal = 35.0, pres_bar = 0.0)
+        from_pH = CarbonateSystem(:carbon; varying_errors = (:TA, :pHtot, :temp_c),
+                                  ph_kw...)(2.0, 0.005, 0.5)
+        without_T_pH = CarbonateSystem(:carbon; varying_errors = (:TA, :pHtot),
+                                       ph_kw...)(2.0, 0.005)
+        @test adjust(from_pH; temp_c = 2.0).err.pHtot > adjust(without_T_pH; temp_c = 2.0).err.pHtot
+
+        # Without uncertainties, adjusting matches solving directly at the new conditions.
+        @test adjust(carbon_system(; measured_kw...); temp_c = 4.0, pres_bar = 150.0).pHtot ≈
+              carbon_system(; measured_kw..., temp_c = 4.0, pres_bar = 150.0).pHtot rtol = 1e-12
+    end
+
+    @testset "A result without carbon cannot be adjusted" begin
+        @test_throws ArgumentError adjust(boron_system(pHtot = 8.1); temp_c = 2.0)
+    end
+
+    @testset "The former name still works" begin
+        m = carbon_system(; measured_kw...)
+        @test (@test_deprecated at_collection_conditions(m; temp_c = 2.0)).pHtot ==
+              adjust(m; temp_c = 2.0).pHtot
+        @test (@test_deprecated at_collection_conditions(m, 2.0, 400.0)).pHtot ==
+              adjust(m, 2.0, 400.0).pHtot
     end
 
     @testset "Presets agree with the solver they wrap" begin

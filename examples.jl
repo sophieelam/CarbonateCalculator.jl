@@ -116,15 +116,21 @@ println("pH Uncertainty (σ_pHtot): ", res_err.err.pHtot)
 
 
 ## =============================================================================
-# SECTION 4: In-Situ & Collection Condition Adjustments
+# SECTION 4: Changing Temperature & Pressure (`adjust`)
 # ==============================================================================
-# Samples are often measured at deck temperature/pressure (e.g., 25°C, 0 bar)
-# but need to be reported at collection depth (in-situ).
+# `adjust` re-solves the same water at another temperature and/or pressure,
+# carrying TA, DIC and the composition across. A common case: samples measured
+# at deck temperature/pressure (e.g., 25°C, 0 bar) reported at collection depth.
 
 measured_deck = carbon_system(TA = 2300.0, DIC = 2050.0, temp_c = 25.0, pres_bar = 0.0)
 
-# Re-solve conservative totals at collection conditions (4°C, 250 bar)
-in_situ = at_collection_conditions(measured_deck; temp_c = 4.0, pres_bar = 250.0)
+# Re-solve the same water at in-situ conditions (4°C, 250 bar)
+in_situ = adjust(measured_deck; temp_c = 4.0, pres_bar = 250.0)
+
+# With TA and DIC in hand, solving directly at in-situ conditions gives the same
+# answer; `adjust` earns its keep when the measured pair was not TA and DIC
+# (e.g. pH and TA), or to carry uncertainties through both conditions.
+direct = carbon_system(TA = 2300.0, DIC = 2050.0, temp_c = 4.0, pres_bar = 250.0)
 
 println("Deck pH (25°C, 0 bar):   ", measured_deck.pHtot)
 println("In-Situ pH (4°C, 250 bar): ", in_situ.pHtot)
@@ -215,7 +221,7 @@ mega_solver = CarbonateSystem(
 deck_results = mega_solver.(ta_meas, d11b_meas, deck_temp, σ_ta, σ_d11b)
 
 # 4. Project Results to In-Situ Collection Conditions (Depth, Pressure, Temp)
-insitu_results = at_collection_conditions.(deck_results, insitu_temp, pres_bars)
+insitu_results = adjust.(deck_results, insitu_temp, pres_bars)
 
 # 5. Extract In-Situ Revelle Factors
 revelle_insitu = revelle_factor.(insitu_results)
@@ -262,43 +268,57 @@ plot(p1, p2, layout = (1, 2), plot_title = "Palaeo CTD Profile Reconstruction")
 
 
 ## =============================================================================
-# SECTION 7: Demonstration of stable TA/CO₃⁻² pairs
+# SECTION 8: Input pairs with two solutions (TA–CO₃²⁻ and DIC–HCO₃⁻)
 # ==============================================================================
+# Two input pairs do not determine a unique system. TA with CO₃²⁻ (or ΩA/ΩC) and
+# DIC with HCO₃⁻ each usually have two pH solutions, and BOTH are physically valid
+# waters, not numerical artefacts (Humphreys et al., 2022, GMD 15:15, Sect. 5.2,
+# Fig. 7). Nothing in the pair says which was meant, so you choose:
+#
+#   CO3_root  = "low" (default) | "high"   for TA with CO₃²⁻, ΩA or ΩC
+#   HCO3_root = "high" (default) | "low"   for DIC with HCO₃⁻
+#
+# The defaults are the conventional ones and match PyCO2SYS.
 
-# Because of the mathematical nature of this pair, when given TA & CO₃⁻² as
-# inputs, a single, unique solution is not always given. In many cases, the
-# root solvers used for determining pH give two real results. If you are
-# concerned that your inputs may produce non-physical or unstable results,
-# run this scripts and consult the resultant heat map.
+# 8a. The example from Humphreys et al. (2022), Fig. 7: same TA and CO₃²⁻, two waters.
+seawater_like = carbon_system(TA = 2300.0, CO₃ = 120.0, temp_c = 15.0)                    # pH ≈ 7.9, DIC ≈ 2144
+hydroxide_rich = carbon_system(TA = 2300.0, CO₃ = 120.0, temp_c = 15.0, CO3_root = "high") # pH ≈ 10.8, DIC ≈ 122
 
-# Testing a range of values including extreme edge cases (μmol/kg)
-ta_grid  = range(50.0, 4000.0, length=200)
-co3_grid = range(1.0, 800.0, length=200)
+println("Low-pH root:  pH ", seawater_like.pHtot, ", DIC ", seawater_like.DIC)
+println("High-pH root: pH ", hydroxide_rich.pHtot, ", DIC ", hydroxide_rich.DIC)
 
-# Construct solver for TA and CO3 parameter pair
-solve_ta_co3 = CarbonateSystem(:carbon; varying = (:TA, :CO₃), temp_c = 25.0, sal = 35.0)
+# 8b. DIC with HCO₃⁻: the same HCO₃⁻ fits on either side of the bicarbonate peak.
+high_root = carbon_system(DIC = 2000.0, HCO₃ = 1800.0)                     # default, higher pH
+low_root  = carbon_system(DIC = 2000.0, HCO₃ = 1800.0, HCO3_root = "low")  # CO₂-rich side
 
-# Wrapper to catch non-convergence or unphysical pH values
-function safe_ph(ta, co3)
+# 8c. Map both TA–CO₃²⁻ roots across a grid.
+# Where a cell is blank, no pH satisfies that TA and CO₃²⁻ at all: the alkalinity is
+# lower than any water with that much carbonate ion can have, and the solver says so
+# with an ArgumentError. Nothing here filters by pH: there is no physical cut-off to
+# apply, and a range such as 0–14 would hide valid solutions as readily as bad ones.
+ta_grid  = range(50.0, 4000.0, length=200)     # μmol/kg
+co3_grid = range(1.0, 800.0, length=200)       # μmol/kg
+
+solve_low  = CarbonateSystem(:carbon; varying = (:TA, :CO₃), temp_c = 25.0, sal = 35.0)
+solve_high = CarbonateSystem(:carbon; varying = (:TA, :CO₃), temp_c = 25.0, sal = 35.0,
+                             CO3_root = "high")
+
+function ph_or_nan(solve, ta, co3)
     try
-        ph = solve_ta_co3(ta, co3).pHtot
-        return (isnan(ph) || isinf(ph) || !(0.0 <= ph <= 14.0)) ? NaN : ph
-    catch
+        return solve(ta, co3).pHtot
+    catch err
+        err isa ArgumentError || rethrow()   # only "no solution" is expected here
         return NaN
     end
 end
 
-# Broadcast across 2D space (N_ta x N_co3 matrix)
-ph_matrix = safe_ph.(ta_grid, co3_grid')
+ph_low  = ph_or_nan.(Ref(solve_low),  ta_grid, co3_grid')
+ph_high = ph_or_nan.(Ref(solve_high), ta_grid, co3_grid')
 
-# Render Heatmap
-heatmap(
-    co3_grid, ta_grid, ph_matrix,
-    xlabel = "CO3²⁻ (μmol/kg)",
-    ylabel = "Total Alkalinity (μmol/kg)",
-    title = "TA vs CO3²⁻ Stability Domain (pH Total)",
-    color = :viridis,
-    nan_color = :black,
-    bg_inside = :black,
-    clims = (7.0, 9.5)
+heatmap_kwargs = (xlabel = "CO₃²⁻ (μmol/kg)", ylabel = "Total Alkalinity (μmol/kg)",
+                  color = :viridis, nan_color = :white)
+plot(
+    heatmap(co3_grid, ta_grid, ph_low;  title = "Lower-pH root (default)", heatmap_kwargs...),
+    heatmap(co3_grid, ta_grid, ph_high; title = "Higher-pH root (CO3_root = \"high\")", heatmap_kwargs...),
+    layout = (1, 2), size = (1100, 450)
 )

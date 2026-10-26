@@ -10,7 +10,7 @@
 * **Palaeo-Compatible:** Powered by pure-Julia equilibrium constants from `Kgen.jl`.
 * **Rigorously Validated:** Continuously benchmarked against PyCO2SYS v1.8.3 and CO2SYS-MATLAB v3.2.0.
 
-CarbonateCalculator.jl solves the carbon system from any two parameters, the boron isotope system from any one parameter, or the combined system from flexible parameter sets (see [Equilibrium Constant & Composition Options](#equilibrium-constant--composition-options)). Users can select from 19 carbonate constant formulations, custom boron and calcium composition models, and optional dissociation constants for sulfate, ammonia, and hydrofluoric acid.
+CarbonateCalculator.jl solves the carbon system from any two parameters, the boron isotope system from any one parameter, or the combined system from flexible parameter sets (see [Chemical Constants](#chemical-constants)). Users can select from 19 carbonate constant formulations, custom boron and calcium composition models, and optional dissociation constants for sulfate, ammonia, and hydrofluoric acid.
 
 ---
 
@@ -20,10 +20,12 @@ CarbonateCalculator.jl solves the carbon system from any two parameters, the bor
 * [Supported Input Combinations](#supported-input-combinations)
 * [Usage](#usage)
   * [Uncertainty & Error Propagation](#uncertainty--error-propagation)
-  * [Recalculating to Collection Conditions](#recalculating-to-collection-conditions-at_collection_conditions)
+  * [Changing Temperature & Pressure](#changing-temperature--pressure-adjust)
+  * [Input Pairs With Two Solutions](#input-pairs-with-two-solutions)
   * [Vectorization & Batch Processing](#vectorization--batch-processing-broadcasting)
-* [Equilibrium Constant & Composition Options](#equilibrium-constant--composition-options)
-* [References](#refrences)
+* [Reference: Arguments & Results](#reference-arguments--results)
+* [Chemical Constants](#chemical-constants)
+* [References](#references)
 
 ---
 
@@ -34,8 +36,8 @@ CarbonateCalculator.jl solves the carbon system from any two parameters, the bor
 
 ```julia
 using Pkg
-Pkg.add(url="[https://github.com/oscarbranson/Kgen](https://github.com/oscarbranson/Kgen)", rev="julia", subdir="julia/Kgen.jl")
-Pkg.add(url="[https://github.com/sophieelam/CarbonateCalculator.jl](https://github.com/sophieelam/CarbonateCalculator.jl)")
+Pkg.add(url="https://github.com/oscarbranson/Kgen", rev="julia", subdir="julia/Kgen.jl")
+Pkg.add(url="https://github.com/sophieelam/CarbonateCalculator.jl")
 ```
 
 The committed `Manifest.toml` already pins Kgen to that branch, so `Pkg.instantiate()` in a
@@ -54,10 +56,12 @@ rather than as a dependency of the package.
 
 | Subsystem Target | Required Inputs | Solved Quantities |
 | :--- | :--- | :--- |
-| **`:carbon`** | Any 2 of: `TA`, `DIC`, `pH`, `pCO2`, `fCO2`, `CO2`, `HCO3`, `CO3` | Complete carbon speciation, pH, $\Omega_\text{A}$, $\Omega_\text{C}$, $p\text{CO}\_2$ |
-| **`:boron`** | Any 1 of: `B_T`, `d11B`, `pH` | Boron speciation and isotopic fractionations ($\delta^{11}\text{B}$) |
-| **`:isotopes`** | Any 1 of: `d11B_sw`, `d11B_borate`, `d11B_boric`, `pH` | Boron speciation and isotopic fractionations ($\delta^{11}\text{B}$) |
+| **`:carbon`** | Any 2 of: `TA`, `DIC`, pH (`pHtot`/`pHsws`/`pHfree`/`pHNBS`), `CO₂` (or `pCO₂`/`fCO₂`), `HCO₃`, `CO₃` (or `ΩA`/`ΩC`) | Complete carbon speciation, pH, $\Omega_\text{A}$, $\Omega_\text{C}$, $p\text{CO}_\text{2}$ |
+| **`:boron`** | Any 1 of: pH, `BOH₃`, `BOH₄` (total boron `BT` comes from salinity unless given) | Boron speciation |
+| **`:isotopes`** | Any 1 of: pH, `δBOH₄` (or `ABOH₄`), `δBOH₃` (or `ABOH₃`) (`δBT` is modern seawater unless given) | Boron isotope speciation ($\delta^{11}\text{B}$) |
 | **more than one subsystem** | Any valid combination of carbon + boron + boron isotopic parameters | Full carbon and boron system speciation and isotope systematics |
+
+Two of the carbon pairs, `TA` with `CO₃` and `DIC` with `HCO₃`, usually have **two valid solutions**; see [Input Pairs With Two Solutions](#input-pairs-with-two-solutions). Every argument and result is listed, with units, in [Reference: Arguments & Results](#reference-arguments--results).
 
 ---
 
@@ -124,17 +128,21 @@ println("pH: ", res.pHtot, " ± ", res.err.pHtot)
 println("pCO₂: ", res.pCO₂, " ± ", res.err.pCO₂)
 ```
 
-### Recalculating to Collection Conditions (`at_collection_conditions`)
+### Changing Temperature & Pressure (`adjust`)
 
-In marine carbonate chemistry, seawater samples are typically measured in the laboratory at controlled conditions (e.g., 25°C at atmospheric pressure), but researchers need to know the carbonate parameters at the original ocean collection site (e.g., 4°C at 150 bar hydrostatic pressure).
+`adjust` re-solves a result at a different temperature and/or pressure: the same water, with the same TA, DIC, totals and composition, at new conditions. A common use is reporting samples measured in the laboratory (e.g. 25 °C at atmospheric pressure) at the conditions they were collected at (e.g. 4 °C at 150 bar), but it applies equally to normalising a dataset to one temperature, or following a water mass as it warms or sinks. The name follows PyCO2SYS v2, whose equivalent is also `adjust`.
 
-Rather than mixing measurement and collection conditions into a single call with legacy parameters like `T_in` and `T_out`, `CarbonateCalculator` separates this into a clean, two-step process using `at_collection_conditions`.
+Rather than mixing two sets of conditions into one call with legacy parameters like `T_in` and `T_out`, a calculation describes one set of conditions, and `adjust` moves its result to another.
 
 #### How It Works
 
-1. **Solves the Measurement State:** Calculates the full carbonate system at the laboratory/measurement conditions using supplied inputs (e.g., TA and DIC, or pH and TA).
-2. **Preserves Conservative Totals:** Conservative quantities—such as Total Alkalinity (TA), Dissolved Inorganic Carbon (DIC), and Total Boron ($B_T$)—are independent of temperature and pressure. `at_collection_conditions` carries these conserved totals forward.
-3. **Re-solves at Collection Conditions:** Re-evaluates equilibrium constants and speciation using the new collection temperature and pressure, returning an updated result set with in-situ pH, saturation states ($\Omega_\text{A}$, $\Omega_\text{C}$) and $p\text{CO}\_2$.
+1. **Start from a solved result.** `adjust` takes the result of a calculation at the original conditions (from `carbon_system`, `whole_system`, or a `CarbonateSystem`), which already holds TA and DIC.
+2. **Carry the conservative quantities.** TA, DIC and total boron ($B_T$) do not change with temperature or pressure, so they are carried across unchanged, along with the seawater composition and every method choice.
+3. **Solve once at the new conditions.** The equilibrium constants are recalculated at the new temperature and pressure, and the system is solved from TA and DIC, giving the new pH, saturation states ($\Omega_\text{A}$, $\Omega_\text{C}$) and $p\text{CO}_\text{2}$.
+
+The original conditions are not solved again: TA and DIC come straight from the result. The one exception is uncertainty propagation when the original pair was *not* TA and DIC (pH and TA, say). There, TA or DIC was derived using constants at the original conditions, so that solve is repeated inside the differentiation to carry its uncertainty through. When the original pair is TA and DIC, it isn't needed and is skipped.
+
+> **Tip:** if you measured TA and DIC and only need the system at one set of conditions, you don't need `adjust` at all; solve directly there: `carbon_system(TA = 2300.0, DIC = 2000.0, temp_c = 4.0, pres_bar = 150.0)`.
 
 #### Example
 
@@ -144,13 +152,13 @@ using CarbonateCalculator
 # 1. Solve the system at laboratory measurement conditions (25°C, 0 bar)
 lab_result = carbon_system(
     TA = 2300.0, 
-    DIC = 2000.0, 
+    pHtot = 7.9,
     temp_c = 25.0, 
     pres_bar = 0.0
 )
 
-# 2. Recalculate parameters at ocean collection conditions (4°C, 150 bar)
-field_result = at_collection_conditions(
+# 2. Re-solve the same water at ocean collection conditions (4°C, 150 bar)
+field_result = adjust(
     lab_result; 
     temp_c = 4.0, 
     pres_bar = 150.0
@@ -163,6 +171,26 @@ println("Field pH (4°C, 150 bar):    ", field_result.pHtot)
 println("Lab pCO₂ (25°C, 0 bar):     ", lab_result.pCO₂)
 println("Field pCO₂ (4°C, 150 bar):  ", field_result.pCO₂)
 ```
+
+`adjust` also broadcasts over many results (`adjust.(results, temps, pressures)`), and takes `σ_temp_c` and `σ_pres_bar` for uncertainty in the new conditions. `at_collection_conditions`, its former name, still works but is deprecated.
+
+### Input Pairs With Two Solutions
+
+Two input pairs do not always determine a unique system, and it is possible to have **two pH solutions that are both physically valid** ([Humphreys et al., 2022](https://gmd.copernicus.org/articles/15/15/2022/), Sect. 5.2 and Fig. 7).
+
+| Pair | Setting | Default | The other root |
+| :--- | :--- | :--- | :--- |
+| `TA` with `CO₃` (or `ΩA`/`ΩC`) | `CO3_root` | `"low"`: the lower-pH, seawater-like solution | `"high"`: a hydroxide-dominated solution with little DIC |
+| `DIC` with `HCO₃` | `HCO3_root` | `"high"`: the higher-pH solution | `"low"`: the CO₂-rich solution on the other side of the bicarbonate peak |
+
+The defaults are the conventional choices and match PyCO2SYS. For example, the case in Humphreys et al. (2022, Fig. 7):
+
+```julia
+carbon_system(TA = 2300.0, CO₃ = 120.0, temp_c = 15.0).pHtot                     # ≈ 7.9  (DIC ≈ 2144)
+carbon_system(TA = 2300.0, CO₃ = 120.0, temp_c = 15.0, CO3_root = "high").pHtot  # ≈ 10.8 (DIC ≈ 122)
+```
+
+A TA that is too low for its `CO₃` has no solution at all and raises an error; a DIC–`HCO₃` pair with no solution returns `NaN`. Every other pair has exactly one solution and ignores both settings.
 
 ### Vectorization & Batch Processing (Broadcasting)
 
@@ -201,6 +229,82 @@ profiles = df[:, [:pHtot, :pCO₂]]
 ```
 
 ---
+
+## Reference: Arguments & Results
+
+### Arguments
+
+Every function that solves a system (`carbon_system`, `whole_system`, `boron_system`, `boron_isotopes`, and `CarbonateSystem`) takes these names. Each scope accepts the ones relevant to it; an argument outside the scope is an error naming the scope that would accept it. Concentrations are in the unit set by `unit` (µmol/kg by default) unless marked otherwise.
+
+| Argument | Meaning | Unit | Default | Scope |
+| :--- | :--- | :--- | :--- | :--- |
+| **Carbonate system** (give two) | | | | |
+| `TA` | Total alkalinity | `unit` | — | carbon |
+| `DIC` | Dissolved inorganic carbon | `unit` | — | carbon |
+| `pHtot`, `pHsws`, `pHfree`, `pHNBS` | pH on the total, seawater, free or NBS scale (one measurement; give one) | — | — | all |
+| `CO₂` | Aqueous CO₂ | `unit` | — | carbon |
+| `pCO₂`, `fCO₂` | CO₂ partial pressure, fugacity (stand in for `CO₂`) | µatm | — | carbon |
+| `HCO₃` | Bicarbonate | `unit` | — | carbon |
+| `CO₃` | Carbonate ion | `unit` | — | carbon |
+| `ΩA`, `ΩC` | Saturation state, aragonite or calcite (stand in for `CO₃`) | — | — | carbon |
+| **Boron** | | | | |
+| `BOH₃`, `BOH₄` | Boric acid, borate | `unit` | — | boron |
+| **Boron isotopes** | | | | |
+| `δBOH₃`, `δBOH₄` | δ¹¹B of boric acid, borate | ‰ | — | isotopes |
+| `ABOH₃`, `ABOH₄` | ¹¹B fractional abundance of boric acid, borate (alternatives to δ) | — | — | isotopes |
+| `δBT` | δ¹¹B of total boron (seawater) | ‰ | modern seawater, 39.61 | isotopes |
+| `ABT` | ¹¹B fractional abundance of total boron | — | from `δBT` | isotopes |
+| `alphaB` | Boron isotope fractionation factor, α(B(OH)₃–B(OH)₄⁻) | — | Klochko et al. (2006) | isotopes |
+| **Conditions** | | | | |
+| `temp_c` | Temperature | °C | 25.0 | all |
+| `sal` | Practical salinity | — | 35.0 | all |
+| `pres_bar` | Hydrostatic pressure (0 at the surface) | bar | 0.0 | all |
+| **Totals & composition** | | | | |
+| `BT` | Total boron | `unit` | from salinity (`BT_method`) | all |
+| `ST` | Total sulphate | mol/kg | from salinity | all |
+| `FT` | Total fluoride | mol/kg | from salinity | all |
+| `PT`, `SiT` | Total phosphate, silicate | `unit` | 0.0 | carbon |
+| `H2ST`, `NH4T` | Total hydrogen sulphide, ammonia | `unit` | 0.0 | carbon |
+| `Ca`, `Mg` | Calcium, magnesium, given at S = 35 | mol/kg | modern seawater (`Ca_method`) | all |
+| **Settings** | | | | |
+| `unit` | Concentration unit: `"mol"`, `"mmol"`, `"umol"`, `"nmol"`, `"pmol"`, `"fmol"` (per kg) | — | `"umol"` | all |
+| `K_method` | K₁/K₂ parameterisation; `"KGen"` sets every constant | — | `"KGen"` | all |
+| `KSO4_method`, `KF_method`, `KNH3_method` | Bisulphate, HF and ammonium constants (no effect with KGen, except `KNH3_method`) | — | see [Chemical Constants](#chemical-constants) | all |
+| `BT_method`, `Ca_method` | Total boron and calcium from salinity | — | `"Uppstrom"`, `"modern"` | all |
+| `MyAMI_mode` | KGen's Ca/Mg correction: `"approximate"` or `"calculate"` | — | `"approximate"` | all |
+| `CO3_root` | Which solution for TA with `CO₃`/`ΩA`/`ΩC`: `"low"` or `"high"` pH | — | `"low"` | all |
+| `HCO3_root` | Which solution for DIC with `HCO₃`: `"low"` or `"high"` pH | — | `"high"` | all |
+| `Ks` | A pre-computed constant bundle from `calculate_constants`, used instead of computing one | — | — | all |
+
+`CarbonateSystem` additionally takes `varying` (the parameters given positionally) and `varying_errors` (those with uncertainties, given as σ in the same unit as the parameter). `adjust` takes `temp_c`, `pres_bar`, `σ_temp_c` and `σ_pres_bar`.
+
+### Results
+
+A result's values are read as fields, e.g. `res.pHtot`, and uncertainties as `res.err.pHtot` (or the `σ_pHtot` column of a `DataFrame`). Which keys are present depends on the scope.
+
+| Key | Meaning | Unit | Scope |
+| :--- | :--- | :--- | :--- |
+| `pHtot`, `pHsws`, `pHfree`, `pHNBS` | pH on each scale | — | all |
+| `temp_c`, `sal`, `pres_bar` | Conditions | °C, —, bar | all |
+| `BT` | Total boron | `unit` | all |
+| `ST`, `FT` | Total sulphate, fluoride | mol/kg | all |
+| `Ca`, `Mg` | Calcium, magnesium, at S = 35 | mol/kg | all |
+| `fH` | Hydrogen ion activity coefficient, for the NBS scale | — | all |
+| `TA`, `DIC` | Total alkalinity, dissolved inorganic carbon | `unit` | carbon |
+| `CO₂`, `HCO₃`, `CO₃` | Carbonate species | `unit` | carbon |
+| `pCO₂`, `fCO₂` | CO₂ partial pressure, fugacity | µatm | carbon |
+| `ΩA`, `ΩC` | Saturation state, aragonite and calcite | — | carbon |
+| `H` | [H⁺] on the total scale | mol/kg | carbon |
+| `Hfree` | Free [H⁺] | `unit` | carbon |
+| `CAlk`, `BAlk`, `OH`, `PAlk`, `SiAlk`, `Alk_NH3`, `Alk_H2S` | Alkalinity contributions: carbonate, borate, hydroxide, phosphate, silicate, ammonia, sulphide | `unit` | carbon |
+| `HSO₄`, `HF` | Bisulphate, hydrogen fluoride (negative alkalinity terms) | `unit` | carbon |
+| `PT`, `SiT`, `H2ST`, `NH4T` | Nutrient totals, as used | `unit` | carbon |
+| `BOH₃`, `BOH₄` | Boric acid, borate | `unit` | boron |
+| `δBT`, `δBOH₃`, `δBOH₄` | δ¹¹B of total boron, boric acid, borate | ‰ | isotopes |
+| `ABT`, `ABOH₃`, `ABOH₄` | ¹¹B fractional abundances | — | isotopes |
+| `alphaB` | Fractionation factor used | — | isotopes |
+
+Besides these values, a result also carries `res.Ks` (the equilibrium constants used, in mol/kg on the total pH scale, with `KS` and `KF` on the free scale), `res.unit`, and `res.settings` (every setting above). `revelle_factor(res)` and `calc_gradient` give buffer factors.
 
 ## Chemical Constants
 

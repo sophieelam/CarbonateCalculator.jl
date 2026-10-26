@@ -74,7 +74,7 @@ using CarbonateCalculator
         @test calc_gradient(whole, :pHtot, :DIC; constant = :TA) < 0   # more DIC, lower pH
 
         # A result already carried to its collection conditions.
-        collected = at_collection_conditions(result; temp_c = 2.0)
+        collected = adjust(result; temp_c = 2.0)
         @test revelle_factor(collected) != revelle_factor(result)
 
         # A result whose measured pair was not TA/DIC, so the held value is one it derived.
@@ -134,7 +134,7 @@ using CarbonateCalculator
 
         # 10 °C deliberately, not 2 °C: `which_K` switches parameterisation at exactly 2 °C
         # for this salinity, and a derivative across that step is meaningless.
-        collected = at_collection_conditions(measured; temp_c = 10.0, σ_temp_c = 0.5)
+        collected = adjust(measured; temp_c = 10.0, σ_temp_c = 0.5)
 
         @test !isnothing(collected.source)
         @test collected.source.condition_errors == (target_temp_c = 0.5,)
@@ -146,7 +146,7 @@ using CarbonateCalculator
         # Validated against finite differences over the whole two-stage chain, perturbing what
         # was actually measured plus the collection temperature.
         chain(pH, TA, t) = calc_gradient(
-            at_collection_conditions(carbon_system(; pHtot = pH, TA = TA, temp_c = 20.0,
+            adjust(carbon_system(; pHtot = pH, TA = TA, temp_c = 20.0,
                                                    base...); temp_c = t),
             :pCO₂, :DIC; constant = :TA)
 
@@ -158,11 +158,11 @@ using CarbonateCalculator
 
         # The collection temperature's own uncertainty is a real contributor, not a rounding
         # term — dropping it would understate σ here by about a third.
-        without_condition_σ = at_collection_conditions(measured; temp_c = 10.0)
+        without_condition_σ = adjust(measured; temp_c = 10.0)
         @test calc_gradient_uncertainty(without_condition_σ, :pCO₂, :DIC; constant = :TA) < σ
 
         # A collection state with nothing uncertain anywhere has no σ to report.
-        plain = at_collection_conditions(
+        plain = adjust(
             carbon_system(; TA = 2300.0, DIC = 2000.0, temp_c = 20.0, base...); temp_c = 10.0)
         @test isnothing(calc_gradient_uncertainty(plain, :pCO₂, :DIC; constant = :TA))
     end
@@ -203,10 +203,10 @@ using CarbonateCalculator
             result, :pHtot, :pCO₂, :DIC; constant = :TA)
 
         # The source survives, so a carried result keeps refusing a second carry.
-        collected = with_gradient(at_collection_conditions(result; temp_c = 2.0),
+        collected = with_gradient(adjust(result; temp_c = 2.0),
                                   :revelle, :fCO₂, :DIC; constant = :TA, relative = true)
         @test !isnothing(collected.source)
-        @test_throws ArgumentError at_collection_conditions(collected; temp_c = 4.0)
+        @test_throws ArgumentError adjust(collected; temp_c = 4.0)
     end
 
     @testset "with_gradient carries the uncertainty across too" begin
@@ -228,12 +228,32 @@ using CarbonateCalculator
         @test isnothing(plain.err)
 
         # A collection state gets both, through the two-stage chain.
-        carried = with_gradient(at_collection_conditions(measured; temp_c = 10.0,
-                                                         σ_temp_c = 0.5),
+        carried = with_gradient(adjust(measured; temp_c = 10.0,
+                                       σ_temp_c = 0.5),
                                 :revelle, :fCO₂, :DIC; constant = :TA, relative = true)
         @test carried.revelle > 0
         @test carried.err.revelle > 0
         @test keys(carried.val) == keys(carried.err)
+    end
+
+    @testset "a two-root pair is differentiated on the result's own branch" begin
+        # The hydroxide-dominated water of Humphreys et al. (2022, Fig. 7), reached two ways:
+        # from TA and CO₃²⁻ asking for the high root, and from TA and DIC, whose settings
+        # say nothing about CO₃²⁻ roots. Held at constant CO₃²⁻, the gradient has to be taken
+        # at this water either way, not at the seawater-like root the defaults would pick.
+        high = carbon_system(TA = 2300.0, CO₃ = 120.0, temp_c = 15.0, CO3_root = "high")
+        same_water = carbon_system(TA = 2300.0, DIC = high.DIC, temp_c = 15.0)
+        @test same_water.pHtot ≈ high.pHtot rtol = 1e-8
+
+        g_high = calc_gradient(high, :pHtot, :TA; constant = :CO₃)
+        g_same = calc_gradient(same_water, :pHtot, :TA; constant = :CO₃)
+        @test g_same ≈ g_high rtol = 1e-6
+
+        # On the high branch alkalinity rises with pH at fixed CO₃²⁻; on the low branch it
+        # falls. So the two branches give gradients of opposite sign.
+        low = carbon_system(TA = 2300.0, CO₃ = 120.0, temp_c = 15.0)
+        @test g_high > 0
+        @test calc_gradient(low, :pHtot, :TA; constant = :CO₃) < 0
     end
 
 end

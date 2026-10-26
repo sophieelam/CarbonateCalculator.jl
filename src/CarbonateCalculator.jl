@@ -39,8 +39,8 @@ anything constant stays a keyword, stated once and unable to drift between rows.
 checked when the solver is built, so a mistake surfaces there rather than on row 700,000.
 
 Uncertainties are propagated by automatic differentiation — name them in `varying_errors` and
-`result.err` carries a σ for every computed quantity. [`at_collection_conditions`](@ref)
-re-solves a result at the depth a sample came from, and a vector of results is a Tables.jl
+`result.err` carries a σ for every computed quantity. [`adjust`](@ref) re-solves a result
+at another temperature and pressure, and a vector of results is a Tables.jl
 table that goes straight into a `DataFrame`. All three are covered below.
 
 # Extended help
@@ -76,26 +76,25 @@ Inputs are assumed uncorrelated. Where one input reaches the answer by several r
 enters every equilibrium constant — the correlation is handled exactly, because it is one input
 differentiated once.
 
-# Collection conditions
+# Changing temperature and pressure
 
-A sample is usually measured on deck and reported at the depth it came from.
-[`at_collection_conditions`](@ref) re-solves a result at another temperature and pressure,
-carrying the conservative totals, the seawater composition and every method choice across, so
-nothing has to be restated:
+[`adjust`](@ref) re-solves a result at another temperature and pressure, carrying the
+conservative totals, the seawater composition and every setting across, so nothing has to be
+restated. Reporting a sample measured on deck at the depth it came from is the usual case:
 
 ```jldoctest overview
 julia> measured = carbon_system(TA = 2300.0, DIC = 2000.0, temp_c = 20.0);
 
-julia> at_collection_conditions(measured; temp_c = 2.0, pres_bar = 400.0).pHtot
+julia> adjust(measured; temp_c = 2.0, pres_bar = 400.0).pHtot
 8.254156644905194
 ```
 
 It broadcasts too, taking the same arguments positionally, and `σ_temp_c` / `σ_pres_bar` add
-uncertainty in the collection conditions — which are often less well known than the conditions
-the sample was measured at:
+uncertainty in the new conditions — an in-situ temperature, say, is often less well known than
+a laboratory one:
 
 ```jldoctest overview
-julia> cast = at_collection_conditions.([measured, measured], [2.0, 4.0], 400.0, [0.5, 0.2]);
+julia> cast = adjust.([measured, measured], [2.0, 4.0], 400.0, [0.5, 0.2]);
 
 julia> getproperty.(cast, :pHtot)
 2-element Vector{Float64}:
@@ -159,13 +158,14 @@ include("pipeline.jl")      # the stages of a solve
 include("validation.jl")    # input checks
 include("display.jl")       # pretty-printing a CarbonateResult
 include("system.jl")        # CarbonateSystem, the solver, and the four presets
-include("conditions.jl")    # at_collection_conditions: re-solve at the collection conditions
+include("conditions.jl")    # adjust: re-solve a result at another temperature and pressure
 include("gradients.jl")     # buffer factors and gradients, and their uncertainties
 
 export CarbonateSystem,  # the solver
        carbon_system, whole_system, boron_system, boron_isotopes,  # presets over it
        propagate_errors,
-       at_collection_conditions,  # re-solve at the conditions the sample was collected at
+       adjust,                    # re-solve a result at another temperature and pressure
+       at_collection_conditions,  # deprecated former name of `adjust`
        calc_gradient, calc_relative_gradient, calc_gradient_uncertainty,  # buffer factors
        revelle_factor, with_gradient
 

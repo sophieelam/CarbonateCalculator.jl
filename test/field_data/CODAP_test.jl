@@ -8,7 +8,7 @@
 #     was collected.
 #
 # So `carbon_system` is checked at the conditions the sample was measured at, and
-# `at_collection_conditions` is checked at the conditions it was collected at,
+# `adjust` is checked at the conditions it was collected at,
 # against a published value for each. Nothing in block 1 can test that: it can only show
 # the two stages agree with each other.
 #
@@ -75,7 +75,7 @@ end
 """
 Solve each sample at the bench, then carry it to the conditions it was collected at.
 
-Stage 2 goes through `at_collection_conditions` rather than solving directly at the
+Stage 2 goes through `adjust` rather than solving directly at the
 in-situ conditions. The two are equivalent — TA and DIC are conservative — which is exactly
 why this is worth doing against real data: it checks the machinery that carries the totals,
 the seawater composition and every method choice across the condition change, and compares
@@ -85,7 +85,7 @@ function solve_CODAP(df)
     solver = CarbonateSystem(:carbon; varying = (:TA, :DIC, :temp_c, :sal, :pres_bar, :PT, :SiT))
 
     measured = solver.(df.TA, df.DIC, df.lab_temp_c, df.sal, 0.0, df.PT, df.SiT)
-    in_situ = at_collection_conditions.(
+    in_situ = adjust.(
         measured, 
         df.insitu_temp_c,
         df.insitu_pres_bar

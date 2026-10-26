@@ -59,7 +59,55 @@ See [`calc_relative_gradient`](@ref) for the normalised form, and [`revelle_fact
 function calc_gradient(result::CarbonateResult, numerator::Symbol, denominator::Symbol;
                        constant::Symbol)
     base, start = _validated_request(result, denominator, constant)
+    base = _on_state_branch(result.system, base, denominator, constant, start,
+                            result.val.pHtot)
     return _derivative_at(result.system, base, numerator, denominator, start)
+end
+
+"The `PARAMETER_GROUPS` entry `name` belongs to, or `nothing`."
+function _group_of(name::Symbol)
+    for (group, members) in pairs(PARAMETER_GROUPS)
+        name in members && return group
+    end
+    return nothing
+end
+
+"""
+The root setting that applies when `(denominator, constant)` defines the system, or `nothing`.
+
+TA with CO₃²⁻ (or Ω) and DIC with HCO₃⁻ are the two pairs with two solutions; see
+`H_from_CO₃_TA` and `pH_from_HCO₃_DIC`.
+"""
+function _branch_setting(denominator::Symbol, constant::Symbol)
+    groups = Set((_group_of(denominator), _group_of(constant)))
+    groups == Set((:TA, :CO₃)) && return :CO3_root
+    groups == Set((:DIC, :HCO₃)) && return :HCO3_root
+    return nothing
+end
+
+"""
+`base`, with the root setting chosen so that re-solving lands on the state being differentiated.
+
+A gradient is taken at the water `result` describes. When the pair it is taken over has two
+solutions, the re-solve has to pick the one that *is* that water — which need not be the root
+the result's own settings name, since the result may not have been solved from this pair at
+all. A TA–DIC result on the high-pH branch, differentiated at constant CO₃²⁻, would otherwise
+be re-solved on the low-pH branch and the gradient evaluated at a different water entirely.
+
+Settled by solving both and keeping whichever reproduces the state's pH. Only these two pairs
+pay for it.
+"""
+function _on_state_branch(scope, base, denominator::Symbol, constant::Symbol, start, pH)
+    setting = _branch_setting(denominator, constant)
+    isnothing(setting) && return base
+
+    at(root) = merge(base, NamedTuple{(denominator, setting)}((start, root)))
+    gap(root) = abs(_solve_core(scope, at(root)).pHtot - pH)
+
+    # The state is one of the two solutions, so at least one gap is ~0; NaN never wins.
+    gap_low, gap_high = gap("low"), gap("high")
+    root = (gap_high < gap_low || (isnan(gap_low) && !isnan(gap_high))) ? "high" : "low"
+    return merge(base, NamedTuple{(setting,)}((root,)))
 end
 
 """
@@ -144,15 +192,15 @@ the surrounding solve returns **exactly zero** for uncertainty in any carbonate 
 because `_gradient_inputs` strips those before re-solving and the perturbation never reaches
 the calculation. Worse, it still returns a plausible number for σ on temperature or salinity,
 which survive the stripping — so the mistake is invisible in the easiest thing to test with.
-Re-solving from the measured inputs is the same reasoning that makes `at_collection_conditions`
-differentiate its whole chain rather than propagate an intermediate forward.
+Re-solving from the measured inputs is the same reasoning that makes `adjust` differentiate
+its whole chain rather than propagate an intermediate forward.
 
-For a result carried to its collection conditions the chain runs through both stages, from the
-measured inputs to the collection state to the gradient, using the provenance
-`at_collection_conditions` records on `result.source`. Uncertainty in the collection conditions
-themselves is included alongside the measurement's. Taking the uncertainties at face value at
-the collection conditions instead would be wrong whenever the measured pair was not the
-conservative one: `input_errors` may name `pHtot`, which the collection state does not carry.
+For a result produced by [`adjust`](@ref) the chain runs through both stages, from the
+original inputs to the adjusted state to the gradient, using the provenance `adjust` records
+on `result.source`. Uncertainty in the new conditions themselves is included alongside the
+original ones. Taking the uncertainties at face value at the new conditions instead would be
+wrong whenever the original pair was not the conservative one: `input_errors` may name
+`pHtot`, which the adjusted state does not carry.
 
 Uses the same first-order, uncorrelated model as [`propagate_errors`](@ref), and inherits its
 one assumption.
@@ -180,6 +228,7 @@ function calc_gradient_uncertainty(result::CarbonateResult, numerator::Symbol,
         start = getproperty(state, denominator)
         base = merge(base_inputs, _CLEARED_CONSTRAINTS,
                      NamedTuple{(constant,)}((getproperty(state, constant),)))
+        base = _on_state_branch(scope, base, denominator, constant, start, state.pHtot)
 
         gradient = _derivative_at(scope, base, numerator, denominator, start)
         relative || return gradient
@@ -199,10 +248,10 @@ end
 """
 The inputs a gradient's uncertainty is differentiated with respect to, and their σ.
 
-A measurement is differentiated with respect to what it was given. A collection state is
-differentiated with respect to what the *measurement* was given, plus the collection conditions
-themselves — its own `inputs` are the target ones, where a pH the measurement supplied has been
-cleared and the measurement's temperature overwritten, so perturbing those would be perturbing
+A direct calculation is differentiated with respect to what it was given. An adjusted state is
+differentiated with respect to what the *original* calculation was given, plus the new
+conditions themselves — its own `inputs` are the target ones, where a pH the original was
+given has been cleared and its temperature overwritten, so perturbing those would be perturbing
 the wrong thing.
 """
 function _uncertainty_chain(result::CarbonateResult)
@@ -219,9 +268,9 @@ end
 How to get from a perturbed input set to the state the gradient is taken at, and to the inputs
 that name that state.
 
-For a measurement that is one solve. For a collection state it is the same two-stage chain
-`at_collection_conditions` differentiates: solve at the measurement, carry the conservative pair
-across to the collection conditions, solve again.
+For a direct calculation that is one solve. For an adjusted state it is the same two-stage
+chain `adjust` differentiates: solve at the original conditions, carry the conservative pair
+across to the new ones, solve again.
 """
 function _state_solver(result::CarbonateResult)
     scope = result.system

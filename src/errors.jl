@@ -79,7 +79,7 @@ That assumption is about the *named inputs*, not about the routes through the ca
 input reaching the answer several ways is handled exactly, because it is differentiated once:
 salinity enters every equilibrium constant, and TA and DIC enter both conditions of a two-stage
 calculation, with the correlations that implies preserved by construction. This is why
-[`at_collection_conditions`](@ref) differentiates the whole chain from the original measurements
+[`adjust`](@ref) differentiates the whole chain from the original measurements
 rather than propagating an intermediate σ forward — the latter would double-count anything
 affecting both conditions.
 

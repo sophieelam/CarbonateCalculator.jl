@@ -127,9 +127,10 @@ function CarbonateSystem(scope::Symbol...; varying = (), varying_errors = (), se
         scope
         )
 
-    # `_run` normalises too; doing it here as well means a bad unit fails where it was named
-    # rather than on the first solve.
+    # `_run` normalises too; doing it here as well means a bad unit or root choice fails where
+    # it was named rather than on the first solve.
     haskey(fixed, :unit) && (fixed = merge(fixed, (unit = _normalise_unit(fixed.unit),)))
+    fixed = _normalise_roots(fixed)
 
     # Build a named tuple of default parameter values for the scope, so the solver can fill in
     # anything not supplied later.
@@ -199,6 +200,7 @@ function _run(sys::CarbonateSystem{scope}, supplied_parameters, errors) where {s
     # A caller spells the unit however they like; everything downstream wants a table name.
     inputs = merge(sys.defaults, supplied)
     inputs = merge(inputs, (unit = _normalise_unit(inputs.unit),))
+    inputs = _normalise_roots(inputs)
 
     _check_determinacy(inputs, scope; require_two = scope === (:carbon,))
     _check_conditions(inputs.temp_c, inputs.sal, inputs.pres_bar)
@@ -282,6 +284,12 @@ supplied" for a constraint, and "derive it from salinity" for a total.
   `"calculate"` runs the full MyAMI model, which is slower and more accurate.
 - `Ks = nothing`: a pre-computed constant bundle from [`calculate_constants`](@ref), used
   instead of computing one. The conditions must match the ones it was built for.
+- `CO3_root = "low"`: which solution to return when solving from TA with CO₃²⁻ (or ΩA/ΩC),
+  which usually has two, both physically valid. `"low"` is the lower-pH, seawater-like one;
+  `"high"` is the hydroxide-dominated one.
+- `HCO3_root = "high"`: likewise for DIC with HCO₃⁻, whose two solutions sit either side of
+  the bicarbonate peak. `"high"` is the conventional choice. Every other pair has one solution
+  and ignores both settings.
 
 # Extended help
 
@@ -297,7 +305,7 @@ Parameters outside this scope are rejected rather than ignored, so `carbon_syste
 is an error naming the scope. Use [`whole_system`](@ref) for boron and its isotopes.
 
 See also [`whole_system`](@ref), [`boron_system`](@ref), [`boron_isotopes`](@ref),
-[`at_collection_conditions`](@ref).
+[`adjust`](@ref).
 """
 carbon_system(; kwargs...) = CARBON_SYSTEM(; kwargs...)
 

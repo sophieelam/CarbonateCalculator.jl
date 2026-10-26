@@ -83,6 +83,19 @@ function _normalise_unit(unit)
     return name
 end
 
+"""
+Reduce `CO3_root` and `HCO3_root`, where present, to `"low"` or `"high"`, or throw naming the
+accepted values. Checked for every call rather than only when one of those two pairs is
+solved, so a misspelling fails the same way whatever the inputs.
+"""
+function _normalise_roots(inputs::NamedTuple)
+    haskey(inputs, :CO3_root) &&
+        (inputs = merge(inputs, (CO3_root = Carbon._root_choice(inputs.CO3_root, :CO3_root),)))
+    haskey(inputs, :HCO3_root) &&
+        (inputs = merge(inputs, (HCO3_root = Carbon._root_choice(inputs.HCO3_root, :HCO3_root),)))
+    return inputs
+end
+
 # Every path normalises first, so a `KeyError` here is a bug rather than a bad argument.
 _unit_multiplier(unit) = UNIT_SCALES[unit]
 
@@ -274,11 +287,14 @@ All of them are always run for a given scope; only the order varies, because pH 
 unknown they share — whichever subsystem the inputs determine goes first and yields pH, and
 the rest follow from it. See `_first_solvable`.
 """
-function _run_solvers(scope, ps)
+function _run_solvers(scope, ps, roots)
     # Decide which solvers are needed based on the scope. This creates
     # temporary functions that have all the solver machinery *if* the
     # scope requires it, otherwise does nothing and returns the input unchanged.
-    carbon(p) = :carbon in scope ? merge(p, C_calculator(; p...)) : p
+    #
+    # `roots` (CO3_root, HCO3_root) is passed alongside the state rather than inside it: the
+    # state becomes `result.val`, which holds numbers only.
+    carbon(p) = :carbon in scope ? merge(p, C_calculator(; p..., roots...)) : p
     boron(p) = :boron in scope ? merge(p, B_calculator(; p...)) : p
     isotopes(p) = :isotopes in scope ? merge(p, calc_B_isotopes(; p...)) : p
 
@@ -337,7 +353,7 @@ function _solve_core(scope, inputs)
     end
 
     # run the appropriate solvers in an order that works depending on the inputs and scope.
-    ps = _run_solvers(scope, ps)
+    ps = _run_solvers(scope, ps, (CO3_root = inputs.CO3_root, HCO3_root = inputs.HCO3_root))
 
     # Convert the solved total-scale pH back to the other three scales.
     ps = merge(ps, _from_total_scale(ps.pHtot, env))

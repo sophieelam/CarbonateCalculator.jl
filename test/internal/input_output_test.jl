@@ -16,27 +16,27 @@ const δBT_SW = 39.61  # modern seawater δ¹¹B, matches Isotopes.get_δBT()
 
         @testset "Temperature Effect" begin
             measured = whole_system(pHtot=8.1, TA=2300, temp_c=20)
-            at_target = at_collection_conditions(measured, temp_c=30)
+            at_target = adjust(measured, temp_c=30)
 
             remeasured = whole_system(pHtot=at_target.pHtot, TA=2300, temp_c=30)
-            @test measured.pHtot ≈ at_collection_conditions(remeasured, temp_c=20).pHtot atol=1e-6
+            @test measured.pHtot ≈ adjust(remeasured, temp_c=20).pHtot atol=1e-6
         end
 
         @testset "Pressure Effect" begin
             measured = whole_system(pHtot=8.1, TA=2300, pres_bar=0)
-            at_target = at_collection_conditions(measured, pres_bar=400)
+            at_target = adjust(measured, pres_bar=400)
 
             remeasured = whole_system(pHtot=at_target.pHtot, TA=2300, pres_bar=400)
-            @test measured.pHtot ≈ at_collection_conditions(remeasured, pres_bar=0).pHtot atol=1e-6
+            @test measured.pHtot ≈ adjust(remeasured, pres_bar=0).pHtot atol=1e-6
         end
 
         @testset "Temperature and Pressure together" begin
             measured = whole_system(pHtot=8.1, TA=2300, temp_c=20, pres_bar=0)
-            at_target = at_collection_conditions(measured, temp_c=2, pres_bar=400)
+            at_target = adjust(measured, temp_c=2, pres_bar=400)
 
             remeasured = whole_system(pHtot=at_target.pHtot, TA=2300, temp_c=2, pres_bar=400)
-            @test measured.pHtot ≈ at_collection_conditions(remeasured, temp_c=20,
-                                                            pres_bar=0).pHtot atol=1e-6
+            @test measured.pHtot ≈ adjust(remeasured, temp_c=20,
+                                          pres_bar=0).pHtot atol=1e-6
         end
 
     end
@@ -45,18 +45,18 @@ const δBT_SW = 39.61  # modern seawater δ¹¹B, matches Isotopes.get_δBT()
 
         @testset "Temperature Effect" begin
             measured = whole_system(pHtot=8.1, TA=2300, temp_c=20, δBT=δBT_SW)
-            at_target = at_collection_conditions(measured, temp_c=30)
+            at_target = adjust(measured, temp_c=30)
 
             remeasured = whole_system(pHtot=at_target.pHtot, TA=2300, temp_c=30, δBT=δBT_SW)
-            @test measured.pHtot ≈ at_collection_conditions(remeasured, temp_c=20).pHtot atol=1e-6
+            @test measured.pHtot ≈ adjust(remeasured, temp_c=20).pHtot atol=1e-6
         end
 
         @testset "Pressure Effect" begin
             measured = whole_system(pHtot=8.1, TA=2300, pres_bar=0, δBT=δBT_SW)
-            at_target = at_collection_conditions(measured, pres_bar=400)
+            at_target = adjust(measured, pres_bar=400)
 
             remeasured = whole_system(pHtot=at_target.pHtot, TA=2300, pres_bar=400, δBT=δBT_SW)
-            @test measured.pHtot ≈ at_collection_conditions(remeasured, pres_bar=0).pHtot atol=1e-6
+            @test measured.pHtot ≈ adjust(remeasured, pres_bar=0).pHtot atol=1e-6
         end
 
     end

@@ -1,11 +1,12 @@
 # The data type returned by every calculation function.
 
 """
-Keys carried in `CarbonateResult.settings`: everything that determines *how* the constants
-were calculated, as opposed to the conditions or the chemistry.
+Keys carried in `CarbonateResult.settings`: everything that determines *how* the system was
+calculated — the constants, the unit, and which solution was taken for the two pairs that have
+two — as opposed to the conditions or the chemistry.
 """
 const SETTING_KEYS = (:K_method, :KSO4_method, :BT_method, :KF_method, :KNH3_method,
-                      :Ca_method, :MyAMI_mode, :unit)
+                      :Ca_method, :MyAMI_mode, :unit, :CO3_root, :HCO3_root)
 
 """
 Pick out the `SETTING_KEYS` from a call's inputs.
@@ -48,24 +49,23 @@ A vector of results is a Tables.jl table, one row per sample, so it goes straigh
 - `err`: uncertainties matching `val`, or `nothing`.
 - `input_keys`: which carbonate parameters the caller supplied, used by `show` to avoid
   reporting an input back as a result.
-- `settings`: how the constants were calculated (see [`SETTING_KEYS`](@ref)).
+- `settings`: how the system was calculated (see [`SETTING_KEYS`](@ref)).
 - `inputs`: the original call, verbatim.
 - `system`: which system was solved, `:carbon`, `:boron`, `:isotopes`, or `:whole`.
 - `input_errors`: the uncertainties this calculation was given, or `nothing`.
-- `source`: what this result was carried from, or `nothing` if it is a measurement. Set only
-  by [`at_collection_conditions`](@ref).
+- `source`: what this result was adjusted from, or `nothing` if it came straight from a
+  calculation. Set only by [`adjust`](@ref).
 
 # Extended help
 
-`source` is also **how a collection state is recognised** — there is no separate flag, because
-a result has a source exactly when it has been carried. `at_collection_conditions` refuses to
-run on a result that has one: a sample has one set of collection conditions, so there is
-nothing a second carry could mean.
+`source` is also **how an adjusted state is recognised** — there is no separate flag, because
+a result has a source exactly when it has been adjusted. `adjust` refuses to run on a result
+that has one; to report the same water at other conditions, adjust the original again.
 
-It holds `(inputs, errors, condition_errors)` — the measurement's inputs, the measurement's
-uncertainties, and the uncertainties in the collection conditions themselves. A collection
-state's own `inputs` are the *target* ones, with the derived parameters cleared and the
-measurement's conditions overwritten, so this is the only record of what it came from.
+It holds `(inputs, errors, condition_errors)` — the original inputs, their uncertainties, and
+the uncertainties in the new conditions themselves. An adjusted state's own `inputs` are the
+*target* ones, with the derived parameters cleared and the original conditions overwritten, so
+this is the only record of what it came from.
 
 `settings`, `inputs`, `system` and `input_errors` exist so a result can be re-solved at other
 conditions without the caller restating anything. Keeping the *input* uncertainties, rather
@@ -79,7 +79,7 @@ which is what gives its fields concrete types without any parameterisation gymna
 The NamedTuples are held untyped rather than concretely parameterised so that
 `ForwardDiff.Dual` values pass through unchanged.
 
-See also [`carbon_system`](@ref), [`at_collection_conditions`](@ref).
+See also [`carbon_system`](@ref), [`adjust`](@ref).
 """
 struct CarbonateResult{V<:NamedTuple, E<:Union{NamedTuple, Nothing}}
     val::V
@@ -102,7 +102,7 @@ Build a result from a core's raw output, lifting `Ks` and `unit` out of the comp
 The cores return the constants and the unit alongside the numbers, because both are needed to
 finish the calculation; they become their own fields here so that `val` is numeric throughout.
 Having this as a constructor rather than at each call site keeps the seven construction points
-— four in the wrappers, three in `at_collection_conditions` — unaware of the split.
+— four in the wrappers, three in `adjust` — unaware of the split.
 """
 function CarbonateResult(raw::NamedTuple, err, input_keys, settings, inputs, system,
                          input_errors; source::Union{NamedTuple, Nothing} = nothing)
