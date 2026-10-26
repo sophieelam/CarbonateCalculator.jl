@@ -1,6 +1,6 @@
 name = "CarbonateCalculator"
 uuid = "a2b7c4d9-8e12-4f33-b1a9-9c8d7e6f5a4b"
-version = "0.1.0"
+version = "0.2.0"
 
 [deps]
 ForwardDiff = "f6369f11-7733-5829-9624-2563aa707210"
