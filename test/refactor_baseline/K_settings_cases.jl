@@ -45,7 +45,7 @@ function K_settings_cases()
     # The other choices, each crossed with the ones it could interact with.
     for kso4 in ("default", "Dickson", "Khoo", "WM13"), kf in ("default", "Dickson", "Perez"),
         bt in ("default", "Uppstrom", "Lee", "KSK18"), pres_bar in (0.0, 300.0)
-        kw = (; temp_c = 15.0, pres_bar, K_method = "Lueker 2000", KSO4_method = kso4,
+        kw = (; temp_c = 15.0, sal = 35.0, pres_bar, K_method = "Lueker 2000", KSO4_method = kso4,
               KF_method = kf, BT_method = bt)
         tag = "$(kso4)_$(kf)_$(bt)_P$(pres_bar)"
         add!("solve_Lueker_$tag", :solve, merge(pair, kw))
