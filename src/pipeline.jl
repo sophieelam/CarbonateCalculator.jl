@@ -333,9 +333,7 @@ function _solve_core(scope, inputs)
     # pH-scale factors together — so a supplied `Ks` is used as-is and nothing is recombined.
     env = isnothing(inputs.Ks) ?
         calculate_constants(; inputs.temp_c, inputs.sal, inputs.pres_bar, inputs.ST,
-                              inputs.FT, BT, inputs.Ca, inputs.Mg, inputs.K_method,
-                              inputs.KSO4_method, inputs.BT_method, inputs.KF_method,
-                              inputs.KNH3_method, inputs.Ca_method, inputs.MyAMI_mode) :
+                              inputs.FT, BT, inputs.Ca, inputs.Mg, inputs.K_settings) :
         inputs.Ks
 
     # Convert whichever pH the caller gave to a single total-scale value, which is what the

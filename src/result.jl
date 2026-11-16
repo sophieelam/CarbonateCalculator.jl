@@ -2,11 +2,12 @@
 
 """
 Keys carried in `CarbonateResult.settings`: everything that determines *how* the system was
-calculated — the constants, the unit, and which solution was taken for the two pairs that have
-two — as opposed to the conditions or the chemistry.
+calculated — the constants (a [`KSettings`](@ref)), the unit, and which solution was taken for
+the two pairs that have two — as opposed to the conditions or the chemistry.
+
+`result.settings.K_settings.K1_K2_method` is the K1/K2 parameterisation a result used.
 """
-const SETTING_KEYS = (:K_method, :KSO4_method, :BT_method, :KF_method, :KNH3_method,
-                      :Ca_method, :MyAMI_mode, :unit, :CO3_root, :HCO3_root)
+const SETTING_KEYS = (:K_settings, :unit, :CO3_root, :HCO3_root)
 
 """
 Pick out the `SETTING_KEYS` from a call's inputs.

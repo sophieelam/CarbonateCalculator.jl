@@ -75,8 +75,9 @@ end
             include("internal/validation_test.jl")
         end
 
-        @testset "Method Selection" begin
-            include("internal/method_selection_test.jl")
+        @testset "Constant Settings" begin
+            include("internal/K_settings_test.jl")
+            include("internal/K_settings_baseline_test.jl")
         end
 
         @testset "Core Consistency" begin

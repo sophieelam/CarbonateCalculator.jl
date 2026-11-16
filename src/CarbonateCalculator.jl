@@ -23,7 +23,7 @@ over keyword arguments, so naming them up front is what makes a keyword API vect
 
 ```jldoctest overview
 julia> solve = CarbonateSystem(:carbon; varying = (:TA, :DIC, :temp_c),
-                               K_method = "Lueker 2000");
+                               K_settings = (K1_K2_method = "Lueker 2000",));
 
 julia> results = solve.([2300.0, 2310.0, 2290.0], [2000.0, 2010.0, 1990.0], [25.0, 10.0, 2.0]);
 
@@ -143,6 +143,8 @@ include("boron_isotopes.jl")  # boron isotopes and their fractionation
 using .Isotopes
 include("constants.jl")       # equilibrium constants, their T/S/P dependencies, and
 using .Constants              # salinity-derived seawater composition
+import .Constants: DEFAULT_K_SETTINGS, K1_K2_RANGES, LEGACY_METHOD_KEYWORDS,
+                   MODERN_CALCIUM, MODERN_MAGNESIUM, _fold_K_settings
 include("helpers.jl")         # pH-scale conversion
 using .Helpers
 
@@ -163,6 +165,7 @@ include("gradients.jl")     # buffer factors and gradients, and their uncertaint
 
 export CarbonateSystem,  # the solver
        carbon_system, whole_system, boron_system, boron_isotopes,  # presets over it
+       KSettings,                 # which parameterisation to use for each constant
        propagate_errors,
        adjust,                    # re-solve a result at another temperature and pressure
        at_collection_conditions,  # deprecated former name of `adjust`

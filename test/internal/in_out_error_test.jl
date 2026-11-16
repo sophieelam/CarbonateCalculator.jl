@@ -45,7 +45,8 @@ solve_with(σ::NamedTuple; scope=(:carbon,), settings...) =
 
     @testset "Two-stage: carbon_system then recalculate" begin
         @info "Testing carbon_system across measured and collection conditions..."
-        measured = solve_with(uncertainties; K_method="Lueker 2000", inputs...)
+        measured = solve_with(uncertainties;
+                              K_settings=(K1_K2_method="Lueker 2000",), inputs...)
         @test measured.err.pHtot > 0.0
 
         # Measurement uncertainties are carried on the result, so they are not restated -
@@ -61,7 +62,7 @@ solve_with(σ::NamedTuple; scope=(:carbon,), settings...) =
         @test with_target_err.err.pHtot > at_target.err.pHtot
 
         # A result with no uncertainties attached stays that way.
-        no_errors = carbon_system(; K_method="Lueker 2000", inputs...)
+        no_errors = carbon_system(; K_settings=(K1_K2_method="Lueker 2000",), inputs...)
         @test isnothing(adjust(no_errors; temp_c=TARGET_TEMP_C).err)
 
         println("\n" * "═"^50)
@@ -81,7 +82,7 @@ solve_with(σ::NamedTuple; scope=(:carbon,), settings...) =
         iso_errs = merge(uncertainties, (δBT = 0.05, alphaB = 0.0001))
 
         result = solve_with(iso_errs; scope=(:carbon, :boron, :isotopes),
-                            K_method="Lueker 2000", boron_inputs...)
+                            K_settings=(K1_K2_method="Lueker 2000",), boron_inputs...)
 
         @test hasproperty(result.err, :δBOH₄)
         @test result.err.δBOH₄ > 0.0
@@ -114,7 +115,8 @@ solve_with(σ::NamedTuple; scope=(:carbon,), settings...) =
 
         for (scope, args) in (((:carbon,), inputs),
                               ((:carbon, :boron, :isotopes), boron_inputs))
-            result = solve_with((TA=2.0,); scope=scope, K_method="KGen", args...)
+            result = solve_with((TA=2.0,); scope=scope, K_settings=(K1_K2_method="KGen",),
+                                args...)
             @test hasproperty(result, :err)
             @test result.err.pHtot > 0.0
             @test isfinite(result.err.pHtot)
@@ -122,7 +124,7 @@ solve_with(σ::NamedTuple; scope=(:carbon,), settings...) =
 
         # No warning should be emitted any more.
         @test_logs min_level=Logging.Warn solve_with((TA=2.0,);
-            K_method="KGen", inputs...
+            K_settings=(K1_K2_method="KGen",), inputs...
         )
     end
 
@@ -132,9 +134,10 @@ solve_with(σ::NamedTuple; scope=(:carbon,), settings...) =
         # model is Python-only. Asking for it must fail loudly rather than silently
         # returning approximate values.
         @test_throws ArgumentError carbon_system(;
-            K_method="KGen", MyAMI_mode="calculate", inputs...
+            K_settings=(MyAMI_mode="calculate",), inputs...
         )
-        @test carbon_system(; K_method="KGen", MyAMI_mode="approximate", inputs...).pHtot ≈
-              carbon_system(; K_method="KGen", inputs...).pHtot
+        @test_throws ArgumentError KSettings(MyAMI_mode="calculate")
+        @test carbon_system(; K_settings=(MyAMI_mode="approximate",), inputs...).pHtot ≈
+              carbon_system(; inputs...).pHtot
     end
 end

@@ -36,8 +36,8 @@ const RETIRED_ARGUMENTS = (
     P_out = "adjust(result; pres_bar=...)",
     # Julia splatting covers this natively and composes better.
     pdict = "splatting: carbon_system(; TA=2300.0, DIC=2000.0, your_parameters...)",
-    # Selected one K_method per array versus one per sample. The public entry points are
-    # scalar-only, so many samples are handled by broadcasting a solver instead.
+    # Selected one parameterisation per array versus one per sample. The public entry points
+    # are scalar-only, so many samples are handled by broadcasting a solver instead.
     K_mode = "CarbonateSystem(:carbon; varying=(:TA, :DIC)), which builds a scalar " *
              "solver you can broadcast",
     # A generic pH plus `scale` says what the scale-specific arguments already say.
@@ -82,7 +82,12 @@ function _reject_unknown_parameters(names, accepted, scope::Tuple{Vararg{Symbol}
     all(n -> n in accepted, names) && return nothing
 
     lines = map(collect(n for n in names if !(n in accepted))) do name
-        if haskey(PARAMETER_DEFAULTS, name)
+        if name in LEGACY_METHOD_KEYWORDS
+            # Reached only when the old keyword was named in `varying` or `varying_errors`;
+            # given as a value, it is translated before this check.
+            "$name is now a field of K_settings, which cannot vary between samples in a " *
+            "solver; build one solver per setting"
+        elseif haskey(PARAMETER_DEFAULTS, name)
             "$name needs the :$(getproperty(PARAMETER_SCOPE, name)) system, " *
             "but this solver's scope is $scope"
         else
@@ -204,10 +209,17 @@ end
 """
 Ranges outside which every available parameterisation is an extrapolation rather than a fit.
 
-These are the union of the methods' stated domains, so being outside them means no method
-covers the input — not merely that the selected one does not.
+Temperature and salinity are the union of the K1/K2 parameterisations' fitted ranges, built
+from the registry ([`K1_K2_RANGES`](@ref)), so being outside them means no method covers the
+input — not merely that the selected one does not; `_check_K_settings` covers that.
 """
-const CONDITION_RANGES = (temp_c = (-5.0, 50.0), sal = (0.0, 50.0), pres_bar = (0.0, 1200.0))
+const CONDITION_RANGES = (
+    temp_c = (minimum(r.temp_c[1] for r in values(K1_K2_RANGES)),
+              maximum(r.temp_c[2] for r in values(K1_K2_RANGES))),
+    sal = (minimum(r.sal[1] for r in values(K1_K2_RANGES)),
+           maximum(r.sal[2] for r in values(K1_K2_RANGES))),
+    pres_bar = (0.0, 1200.0),
+)
 
 """
     _check_conditions(temp_c, sal, pres_bar)
@@ -245,5 +257,60 @@ function _check_conditions(temp_c, sal, pres_bar)
         end
     end
 
+    return nothing
+end
+
+
+# --- Suitability of the chosen constants --------------------------------------------------
+
+"Units for the conditions in the suitability warnings."
+_condition_unit(name::Symbol) = name === :temp_c ? " °C" : ""
+
+"""
+    _check_K_settings(settings, temp_c, sal, Ca, Mg)
+
+Warn when the chosen K1/K2 parameterisation does not suit this water: a temperature or
+salinity outside the range it was fitted over, or a non-modern seawater composition that only
+KGen corrects for.
+
+Warns rather than refusing, like `_check_conditions`: an extrapolation is often the best
+available, and the caller is the one who can judge that. The choice itself is never changed —
+picking a parameterisation from the conditions is what `K_method = "automatic"` did, and it
+made the constants step discontinuously between samples.
+
+`maxlog=1` per method, condition and side, so a broadcast over a cruise warns once for each
+way the data falls outside the range rather than once per sample. A broadcast has no batch to
+count over, which is why the warning cannot say how many samples were affected.
+"""
+function _check_K_settings(settings::KSettings, temp_c, sal, Ca, Mg)
+    # Duals reach here on the AD path, and only plain numbers compare meaningfully.
+    all(x -> x isa Real, (temp_c, sal)) || return nothing
+    method = settings.K1_K2_method
+    fit = K1_K2_RANGES[method]
+
+    for (name, value) in ((:temp_c, temp_c), (:sal, sal))
+        low, high = getproperty(fit, name)
+        low <= value <= high && continue
+        side = value < low ? :below : :above
+        unit = _condition_unit(name)
+        fitted = low == high ? "$name = $low$unit only" : "$low to $high$unit"
+        @warn "You currently have selected \"$method\" for K1_K2_method, however this " *
+              "method is not recommended for $name = $value$unit: it was fitted over " *
+              "$fitted ($(fit.source)). Still computing. Shown once for each method and " *
+              "side of its range; the README tabulates every K1_K2_method's range." maxlog=1 _id=(
+                  :K1_K2_range, method, name, side)
+    end
+
+    # Only Kgen corrects the constants for Ca and Mg; every other parameterisation assumes
+    # modern seawater whatever composition the saturation states are computed with.
+    method == "KGen" && return nothing
+    non_modern(x, modern) = x isa Real && x != modern
+    if non_modern(Ca, MODERN_CALCIUM) || non_modern(Mg, MODERN_MAGNESIUM)
+        @warn "You currently have selected \"$method\" for K1_K2_method, however this " *
+              "method is not recommended for a non-modern seawater composition " *
+              "(Ca = $(something(Ca, MODERN_CALCIUM)), Mg = $(something(Mg, MODERN_MAGNESIUM)) " *
+              "mol/kg): it assumes modern seawater, and only \"KGen\" corrects the " *
+              "constants for Ca and Mg. Still computing." maxlog=1 _id=(:K1_K2_composition, method)
+    end
     return nothing
 end

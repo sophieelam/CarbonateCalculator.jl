@@ -208,6 +208,10 @@ function _adjust(result::CarbonateResult, temp_c, pres_bar, σ_temp_c, σ_pres_b
     # `sal` comes from the original because it is not a degree of freedom here, but it still
     # reaches the equilibrium constants at the new conditions, so it still needs checking.
     _check_conditions(resolved_temp_c, original.sal, resolved_pres_bar)
+    # The constants are always recomputed here (`Ks` is among the cleared parameters), so the
+    # chosen K1/K2 parameterisation is checked against the new conditions too.
+    _check_K_settings(original.K_settings, resolved_temp_c, original.sal, original.Ca,
+                      original.Mg)
 
     # No `_check_determinacy`: `_target_inputs` clears `DERIVED_PARAMETERS` and sets TA and DIC
     # from the solved state, so the target is determinate by construction rather than by luck.

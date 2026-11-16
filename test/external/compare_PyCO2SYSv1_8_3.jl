@@ -11,12 +11,28 @@ BULK_RTOL    = 4e-3
 PH_ATOL      = 0.005 
 
 # Mapping Dictionaries (Aligned with PyCO2SYS 1.8.3)
+# CO2SYS's K1K2CONSTANTS options as K_settings. Options 6-8 bring the companion constants CO2SYS
+# switches to with them (GEOSECS, Peng et al., freshwater), and those win over the BORON
+# option below, as they do in CO2SYS. The parts of those sets this package does not implement
+# (Li KB, the GEOSECS/Peng KW and nutrient constants, GEOSECS pressure) are listed in the README.
 k1k2_map = Dict(
-    1=>"Roy 1993", 2=>"GP 1989", 3=>"Hansson 1973", 
-    4=>"DM 1987", 5=>"HM 1973", 6=>"Mehrbach 1973 A", 7=>"Mehrbach 1973 B", 
-    8=>"Millero 1979", 9=>"CW 2003", 10=>"Lueker 2000", 11=>"MPM 2002", 
-    12=>"Millero 2002", 13=>"Millero 2006", 14=>"Millero 2010", 
-    15=>"Waters 2014", 16=>"Sulpis 2020", 17=>"SB 2020"
+    1=>(K1_K2_method="Roy 1993",),
+    2=>(K1_K2_method="GP 1989",),
+    3=>(K1_K2_method="Hansson 1973",),
+    4=>(K1_K2_method="DM 1987",),
+    5=>(K1_K2_method="HM 1973",),
+    6=>(K1_K2_method="Mehrbach 1973", BT_method="Culkin", Ca_method="Culkin"),
+    7=>(K1_K2_method="Mehrbach 1973", fH_method="Peng 1987", BT_method="Culkin", Ca_method="Culkin"),
+    8=>(K1_K2_method="Millero 1979", fH_method="freshwater", BT_method="freshwater", pressure_method="Millero 1983"),
+    9=>(K1_K2_method="CW 2003",),
+    10=>(K1_K2_method="Lueker 2000",),
+    11=>(K1_K2_method="MPM 2002",),
+    12=>(K1_K2_method="Millero 2002",),
+    13=>(K1_K2_method="Millero 2006",),
+    14=>(K1_K2_method="Millero 2010",),
+    15=>(K1_K2_method="Waters 2014",),
+    16=>(K1_K2_method="Sulpis 2020",),
+    17=>(K1_K2_method="SB 2020",),
 )
 kso4_map = Dict(1 => "Dickson", 2 => "Khoo", 3 => "WM13")
 boron_map = Dict(1 => "Uppstrom", 2 => "Lee")
@@ -77,12 +93,10 @@ end
         p_val = row.PRESIN / 10.0
 
         # --- COMPATIBILITY FIX: Environment Setup ---
-        # K1K2 options 6 and 7 are plain Mehrbach 1973 here. The GEOSECS/Peng-era
-        # overrides that CO2SYS applies under those options were removed: they were
-        # unreachable from the public API and did not improve agreement with PyCO2SYS
+        # K1K2 options 6 and 7 carry the GEOSECS and Peng et al. companions through k1k2_map.
         env = (temp_c=row.TEMPIN, sal=row.SAL, pres_bar=p_val, PT=row.PO4, SiT=row.SI, 
                H2ST=row.H2S, NH4T=row.NH4, unit="umol", 
-               K_method=k_method, KF_method=kf_method, KSO4_method=kso4_method, BT_method=b_method)
+               K_settings=merge((KF_method=kf_method, KSO4_method=kso4_method, BT_method=b_method), k_method))
 
         # Mapping inputs (accounting for historical pCO2->fCO2 overrides in Mehrbach)
         if sym1 == :pH_temp; inputs[current_scale_sym] = val1; else; inputs[(sym1==:pCO₂ && is_mehrbach) ? :fCO₂ : sym1] = val1; end
@@ -129,7 +143,7 @@ end
                 elseif (sym1 == :pH_temp || sym2 == :pH_temp)
                     is_pyco2sys_bug = true
                 # Catch PyCO2SYS v1.8.3's Alkalinity Scale Alignment bug for Mehrbach
-                elseif (k_method == "Mehrbach 1973 A" || k_method == "Mehrbach 1973 B") && (sym1 == :TA || sym2 == :TA) && scale_name_map[scale_in] != "free"
+                elseif row.K1K2CONSTANTS in (6, 7) && (sym1 == :TA || sym2 == :TA) && scale_name_map[scale_in] != "free"
                     is_pyco2sys_bug = true
                 end
             end

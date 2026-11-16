@@ -19,10 +19,10 @@ using CarbonateCalculator
 
     @testset "broadcasting agrees with the equivalent loop" begin
         solve = CarbonateSystem(:carbon; varying = (:TA, :DIC, :temp_c, :sal),
-                                K_method = "Lueker 2000")
+                                K_settings = (K1_K2_method = "Lueker 2000",))
         broadcast_results = solve.(TA, DIC, temp, sal)
         loop_results = [carbon_system(TA = t, DIC = d, temp_c = tc, sal = s,
-                                      K_method = "Lueker 2000")
+                                      K_settings = (K1_K2_method = "Lueker 2000",))
                         for (t, d, tc, s) in zip(TA, DIC, temp, sal)]
 
         @test length(broadcast_results) == 3
@@ -77,6 +77,8 @@ using CarbonateCalculator
         @test_throws ArgumentError C(varying = (:TA, :DIC, :TA))       # named twice
         @test_throws ArgumentError C(varying = (:TA, :DIC), TA = 2300.0)  # varying and fixed
         @test_throws ArgumentError C(varying = (:TA, :DIC), K_methodd = "x")  # bad setting
+        @test_throws ArgumentError C(varying = (:TA, :DIC),                   # bad K setting
+                                     K_settings = (K1_K2_method = "x",))
         # ...and a parameter the scope does not cover.
         @test_throws ArgumentError C(varying = (:TA, :DIC), δBT = 39.61)
     end

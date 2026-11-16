@@ -98,7 +98,10 @@ function CarbonateSystem(scope::Symbol...; varying = (), varying_errors = (), se
 
     varying = Tuple(varying)
     varying_errors = Tuple(varying_errors)
-    fixed = NamedTuple(settings)
+
+    # The constants' settings are resolved to a `KSettings` once, here, so a solver built once
+    # and broadcast validates them and warns about their companions once, not per row.
+    fixed = _fold_K_settings(NamedTuple(settings))
 
     # Check that no parameter is named more than once
     for (names, what) in ((varying, "varying"), (varying_errors, "varying_errors"))
@@ -193,7 +196,10 @@ end
 
 "Validate, fill in defaults, compute and package — the one path both call forms take."
 function _run(sys::CarbonateSystem{scope}, supplied_parameters, errors) where {scope}
-    supplied = merge(sys.settings, supplied_parameters)
+    # Folded on the per-call values only: the solver's own settings were folded when it was
+    # built. On the keyword path this is a no-op unless the call names K_settings or an old
+    # method keyword, and the check for those is settled from the NamedTuple's type.
+    supplied = merge(sys.settings, _fold_K_settings(supplied_parameters))
     _reject_retired_arguments(supplied)
     _reject_unknown_parameters(keys(supplied), keys(sys.defaults), scope)
 
@@ -204,6 +210,10 @@ function _run(sys::CarbonateSystem{scope}, supplied_parameters, errors) where {s
 
     _check_determinacy(inputs, scope; require_two = scope === (:carbon,))
     _check_conditions(inputs.temp_c, inputs.sal, inputs.pres_bar)
+
+    # Supplied constants were computed elsewhere, so the settings say nothing about them.
+    isnothing(inputs.Ks) &&
+        _check_K_settings(inputs.K_settings, inputs.temp_c, inputs.sal, inputs.Ca, inputs.Mg)
 
     return _solve(scope, inputs, errors)
 end
@@ -276,12 +286,12 @@ supplied" for a constraint, and "derive it from salinity" for a total.
 - `unit = "umol"`: the concentration unit values are reported in — one of `"mol"`, `"mmol"`,
   `"umol"`, `"nmol"`, `"pmol"`, `"fmol"`. A symbol (`:umol`) and the written-out form
   (`"µmol/kg"`) mean the same thing; anything else is an error.
-- `K_method = "default"`: the carbonic-acid parameterisation, `"KGen"` by default. See
-  [`calculate_constants`](@ref) for every option.
-- `KSO4_method`, `BT_method`, `KF_method`, `KNH3_method`, `Ca_method = "default"`: the
-  remaining parameterisation choices, each documented on [`calculate_constants`](@ref).
-- `MyAMI_mode = "approximate"`: how the KGen path corrects constants for Ca and Mg.
-  `"calculate"` runs the full MyAMI model, which is slower and more accurate.
+- `K_settings = KSettings()`: which parameterisation to use for each equilibrium constant,
+  total and conversion. Name only what differs from the defaults, as a NamedTuple —
+  `K_settings = (K1_K2_method = "Roy 1993", KF_method = "Perez")` — or a
+  [`KSettings`](@ref), which lists every field and option. Choices that do not belong
+  together warn when the settings are made, and a K1/K2 parameterisation used outside the
+  temperature and salinity it was fitted over warns when the calculation runs.
 - `Ks = nothing`: a pre-computed constant bundle from [`calculate_constants`](@ref), used
   instead of computing one. The conditions must match the ones it was built for.
 - `CO3_root = "low"`: which solution to return when solving from TA with CO₃²⁻ (or ΩA/ΩC),

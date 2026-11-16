@@ -77,7 +77,7 @@ println("δ¹¹B of B(OH)₄⁻: ", res_iso.δBOH₄, " ‰")
 solver_vec = CarbonateSystem(
     :carbon;
     varying = (:TA, :DIC, :temp_c),
-    K_method = "Lueker 2000",
+    K_settings = (K1_K2_method = "Lueker 2000",),
     sal = 35.0
 )
 
@@ -159,33 +159,43 @@ println("∂(pH)/∂(ln TA) [constant DIC]: ", dpH_dTA_rel)
 # SECTION 6: Calling different constant calculation methods
 # ==============================================================================
 
-# Explicitly define every parameterisation choice in a single call
+# Every parameterisation choice lives in `K_settings`. Name only the ones that differ from
+# the defaults; `KSettings()` shows the full set, and `?KSettings` lists every option.
 res_custom_methods = carbon_system(
     TA = 2300.0, DIC = 2000.0, temp_c = 25.0, sal = 35.0,
-    K_method    = "Lueker 2000",          # Carbonic acid constants
-    BT_method   = "Lee",             # Total boron to salinity relationship
-    KSO4_method = "Dickson",         # Sulphate dissociation constant
-    KF_method   = "Perez", # Fluoride dissociation constant
-    KNH3_method = "Clegg",           # Ammonia dissociation constant
-    Ca_method   = "RT67",           # Calcium concentration relationship
-    MyAMI_mode  = "calculate"             # Ca/Mg activity coefficient corrections
+    K_settings = (
+        K1_K2_method = "Lueker 2000",   # Carbonic acid constants
+        BT_method    = "Lee",           # Total boron to salinity relationship
+        KF_method    = "Perez",         # Fluoride dissociation constant
+        KNH3_method  = "Clegg",         # Ammonia dissociation constant
+        Ca_method    = "RT67",          # Calcium concentration relationship
+    ),
 )
+println("Settings used: ", res_custom_methods.settings.K_settings)
 
-# Or pre-compute constants specifying all parameterisation methods:
+# Settings can also be built once as a `KSettings` and reused, or copied with changes.
+roy = KSettings(K1_K2_method = "Roy 1993", KSO4_method = "Khoo", Ca_method = "RT67")
+roy_clegg = KSettings(roy; KNH3_method = "Clegg")
+
+# Pre-compute constants with the same settings:
 ks_custom = CarbonateCalculator.calculate_constants(
-    temp_c = 25.0, sal = 35.0, pres_bar = 0.0,
-    K_method    = "Roy 1993",
-    BT_method   = "Uppstrom",
-    KSO4_method = "Khoo",
-    KF_method   = "Dickson",
-    KNH3_method = "Clegg",
-    Ca_method   = "RT67",
-    MyAMI_mode  = "approximate"
+    temp_c = 25.0, sal = 35.0, pres_bar = 0.0, K_settings = roy_clegg
 )
 
 # Pass the pre-computed bundle directly using `Ks`
 res_from_ks = carbon_system(TA = 2300.0, DIC = 2000.0, Ks = ks_custom)
 println("pH using pre-computed custom Ks: ", res_from_ks.pHtot)
+
+# Nothing is switched for you. Choosing a K1/K2 parameterisation that was published with
+# particular companion constants warns until they are selected too...
+mehrbach_alone = KSettings(K1_K2_method = "Mehrbach 1973")             # warns
+geosecs = KSettings(K1_K2_method = "Mehrbach 1973",                    # silent: the
+                    BT_method = "Culkin", Ca_method = "Culkin")        # GEOSECS set
+
+# ...and using one outside the temperature or salinity it was fitted over warns per
+# calculation (once per method and condition):
+carbon_system(TA = 2300.0, DIC = 2000.0, temp_c = 40.0,
+              K_settings = (K1_K2_method = "Lueker 2000",))            # fitted for 2-35 °C
 
 
 ## =============================================================================
@@ -214,7 +224,7 @@ mega_solver = CarbonateSystem(
     varying = (:TA, :δBOH₄, :temp_c),             # Inputs provided positionally
     varying_errors = (:TA, :δBOH₄),             # Inputs with uncertainties
     sal = 35.0,
-    K_method = "KGen"
+    K_settings = (K1_K2_method = "KGen",)   # the default; named here for clarity
 )
 
 # 3. Solve Deck Conditions with AD Uncertainty Propagation

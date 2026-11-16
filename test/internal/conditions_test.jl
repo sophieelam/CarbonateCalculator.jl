@@ -12,29 +12,49 @@ const δBT_MODERN = 39.61
         # carries, so anything it fails to carry shows up as a state that does not
         # reproduce. Run across the method matrix, not just defaults - the whole class of
         # bug this refactor fixes was a setting being dropped between conditions.
-        k_methods = ["Roy 1993", "GP 1989", "Hansson 1973", "DM 1987", "HM 1973",
-                     "Mehrbach 1973 A", "Mehrbach 1973 B", "CW 2003", "Lueker 2000",
-                     "MPM 2002", "Millero 2002", "Millero 2006", "Millero 2010",
-                     "Waters 2014", "SB 2020", "Sulpis 2020", "KGen"]
+        # Every K1/K2 parameterisation, plus Mehrbach 1973 with each of its companion sets,
+        # since those reach fH, BT and Ca as well. Millero 1979 is pure water only, so it is
+        # left to the salinity-0 case further down.
+        k_settings = [[(K1_K2_method = k,) for k in
+                       ("Roy 1993", "GP 1989", "Hansson 1973", "DM 1987", "HM 1973",
+                        "Mehrbach 1973", "CW 2003", "Lueker 2000", "MPM 2002",
+                        "Millero 2002", "Millero 2006", "Millero 2010", "Waters 2014",
+                        "SB 2020", "Sulpis 2020", "KGen")];
+                      (K1_K2_method = "Mehrbach 1973", BT_method = "Culkin",
+                       Ca_method = "Culkin");
+                      (K1_K2_method = "Mehrbach 1973", fH_method = "Peng 1987",
+                       BT_method = "Culkin", Ca_method = "Culkin")]
 
-        for k in k_methods
-            m = carbon_system(; measured_kw..., K_method=k)
+        for k in k_settings
+            m = carbon_system(; measured_kw..., K_settings=k)
             r = adjust(m)
             @test r.val.pHtot ≈ m.val.pHtot rtol=1e-12
             @test r.val.CO₃ ≈ m.val.CO₃ rtol=1e-12
             @test r.val.ΩC ≈ m.val.ΩC rtol=1e-12
         end
 
+        # Millero 1979 with its freshwater set, at the only salinity it was fitted for. The
+        # freshwater pressure table only matters off the surface, so test there too.
+        for pb in (0.0, 300.0)
+            freshwater = (K1_K2_method = "Millero 1979", fH_method = "freshwater",
+                          BT_method = "freshwater", pressure_method = "Millero 1983")
+            m = carbon_system(; measured_kw..., sal=0.0, pres_bar=pb, K_settings=freshwater)
+            r = adjust(m)
+            @test r.val.pHtot ≈ m.val.pHtot rtol=1e-12
+            @test r.val.CO₃ ≈ m.val.CO₃ rtol=1e-12
+        end
+
         for kso4 in ["default", "Khoo", "WM13"], kf in ["default", "Perez"]
-            m = carbon_system(; measured_kw..., K_method="Lueker 2000",
-                              KSO4_method=kso4, KF_method=kf)
+            m = carbon_system(; measured_kw...,
+                              K_settings=(K1_K2_method="Lueker 2000", KSO4_method=kso4,
+                                          KF_method=kf))
             r = adjust(m)
             @test r.val.pHtot ≈ m.val.pHtot rtol=1e-12
             @test r.val.pHfree ≈ m.val.pHfree rtol=1e-12
         end
 
-        for bt in ["default", "Lee", "KSK18"], ca in ["default", "Culkin", "RT67"]
-            m = carbon_system(; measured_kw..., BT_method=bt, Ca_method=ca)
+        for bt in ["default", "Lee", "KSK18", "Culkin"], ca in ["default", "Culkin", "RT67"]
+            m = carbon_system(; measured_kw..., K_settings=(BT_method=bt, Ca_method=ca))
             r = adjust(m)
             @test r.val.pHtot ≈ m.val.pHtot rtol=1e-12
             @test r.val.ΩA ≈ m.val.ΩA rtol=1e-12
@@ -42,7 +62,8 @@ const δBT_MODERN = 39.61
         end
 
         for knh3 in ["default", "Clegg"]
-            m = whole_system(; measured_kw..., δBT=δBT_MODERN, KNH3_method=knh3)
+            m = whole_system(; measured_kw..., δBT=δBT_MODERN,
+                             K_settings=(KNH3_method=knh3,))
             r = adjust(m)
             @test r.val.pHtot ≈ m.val.pHtot rtol=1e-12
             @test r.val.δBOH₄ ≈ m.val.δBOH₄ rtol=1e-9
@@ -60,9 +81,11 @@ const δBT_MODERN = 39.61
         # some other conditions must equal solving there directly with the same settings.
         for (tc, pb) in ((2.0, 0.0), (30.0, 0.0), (20.0, 400.0), (2.0, 400.0))
             for k in ("KGen", "Lueker 2000")
+                ks = (K1_K2_method = k,)
                 staged = adjust(
-                    carbon_system(; measured_kw..., K_method=k); temp_c=tc, pres_bar=pb)
-                direct = carbon_system(; measured_kw..., K_method=k, temp_c=tc, pres_bar=pb)
+                    carbon_system(; measured_kw..., K_settings=ks); temp_c=tc, pres_bar=pb)
+                direct = carbon_system(; measured_kw..., K_settings=ks, temp_c=tc,
+                                       pres_bar=pb)
                 @test staged.val.pHtot ≈ direct.val.pHtot rtol=1e-12
                 @test staged.val.ΩA ≈ direct.val.ΩA rtol=1e-12
             end
@@ -70,9 +93,12 @@ const δBT_MODERN = 39.61
     end
 
     @testset "Settings and inputs are carried on the result" begin
-        m = carbon_system(; measured_kw..., K_method="Lueker 2000", KSO4_method="Khoo")
-        @test m.settings.K_method == "Lueker 2000"
-        @test m.settings.KSO4_method == "Khoo"
+        m = carbon_system(; measured_kw...,
+                          K_settings=(K1_K2_method="Lueker 2000", KSO4_method="Khoo"))
+        @test m.settings.K_settings isa KSettings
+        @test m.settings.K_settings.K1_K2_method == "Lueker 2000"
+        @test m.settings.K_settings.KSO4_method == "Khoo"
+        @test m.settings.K_settings.KF_method == "Dickson"   # unnamed fields keep defaults
         @test m.inputs.temp_c == 20.0
         # A result records the *scope* it was solved with, so a re-solve needs no guesswork
         # about which entry point produced it.
@@ -82,7 +108,7 @@ const δBT_MODERN = 39.61
 
         # ...and survive a recalculation, or the second hop would lose them.
         r = adjust(m; temp_c=2.0)
-        @test r.settings.KSO4_method == "Khoo"
+        @test r.settings.K_settings == m.settings.K_settings
         @test r.system === (:carbon,)
     end
 
@@ -100,15 +126,14 @@ const δBT_MODERN = 39.61
         @test r.val.δBT ≈ m.val.δBT
 
         # KSO4_method reaches the target conditions.
-        khoo = adjust(
-            carbon_system(; measured_kw..., K_method="Lueker 2000", KSO4_method="Khoo");
-            temp_c=2.0)
+        lueker_khoo = (K1_K2_method="Lueker 2000", KSO4_method="Khoo")
+        khoo = adjust(carbon_system(; measured_kw..., K_settings=lueker_khoo); temp_c=2.0)
         dflt = adjust(
-            carbon_system(; measured_kw..., K_method="Lueker 2000");
+            carbon_system(; measured_kw..., K_settings=(K1_K2_method="Lueker 2000",));
             temp_c=2.0)
         @test khoo.val.pHsws != dflt.val.pHsws
         @test khoo.val.pHsws ≈ carbon_system(; measured_kw..., temp_c=2.0,
-            K_method="Lueker 2000", KSO4_method="Khoo").val.pHsws rtol=1e-12
+            K_settings=lueker_khoo).val.pHsws rtol=1e-12
 
         # H2ST and NH4T contribute to alkalinity at the target conditions.
         with = adjust(

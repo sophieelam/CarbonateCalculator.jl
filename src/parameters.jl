@@ -24,10 +24,9 @@ const PARAMETER_DEFAULTS = (
     # Conditions.
     temp_c = 25.0, sal = 35.0, pres_bar = 0.0,
 
-    # How the constants are calculated, and what units the values are in.
-    unit = "umol", Ks = nothing, MyAMI_mode = "approximate",
-    K_method = "default", KSO4_method = "default", BT_method = "default",
-    KF_method = "default", KNH3_method = "default", Ca_method = "default",
+    # How the constants are calculated, and what units the values are in. `K_settings` holds
+    # every choice of parameterisation; see `KSettings`.
+    unit = "umol", Ks = nothing, K_settings = DEFAULT_K_SETTINGS,
 
     # Which solution to return for the two pairs that have two (see `H_from_CO₃_TA` and
     # `pH_from_HCO₃_DIC`): "low" or "high" pH. Ignored by every other pair.

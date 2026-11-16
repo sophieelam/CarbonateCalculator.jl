@@ -4,10 +4,15 @@
 Equilibrium constants, their temperature/salinity/pressure dependence, and the seawater
 composition derived from salinity.
 
-Every constant is available under several published parameterisations, selected by the
-`*_method` arguments and registered in [`COMPOSITION`](@ref) and [`SPECIATION`](@ref).
-[`calculate_constants`](@ref) assembles a complete set for one body of water;
-[`which_K`](@ref) chooses a parameterisation when asked to.
+Every constant is available under several published parameterisations, registered in
+[`COMPOSITION`](@ref), [`SPECIATION`](@ref) and [`CONVERSION`](@ref) and chosen with a
+[`KSettings`](@ref). [`calculate_constants`](@ref) assembles a complete set for one body of
+water.
+
+Each choice is independent: a K1/K2 parameterisation sets K1 and K2 and nothing else. Where a
+parameterisation was published or used alongside particular companions (GEOSECS, Peng et al.,
+the freshwater constants), the registry records them and `KSettings` warns when they are not
+selected, rather than switching them silently.
 
 Constants are returned on the total pH scale, pressure-corrected after Millero (1995).
 """
@@ -447,8 +452,8 @@ function Waters2014(; temp_c, sal, kwargs...)
 end
 
 
-# 16. Schockman & Byrne, 2020: https://doi.org/10.1016/j.gca.2021.02.008
-# Salinity between 19.6-40 PSU, temperature between 15-35 C
+# 16. Schockman & Byrne, 2021: https://doi.org/10.1016/j.gca.2021.02.008
+# Salinity between 19-41 PSU, temperature between 15-35 C (CO2SYS v3.2 option 17)
 # pH on total scale, converted to SWS if /SWStoTOT is included
 function SB2020(; temp_c, sal, ST=nothing, FT=nothing, KS=nothing, KF=nothing, kwargs...)
     TK = temp_c + 273.15     # Convert to Kelvin
@@ -480,8 +485,8 @@ function SB2020(; temp_c, sal, ST=nothing, FT=nothing, KS=nothing, KF=nothing, k
 end
 
 
-# 17. Papdimitriou, et al., 2018: https://doi.org/10.1016/j.gca.2017.09.037
-# Salinity between 50-100 PSU, temperature between (-6)-25 C
+# 17. Papadimitriou, et al., 2018: https://doi.org/10.1016/j.gca.2017.09.037
+# Salinity between 33-100 PSU, temperature between (-6)-25 C (the paper's abstract)
 # pH on total scale, converted to SWS if converted to SWS if /SWStoTOT is included
 function Papadimitriou2018(; temp_c, sal, ST, FT, KS, KF, kwargs...)
     TK = temp_c + 273.15     # Convert to Kelvin
@@ -503,7 +508,7 @@ end
 
 
 # 18. Sulpis, et al., 2020: https://doi.org/10.5194/os-16-847-2020
-# Salinity between 19-43 PSU, temperature between 2-35 C
+# Salinity between 31-38 PSU, temperature between -1.7-32 C (field data; CO2SYS v3.2 option 16)
 # Total pH scale, real seawater (converted to SWS converted to SWS if /SWStoTOT is included)
 function Sulpis2020(; temp_c, sal, ST, FT, KS, KF, kwargs...)
     TK = temp_c + 273.15     # Convert to Kelvin
@@ -527,9 +532,8 @@ end
 # Case 8. Millero, 1979: https://doi.org/10.1016/0016-7037(79)90184-4
 # Salinity of 0 PSU (freshwater), temperature between 0-50 C
 function case8_BT(; kwargs...)
-    BT=0
-    return (; BT=BT) # in mol/kg-SW
-end 
+    return (; BT = 0.0) # in mol/kg-SW
+end
 
 
 # Case 6/7. Mehrbach 1973: https://doi.org/10.4319/lo.1973.18.6.0897
@@ -726,11 +730,14 @@ function calc_fH(temp_c, sal)
 end
 
 
+"`calc_fH` in the keyword form the `fH_method` registry calls."
+Takahashi_fH(; temp_c, sal, kwargs...) = (; fH = calc_fH(temp_c, sal))
+
 # Case #8: Millero, 1979: https://doi.org/10.1016/0016-7037(79)90184-4
 # Salinity of 0 PSU (freshwater), temperature between 0-50 C
-function case8_fH(; temp_c, sal, kwargs...)
-    fH = 1
-    return (; fH=fH)
+# Pure water, where the NBS and seawater scales coincide.
+function case8_fH(; kwargs...)
+    return (; fH = 1.0)
 end
 
 # Case #7: Mehrbach 1973: https://doi.org/10.4319/lo.1973.18.6.0897
@@ -750,16 +757,6 @@ end
 
 # Calculate KB
 
-# Case #8: Millero, 1979: https://doi.org/10.1016/0016-7037(79)90184-4
-# Salinity of 0 PSU (freshwater), temperature between 0-50 C
-function case8_KB(; kwargs...)
-    KB = 0
-    return (; KB=KB)
-end
-
-# Case #6/7: Mehrbach 1973: https://doi.org/10.4319/lo.1973.18.6.0897
-# Salinity between 19-43 PSU, temperature between 2-35 C
-# All other cases
 # Dickson, A. G., Deep-Sea Research 37:755-766, 1990
 function calc_KB(; temp_c, sal, kwargs...)
     TK = temp_c + 273.15
@@ -776,20 +773,8 @@ end
 
 # Calculate KW
 
-# Case #8: Millero, Geochemica et Cosmochemica Acta 43:1651-1661, 1979
-# NOTES FROM CO2SYS:
-# Refit data of Harned and Owen, The Physical Chemistry of Electrolyte Solutions, 1958
-function case8_KW(; temp_c, sal, kwargs...)
-    TK = temp_c + 273.15
-    lnKW = 148.9802 - 13847.26 / TK - 23.6521 * log(TK)
-    KW = exp(lnKW)
-    return (; KW=KW)
-end
-
-
-
-# AlL other cases:
 # Millero, Geochemica et Cosmochemica Acta 59:661-677, 1995
+# At salinity 0 this is identical to Millero (1979)'s pure-water KW.
 function calc_KW(; temp_c, sal, kwargs...)
     TK = temp_c + 273.15
     lnKW = (148.9802 - 13847.26 / TK - 23.6521 * log(TK) + (-5.977 + 118.67 /
@@ -801,19 +786,6 @@ end
 
 # Calculate KP1, KP2, KP3, and KSi
 
-# Cases 6 & 8:
-function case68_KP(; kwargs...)
-    KP1 = 0
-    KP2 = 0
-    KP3 = 0
-    KSi = 0
-    # Neither the GEOSECS choice nor the freshwater choice
-    # include contributions from phosphate or silicate.
-    return (; KP1=KP1, KP2=KP2, KP3=KP3, KSi=KSi)
-end
-
-
-# All other cases
 # Yao and Millero, Aquatic Geochemistry 1:53-88, 1995
 # KP1, KP2, KP3 are on the SWS pH scale in mol/kg-SW.
 # KSi was given on the SWS pH scale in molal units.
@@ -946,243 +918,6 @@ function RT67_Ca(; sal, kwargs...)
 end
 
 
-"""
-    which_K(; K_method="default", temp_c, sal, Ca=nothing, Mg=nothing)
-
-Pick the equilibrium-constant parameterisation best suited to the conditions.
-
-Tested in two stages, and the order is important.
-
-**Domain first.** `sal < 1` and `sal > 50` can only be modelled by Millero 1979 and
-Papadimitriou 2018, which cover fresh water and brine respectively. Nothing may be preferred
-ahead of them.
-
-**Preference second.** Within the ordinary salinity range, the choice is between
-parameterisations that all apply, so temperature decides.
-
-Millero 2002 does take precedence over GP 1989 at `34 < sal < 37`. That is a genuine
-preference between two parameterisations that both cover those conditions, not a domain error.
-"""
-function which_K(; K_method="default", temp_c, sal, Ca=nothing,
-    Mg=nothing, kwargs...)
-    # An unspecified Ca/Mg is modern seawater, so it must not read as "non-modern" here.
-    if something(Ca, MODERN_CALCIUM) != MODERN_CALCIUM ||
-       something(Mg, MODERN_MAGNESIUM) != MODERN_MAGNESIUM
-        return "KGen"
-    end
-
-    # Domain guards.
-    if sal < 1.0
-        return "Millero 1979"
-    elseif sal > 50.0
-        return "Papadimitriou 2018"
-    end
-
-    # Preference guards, all within the salinity range these parameterisations share.
-    if temp_c > 35
-        return "Millero 2006"
-    elseif temp_c < 2 && 34.0 < sal < 37.0
-        return "Millero 2002"
-    elseif temp_c < 0 && 10 < sal < 50
-        return "GP 1989"
-    else
-        return "KGen"
-    end
-end
-
-# --- Option lookup table ------------------------------------------------------------------
-
-"""
-Modern seawater calcium, as a parameterisation so that `Ca_method` has three interchangeable
-options rather than two plus a fallback. Independent of salinity by definition: this is the
-composition Kgen assumes for the KGen correction, not a concentration to be diluted.
-"""
-Modern_Ca(; kwargs...) = MODERN_CALCIUM
-
-"""
-How much of each dissolved species the water holds, by the name `*_method` selects.
-
-Composition, not speciation: these parameterisations give a *concentration* from salinity.
-
-Rows are `(fn = …)`. See [`SPECIATION`](@ref) for what the shared `default`/`options` shape
-is for.
-"""
-const COMPOSITION = (
-    BT_method = (
-        default = "Uppstrom",
-        options = Dict(
-            "Uppstrom" => (fn = Uppstrom_BT,),
-            "Lee" => (fn = Lee_BT,),
-            "KSK18" => (fn = KSK18_BT,))
-        ),
-    Ca_method = (
-        default = "modern",
-        options = Dict(
-            "modern" => (fn = Modern_Ca,),
-            "Culkin" => (fn = Culkin_Ca,),
-            "RT67" => (fn = RT67_Ca,))
-        ),
-)
-
-"""
-The equilibrium constants, by the name `*_method` selects, each with the pH scale it is
-fitted on.
-
-Rows are `(fn = …, scale = …)`
-
-`:free` on KS and KF is recorded but never acted on: the free-scale values are exactly what
-`SWStoTOT` and `FREEtoTOT` are built from. It is here so the assumption sits with the
-parameterisation rather than in a comment beside a pressure correction.
-
-The call site for each argument is shared, so every row within one entry must take the same
-arguments and return the same shape. That works because every parameterisation in this file
-ends in `kwargs...`: one argument set calls all of them and each takes what it needs. All of
-them return a NamedTuple.
-"""
-const SPECIATION = (
-    KSO4_method = (
-        default = "Dickson",
-        options = Dict(
-            "Dickson" => (fn = Dickson_KS, scale = :free),
-            "Khoo" => (fn = Khoo_KS, scale = :free),
-            "WM13" => (fn = WM13_KS, scale = :free))
-        ),
-    KF_method   = (
-        default = "Dickson",
-        options = Dict(
-            "Dickson" => (fn = Dickson_KF, scale = :free),
-            "Perez" => (fn = Perez_KF, scale = :free))
-        ),
-    KNH3_method = (
-        default = "Millero",
-        options = Dict(
-            "Millero" => (fn = Millero_KNH3, scale = :sws),
-            "Clegg" => (fn = Clegg_KNH3, scale = :total))
-        ),
-    # `default = nothing` because K_method's default is not a fixed name: `which_K` picks it
-    # from temperature and salinity, and has already done so before `_apply` is reached.
-    K_method    = (
-        default = "KGen",
-        options = Dict(
-            "Roy 1993"           => (fn = Roy1993,           scale = :total),
-            "GP 1989"            => (fn = GP1989,            scale = :sws),
-            "Hansson 1973"       => (fn = Hansson1973,       scale = :sws),
-            "DM 1987"            => (fn = DM1987,            scale = :sws),
-            "HM 1973"            => (fn = HM1973,            scale = :sws),
-            "Mehrbach 1973 A"    => (fn = Mehrbach1973,      scale = :sws),
-            "Mehrbach 1973 B"    => (fn = Mehrbach1973,      scale = :sws),
-            "Millero 1979"       => (fn = Millero1979,       scale = :nbs),
-            "CW 2003"            => (fn = CW2003,            scale = :sws),
-            "Lueker 2000"        => (fn = Lueker2000,        scale = :total),
-            "MPM 2002"           => (fn = MPM2002,           scale = :sws),
-            "Millero 2002"       => (fn = Millero2002,       scale = :sws),
-            "Millero 2006"       => (fn = Millero2006,       scale = :sws),
-            "Millero 2010"       => (fn = Millero2010,       scale = :sws),
-            "Waters 2014"        => (fn = Waters2014,        scale = :sws),
-            "SB 2020"            => (fn = SB2020,            scale = :total),
-            "Papadimitriou 2018" => (fn = Papadimitriou2018, scale = :total),
-            "Sulpis 2020"        => (fn = Sulpis2020,        scale = :total),
-            # Listed so this is the complete set of valid K_method values and the error message
-            # stays right, but it has no K1/K2 function: Kgen hands back a whole bundle, already
-            # pressure-corrected and on the total scale, assembled separately below.
-            "KGen"              => (fn = nothing,           scale = :total),
-        )
-    ),
-)
-
-"""
-Raise for a `*_method` value that names no parameterisation.
-
-`valid` is built from the table when the dispatch below is generated, so the list of names
-cannot drift from the ones actually accepted, and the error path touches no table at all.
-"""
-_unknown_method(argument::Symbol, name, valid::String) =
-    throw(ArgumentError("Unknown $argument: \"$name\".\nChoose one of: $valid"))
-
-"The 'you could have meant' list for one argument, built at generation time."
-function _valid_names(entry)
-    fallback = isnothing(entry.default) ?
-        "\"default\" picks one from temperature and salinity" :
-        "\"default\" is $(entry.default)"
-    return join(sort!(collect(keys(entry.options))), ", ") * ". $fallback."
-end
-
-"""
-    _apply(Val(:KSO4_method), name; kwargs...)
-
-Call the parameterisation `name` selects for one `*_method` argument, resolving `"default"`
-and rejecting anything the table does not list.
-
-**Generated from [`COMPOSITION`](@ref) and [`SPECIATION`](@ref), not a lookup into them.** A
-`Dict` holding several different functions can only be typed `Dict{String,Function}`, so
-calling through it is a dynamic dispatch returning `Any` — and that `Any` spreads into every
-constant derived from the result, leaving the whole bundle untyped. Interpolating the function
-objects into a comparison chain at load time keeps every call statically known while the
-tables stay the single place a parameterisation is registered. Do not replace this with a
-`Dict` lookup - it is much slower.
-"""
-function _apply end
-
-"""
-    _native_scale(Val(:K_method), name) -> :total | :sws | :nbs
-
-The pH scale the parameterisation `name` selects is fitted on.
-
-Generated from [`SPECIATION`](@ref) only — the composition parameterisations give
-concentrations, which are not on a pH scale.
-
-Resolves `"default"` exactly as [`_apply`](@ref) does, which is the point of going through it
-at all: a scale test written against the raw argument, such as
-`KNH3_method == "Millero" ? sws_factor : 1.0`, silently misses the `"default"` that selects
-Millero, and leaves a seawater-scale constant in a total-scale bundle.
-"""
-function _native_scale end
-
-for table in (COMPOSITION, SPECIATION), (argument, entry) in pairs(table)
-    body = Expr(:block)
-
-    # A default that is a fixed name resolves here. K_method's is not — `which_K` derives it
-    # from temperature and salinity long before this is reached — so it emits no such line.
-    isnothing(entry.default) ||
-        push!(body.args, :(name == "default" && (name = $(entry.default))))
-
-    for (option, row) in entry.options
-        isnothing(row.fn) && continue    # KGen, which has no K1/K2 function
-        push!(body.args, :(name == $option && return $(row.fn)(; kwargs...)))
-    end
-
-    @eval function _apply(::Val{$(QuoteNode(argument))}, name; kwargs...)
-        $body
-        _unknown_method($(QuoteNode(argument)), name, $(_valid_names(entry)))
-    end
-end
-
-for (argument, entry) in pairs(SPECIATION)
-    body = Expr(:block)
-    isnothing(entry.default) ||
-        push!(body.args, :(name == "default" && (name = $(entry.default))))
-
-    for (option, row) in entry.options
-        push!(body.args, :(name == $option && return $(QuoteNode(row.scale))))
-    end
-
-    @eval function _native_scale(::Val{$(QuoteNode(argument))}, name)
-        $body
-        _unknown_method($(QuoteNode(argument)), name, $(_valid_names(entry)))
-    end
-end
-
-"""
-What K1 and K2 must be multiplied by to move them from the scale they were fitted on to the
-total scale. `sws_factor` converts seawater-scale to total; `fH` additionally relates NBS to
-seawater-scale.
-"""
-_to_total_mult(scale::Symbol, sws_factor, fH) =
-    scale === :sws ? sws_factor :
-    scale === :nbs ? sws_factor / fH :
-                     1.0    # :total — already there
-
-
 # --- Pressure corrections ------------------------------------------------------------------
 
 """
@@ -1215,10 +950,10 @@ const PRESSURE_COEFFICIENTS = (
 )
 
 """
-Millero 1983's coefficients, which the freshwater `Millero 1979` parameterisation uses in
-place of the rows above.
+Millero 1983's freshwater coefficients, selected with `pressure_method = "Millero 1983"` and
+published beside the `Millero 1979` K1/K2 parameterisation.
 
-A table rather than a branch, so the special case is three rows that `merge` overlays on
+A table rather than a branch, so the special case is a few rows that `merge` overlays on
 `PRESSURE_COEFFICIENTS`. KB is zeroed rather than omitted, which makes its correction a factor
 of exactly 1 — immaterial either way, since BT is ~zero in freshwater.
 """
@@ -1241,24 +976,662 @@ function _pressure_factor(temp_c, pres_bar, coefficients)
     return exp((-ΔV + 0.5 * κ * pres_bar) * pres_bar / RT)
 end
 
-"""
-The pressure coefficients to use for `K_method`.
 
-Identical field names and types either way, so the choice stays inferable — a `Union` of two
-differently-shaped tables here would leave every corrected constant untyped.
-"""
-_pressure_table(K_method) = K_method == "Millero 1979" ?
-    merge(PRESSURE_COEFFICIENTS, MILLERO1979_PRESSURE) : PRESSURE_COEFFICIENTS
+# --- Option lookup tables -----------------------------------------------------------------
 
 """
-    calculate_constants(; temp_c, sal, pres_bar=0.0, kwargs...)
+Modern seawater calcium, as a parameterisation so that `Ca_method` has interchangeable options
+rather than several plus a fallback. Independent of salinity by definition: this is the
+composition Kgen assumes for the KGen correction, not a concentration to be diluted.
+"""
+Modern_Ca(; kwargs...) = MODERN_CALCIUM
+
+"The standard pressure coefficients, in the keyword form the `pressure_method` registry calls."
+Millero1995_pressure(; kwargs...) = PRESSURE_COEFFICIENTS
+
+"""
+Millero (1983)'s freshwater coefficients for K1, K2 and KW over the standard table.
+
+Identical field names and types to [`Millero1995_pressure`](@ref)'s, so the choice stays
+inferable — a `Union` of two differently-shaped tables would leave every corrected constant
+untyped.
+"""
+Millero1983_pressure(; kwargs...) = merge(PRESSURE_COEFFICIENTS, MILLERO1979_PRESSURE)
+
+"""
+How much of each dissolved species the water holds, by the name a [`KSettings`](@ref) field
+selects.
+
+Composition, not speciation: these parameterisations give a *concentration* from salinity.
+
+Rows are `(fn = …)`, plus `intended_for` on an option that only makes sense beside a
+particular K1/K2 parameterisation, which [`KSettings`](@ref) warns about when it is used with
+any other. See [`SPECIATION`](@ref) for what the shared `default`/`options` shape is for.
+"""
+const COMPOSITION = (
+    BT_method = (
+        default = "Uppstrom",
+        options = Dict(
+            "Uppstrom"   => (fn = Uppstrom_BT,),
+            "Lee"        => (fn = Lee_BT,),
+            "KSK18"      => (fn = KSK18_BT,),
+            # GEOSECS and Peng et al.'s boron, 0.0004106·S/35, about 1 % below Uppstrom.
+            "Culkin"     => (fn = case67_BT,),
+            # No boron at all: the freshwater set that goes with Millero 1979.
+            "freshwater" => (fn = case8_BT, intended_for = ("Millero 1979",))),
+        ),
+    Ca_method = (
+        default = "modern",
+        options = Dict(
+            "modern" => (fn = Modern_Ca,),
+            "Culkin" => (fn = Culkin_Ca,),
+            "RT67"   => (fn = RT67_Ca,))
+        ),
+)
+
+"""
+The equilibrium constants, by the name a [`KSettings`](@ref) field selects, each with the pH
+scale it is fitted on.
+
+Rows are `(fn = …, scale = …)`. `K1_K2_method` rows also carry:
+
+- `temp_c`, `sal`: the `(low, high)` range the parameterisation was fitted over, in °C and
+  practical salinity. A calculation outside it warns; see `_check_K_settings`.
+- `source`: where that range comes from, for the warning and the README.
+- `companions`: the sets of other constants the parameterisation was published or used with,
+  as `(name, settings)` pairs. [`KSettings`](@ref) warns when none of them is selected. Empty
+  for the parameterisations that are self-contained.
+
+`:free` on KS and KF is recorded but never acted on: the free-scale values are exactly what
+`SWStoTOT` and `FREEtoTOT` are built from. It is here so the assumption sits with the
+parameterisation rather than in a comment beside a pressure correction.
+
+The call site for each argument is shared, so every row within one entry must take the same
+arguments and return the same shape. That works because every parameterisation in this file
+ends in `kwargs...`: one argument set calls all of them and each takes what it needs. All of
+them return a NamedTuple.
+"""
+const SPECIATION = (
+    KSO4_method = (
+        default = "Dickson",
+        options = Dict(
+            "Dickson" => (fn = Dickson_KS, scale = :free),
+            "Khoo" => (fn = Khoo_KS, scale = :free),
+            "WM13" => (fn = WM13_KS, scale = :free))
+        ),
+    KF_method   = (
+        default = "Dickson",
+        options = Dict(
+            "Dickson" => (fn = Dickson_KF, scale = :free),
+            "Perez" => (fn = Perez_KF, scale = :free))
+        ),
+    KNH3_method = (
+        default = "Millero",
+        options = Dict(
+            "Millero" => (fn = Millero_KNH3, scale = :sws),
+            "Clegg" => (fn = Clegg_KNH3, scale = :total))
+        ),
+    # Ranges are from the CO2SYS v3.2 header unless `source` says otherwise. CO2SYS option
+    # numbers are given where a range came from there, so it can be checked against the same
+    # table.
+    K1_K2_method = (
+        default = "KGen",
+        options = Dict(
+            "Roy 1993" => (fn = Roy1993, scale = :total,
+                temp_c = (0.0, 45.0), sal = (5.0, 45.0),
+                source = "Roy et al. (1993); CO2SYS option 1", companions = ()),
+            "GP 1989" => (fn = GP1989, scale = :sws,
+                temp_c = (-1.0, 40.0), sal = (10.0, 50.0),
+                source = "Goyet & Poisson (1989); CO2SYS option 2", companions = ()),
+            "Hansson 1973" => (fn = Hansson1973, scale = :sws,
+                temp_c = (2.0, 35.0), sal = (20.0, 40.0),
+                source = "Hansson (1973) refit by Dickson & Millero (1987); CO2SYS option 3",
+                companions = ()),
+            "DM 1987" => (fn = DM1987, scale = :sws,
+                temp_c = (2.0, 35.0), sal = (20.0, 40.0),
+                source = "Mehrbach et al. (1973) refit by Dickson & Millero (1987); " *
+                         "CO2SYS option 4", companions = ()),
+            "HM 1973" => (fn = HM1973, scale = :sws,
+                temp_c = (2.0, 35.0), sal = (20.0, 40.0),
+                source = "Hansson and Mehrbach combined by Dickson & Millero (1987); " *
+                         "CO2SYS option 5", companions = ()),
+            # One function, two historical sets of companions. Each used to be its own
+            # K_method ("Mehrbach 1973 A"/"B"), which switched the companions silently.
+            "Mehrbach 1973" => (fn = Mehrbach1973, scale = :sws,
+                temp_c = (2.0, 35.0), sal = (19.0, 43.0),
+                source = "Mehrbach et al. (1973), as used by GEOSECS and Peng et al.; " *
+                         "CO2SYS options 6 and 7",
+                companions = (
+                    (name = "GEOSECS (Takahashi et al., 1982; CO2SYS option 6)",
+                     settings = (fH_method = "Takahashi 1982", BT_method = "Culkin",
+                                 Ca_method = "Culkin")),
+                    (name = "Peng et al. (1987; CO2SYS option 7)",
+                     settings = (fH_method = "Peng 1987", BT_method = "Culkin",
+                                 Ca_method = "Culkin")),
+                )),
+            "Millero 1979" => (fn = Millero1979, scale = :nbs,
+                temp_c = (0.0, 50.0), sal = (0.0, 0.0),
+                source = "Millero (1979), pure water only; CO2SYS option 8",
+                companions = (
+                    (name = "freshwater (CO2SYS option 8)",
+                     settings = (fH_method = "freshwater", BT_method = "freshwater",
+                                 pressure_method = "Millero 1983")),
+                )),
+            "CW 2003" => (fn = CW2003, scale = :sws,
+                temp_c = (2.0, 35.0), sal = (0.0, 49.0),
+                source = "Cai & Wang (1998); CO2SYS option 9", companions = ()),
+            "Lueker 2000" => (fn = Lueker2000, scale = :total,
+                temp_c = (2.0, 35.0), sal = (19.0, 43.0),
+                source = "Lueker et al. (2000); CO2SYS option 10", companions = ()),
+            "MPM 2002" => (fn = MPM2002, scale = :sws,
+                temp_c = (0.0, 45.0), sal = (5.0, 42.0),
+                source = "Mojica Prieto & Millero (2002); CO2SYS option 11",
+                companions = ()),
+            "Millero 2002" => (fn = Millero2002, scale = :sws,
+                temp_c = (-1.6, 35.0), sal = (34.0, 37.0),
+                source = "Millero et al. (2002); CO2SYS option 12", companions = ()),
+            "Millero 2006" => (fn = Millero2006, scale = :sws,
+                temp_c = (0.0, 50.0), sal = (1.0, 50.0),
+                source = "Millero et al. (2006); CO2SYS option 13", companions = ()),
+            "Millero 2010" => (fn = Millero2010, scale = :sws,
+                temp_c = (0.0, 50.0), sal = (1.0, 50.0),
+                source = "Millero (2010); CO2SYS option 14", companions = ()),
+            "Waters 2014" => (fn = Waters2014, scale = :sws,
+                temp_c = (0.0, 50.0), sal = (1.0, 50.0),
+                source = "Waters et al. (2014); CO2SYS option 15", companions = ()),
+            "Sulpis 2020" => (fn = Sulpis2020, scale = :total,
+                temp_c = (-1.7, 32.0), sal = (31.0, 38.0),
+                source = "Sulpis et al. (2020); CO2SYS option 16", companions = ()),
+            "SB 2020" => (fn = SB2020, scale = :total,
+                temp_c = (15.0, 35.0), sal = (19.0, 41.0),
+                source = "Schockman & Byrne (2021); CO2SYS option 17", companions = ()),
+            "Papadimitriou 2018" => (fn = Papadimitriou2018, scale = :total,
+                temp_c = (-6.0, 25.0), sal = (33.0, 100.0),
+                source = "Papadimitriou et al. (2018), the paper's abstract",
+                companions = ()),
+            # No K1/K2 function: Kgen hands back a whole bundle, already pressure-corrected
+            # and on the total scale, assembled separately in `calculate_constants`.
+            #
+            # The range is the one this package's README has always given for KGen. Kgen's
+            # own documentation states none, and its modern-seawater K1/K2 follow Dickson,
+            # Sabine & Christian (2007), i.e. Lueker et al. (2000), fitted over 2-35 °C and
+            # S 19-43 — so this is worth confirming with Kgen's authors.
+            "KGen" => (fn = nothing, scale = :total,
+                temp_c = (-2.0, 50.0), sal = (0.0, 50.0),
+                source = "Kgen (Whiteford et al., 2025), range as given in the README",
+                companions = ()),
+        )
+    ),
+)
+
+"""
+How measured pH and pressure relate to the constants, by the name a [`KSettings`](@ref) field
+selects.
+
+`fH_method` is the activity coefficient of H⁺ that relates the NBS pH scale to the seawater
+scale. It converts NBS-fitted constants (Mehrbach 1973, Millero 1979) and `pHNBS`.
+
+`pressure_method` is the table of partial molal volumes and compressibilities the constants
+are corrected to pressure with. Under KGen it reaches only KH2S and KNH3, because Kgen applies
+its own correction to the rest.
+"""
+const CONVERSION = (
+    fH_method = (
+        default = "Takahashi 1982",
+        options = Dict(
+            "Takahashi 1982" => (fn = Takahashi_fH,),
+            "Peng 1987"      => (fn = case7_fH, intended_for = ("Mehrbach 1973",)),
+            "freshwater"     => (fn = case8_fH, intended_for = ("Millero 1979",))),
+        ),
+    pressure_method = (
+        default = "Millero 1995",
+        options = Dict(
+            "Millero 1995" => (fn = Millero1995_pressure,),
+            "Millero 1983" => (fn = Millero1983_pressure, intended_for = ("Millero 1979",))),
+        ),
+)
+
+"""
+How Kgen corrects the constants for seawater composition. Not a parameterisation, so it has
+no function, but it is chosen in the same [`KSettings`](@ref) and validated the same way.
+
+Only the polynomial approximation is implemented in Kgen.jl; the full MyAMI model is Python
+only, so `"calculate"` is refused by name rather than listed.
+"""
+const KGEN_OPTIONS = (
+    MyAMI_mode = (default = "approximate", options = Dict("approximate" => (fn = nothing,))),
+)
+
+"""
+Raise for a method name that names no parameterisation.
+
+`valid` is built from the table when the dispatch below is generated, so the list of names
+cannot drift from the ones actually accepted, and the error path touches no table at all.
+"""
+_unknown_method(argument::Symbol, name, valid::String) =
+    throw(ArgumentError("Unknown $argument: \"$name\".\nChoose one of: $valid"))
+
+"The 'you could have meant' list for one argument, built at generation time."
+_valid_names(entry) =
+    join(sort!(collect(keys(entry.options))), ", ") * ". \"default\" is $(entry.default)."
+
+"""
+    _apply(Val(:KSO4_method), name; kwargs...)
+
+Call the parameterisation `name` selects for one setting, resolving `"default"` and rejecting
+anything the table does not list.
+
+**Generated from [`COMPOSITION`](@ref), [`SPECIATION`](@ref) and [`CONVERSION`](@ref), not a
+lookup into them.** A `Dict` holding several different functions can only be typed
+`Dict{String,Function}`, so calling through it is a dynamic dispatch returning `Any` — and
+that `Any` spreads into every constant derived from the result, leaving the whole bundle
+untyped. Interpolating the function objects into a comparison chain at load time keeps every
+call statically known while the tables stay the single place a parameterisation is
+registered. Do not replace this with a `Dict` lookup - it is much slower.
+"""
+function _apply end
+
+"""
+    _native_scale(Val(:K1_K2_method), name) -> :total | :sws | :nbs
+
+The pH scale the parameterisation `name` selects is fitted on.
+
+Generated from [`SPECIATION`](@ref) only — the composition parameterisations give
+concentrations, which are not on a pH scale.
+
+Resolves `"default"` exactly as [`_apply`](@ref) does, which is the point of going through it
+at all: a scale test written against the raw argument, such as
+`KNH3_method == "Millero" ? sws_factor : 1.0`, silently misses the `"default"` that selects
+Millero, and leaves a seawater-scale constant in a total-scale bundle.
+"""
+function _native_scale end
+
+for table in (COMPOSITION, SPECIATION, CONVERSION), (argument, entry) in pairs(table)
+    body = Expr(:block)
+    push!(body.args, :(name == "default" && (name = $(entry.default))))
+
+    for (option, row) in entry.options
+        isnothing(row.fn) && continue    # KGen, which has no K1/K2 function
+        push!(body.args, :(name == $option && return $(row.fn)(; kwargs...)))
+    end
+
+    @eval function _apply(::Val{$(QuoteNode(argument))}, name; kwargs...)
+        $body
+        _unknown_method($(QuoteNode(argument)), name, $(_valid_names(entry)))
+    end
+end
+
+for (argument, entry) in pairs(SPECIATION)
+    body = Expr(:block)
+    push!(body.args, :(name == "default" && (name = $(entry.default))))
+
+    for (option, row) in entry.options
+        push!(body.args, :(name == $option && return $(QuoteNode(row.scale))))
+    end
+
+    @eval function _native_scale(::Val{$(QuoteNode(argument))}, name)
+        $body
+        _unknown_method($(QuoteNode(argument)), name, $(_valid_names(entry)))
+    end
+end
+
+"""
+The fitted range of every K1/K2 parameterisation, keyed by name, for the per-call check.
+
+Built from [`SPECIATION`](@ref) at load, so the registry stays the one place a range is
+written. A separate concretely-typed `Dict` because the registry's own rows differ in shape and
+so only fit a `Dict{String, Any}`; looking a range up in that on every calculation would be a
+dynamic dispatch on the hot path.
+"""
+const K1_K2_RANGES = Dict{String, @NamedTuple{temp_c::NTuple{2, Float64},
+                                             sal::NTuple{2, Float64}, source::String}}(
+    name => (temp_c = row.temp_c, sal = row.sal, source = row.source)
+    for (name, row) in SPECIATION.K1_K2_method.options)
+
+
+# --- Choosing the constants ---------------------------------------------------------------
+
+"""
+    KSettings(; K1_K2_method, KSO4_method, KF_method, KNH3_method, BT_method, Ca_method,
+                fH_method, pressure_method, MyAMI_mode)
+
+Which parameterisation to use for each equilibrium constant, total and conversion.
+
+Name only the choices that differ from the defaults; everything else keeps its default.
+Anywhere a `KSettings` is accepted, a NamedTuple of the same fields is too, so these are
+equivalent:
+
+```jldoctest
+julia> carbon_system(TA = 2300.0, DIC = 2000.0,
+                     K_settings = (K1_K2_method = "Roy 1993", KF_method = "Perez")).pHtot ==
+       carbon_system(TA = 2300.0, DIC = 2000.0,
+                     K_settings = KSettings(K1_K2_method = "Roy 1993",
+                                            KF_method = "Perez")).pHtot
+true
+```
+
+| field | options | default |
+|---|---|---|
+| `K1_K2_method` | `"KGen"`, `"Roy 1993"`, `"GP 1989"`, `"Hansson 1973"`, `"DM 1987"`, `"HM 1973"`, `"Mehrbach 1973"`, `"Millero 1979"`, `"CW 2003"`, `"Lueker 2000"`, `"MPM 2002"`, `"Millero 2002"`, `"Millero 2006"`, `"Millero 2010"`, `"Waters 2014"`, `"Sulpis 2020"`, `"SB 2020"`, `"Papadimitriou 2018"` | `"KGen"` |
+| `KSO4_method` | `"Dickson"`, `"Khoo"`, `"WM13"` | `"Dickson"` |
+| `KF_method` | `"Dickson"`, `"Perez"` | `"Dickson"` |
+| `KNH3_method` | `"Millero"`, `"Clegg"` | `"Millero"` |
+| `BT_method` | `"Uppstrom"`, `"Lee"`, `"KSK18"`, `"Culkin"`, `"freshwater"` | `"Uppstrom"` |
+| `Ca_method` | `"modern"`, `"Culkin"`, `"RT67"` | `"modern"` |
+| `fH_method` | `"Takahashi 1982"`, `"Peng 1987"`, `"freshwater"` | `"Takahashi 1982"` |
+| `pressure_method` | `"Millero 1995"`, `"Millero 1983"` | `"Millero 1995"` |
+| `MyAMI_mode` | `"approximate"` | `"approximate"` |
+
+`"default"` names the default for any field, and a `Symbol` is read as its string.
+
+Each choice is independent: nothing here changes another field. Where a K1/K2
+parameterisation was published with particular companions — Mehrbach 1973 with the GEOSECS
+or Peng et al. sets, Millero 1979 with the freshwater set — selecting it without them warns,
+naming the sets and what is selected instead, and the calculation uses what you selected. The
+same goes for a companion-only option (`fH_method = "Peng 1987"`, the freshwater options)
+selected beside a different K1/K2 parameterisation, and for `KSO4_method`, `KF_method` or
+`pressure_method` chosen alongside `"KGen"`, which computes those constants itself.
+
+Whether the chosen K1/K2 parameterisation suits the temperature and salinity of the water is
+checked per calculation instead, since that depends on the inputs; see the README for every
+parameterisation's fitted range.
+
+A supplied `BT`, `Ca` or `Mg` value overrides `BT_method` or `Ca_method`.
+
+`KSettings(settings; changes...)` copies `settings` with some fields changed.
+"""
+struct KSettings
+    K1_K2_method::String
+    KSO4_method::String
+    KF_method::String
+    KNH3_method::String
+    BT_method::String
+    Ca_method::String
+    fH_method::String
+    pressure_method::String
+    MyAMI_mode::String
+end
+
+"The registry entry a `KSettings` field is validated against."
+@inline _setting_entry(field::Symbol) =
+    haskey(SPECIATION, field)   ? SPECIATION[field] :
+    haskey(COMPOSITION, field)  ? COMPOSITION[field] :
+    haskey(CONVERSION, field)   ? CONVERSION[field] :
+                                  KGEN_OPTIONS[field]
+
+"What each `KSettings` field resolves to when not named."
+const K_SETTINGS_DEFAULTS = NamedTuple{fieldnames(KSettings)}(
+    map(f -> _setting_entry(f).default, fieldnames(KSettings)))
+
+"""
+Names that used to be accepted for a field, mapped to what to write now.
+
+Read only to build an error, so the old names cost nothing until someone uses one. A retired
+name is an error rather than a silent translation inside `KSettings`, because each of these
+used to change *other* constants as well, and the point of `KSettings` is that nothing does.
+"""
+const RETIRED_K1_K2_NAMES = Dict(
+    "Mehrbach 1973 A" =>
+        "K1_K2_method = \"Mehrbach 1973\". For the GEOSECS set it used to imply, also set " *
+        "BT_method = \"Culkin\" and Ca_method = \"Culkin\"",
+    "Mehrbach 1973 B" =>
+        "K1_K2_method = \"Mehrbach 1973\". For the Peng et al. set it used to imply, also " *
+        "set fH_method = \"Peng 1987\", BT_method = \"Culkin\" and Ca_method = \"Culkin\"",
+    "automatic" =>
+        "a named K1_K2_method. \"automatic\" chose one from temperature and salinity, so the " *
+        "constants changed between samples without saying so; each calculation now warns " *
+        "instead when the chosen parameterisation does not suit the water. The README " *
+        "tabulates every parameterisation's range",
+)
+
+"Resolve and validate one field's value."
+function _resolve_setting(field::Symbol, value)
+    value isa Union{AbstractString, Symbol} || throw(ArgumentError(
+        "K_settings.$field must be a string naming a method, got $(repr(value))"))
+    name = String(value)
+    entry = _setting_entry(field)
+    name == "default" && return entry.default
+    haskey(entry.options, name) && return name
+
+    field === :K1_K2_method && haskey(RETIRED_K1_K2_NAMES, name) && throw(ArgumentError(
+        "K1_K2_method \"$name\" is no longer an option; use $(RETIRED_K1_K2_NAMES[name])."))
+    field === :MyAMI_mode && name == "calculate" && throw(ArgumentError(
+        "MyAMI_mode \"calculate\" is not available: Kgen.jl implements only the polynomial " *
+        "approximation to MyAMI. The full model is in the Python Kgen."))
+    _unknown_method(field, name, _valid_names(entry))
+end
+
+"""
+Reject field names `KSettings` does not have, naming the likely intended one.
+
+`K_method` gets its own message because it is the old name for the most common choice.
+"""
+function _reject_unknown_settings(names)
+    fields = fieldnames(KSettings)
+    unknown = [n for n in names if !(n in fields)]
+    isempty(unknown) && return nothing
+
+    squash(n) = lowercase(replace(String(n), "_" => ""))
+    lines = map(unknown) do name
+        name === :K_method && return "K_method is now K1_K2_method"
+        near = [f for f in fields if squash(f) == squash(name)]
+        isempty(near) ? "$name is not a K_settings field" : "$name (did you mean $(only(near))?)"
+    end
+    throw(ArgumentError("unrecognised K_settings field(s):\n  " * join(lines, "\n  ") *
+                        "\nThe fields are: " * join(fields, ", ")))
+end
+
+function KSettings(; kwargs...)
+    _reject_unknown_settings(keys(kwargs))
+    values = map(f -> _resolve_setting(f, get(kwargs, f, "default")), fieldnames(KSettings))
+    settings = KSettings(values...)
+    _warn_companions(settings)
+    return settings
+end
+
+KSettings(settings::KSettings; changes...) =
+    KSettings(; merge(_non_default_fields(settings), NamedTuple(changes))...)
+
+"""
+The fields of `settings` that differ from the defaults, as a NamedTuple.
+
+What `show` prints and what an explicitly-chosen option means for the warnings: a field set to
+its default is indistinguishable from one left out, and should be.
+"""
+function _non_default_fields(settings::KSettings)
+    names = Tuple(f for f in fieldnames(KSettings)
+                  if getfield(settings, f) != K_SETTINGS_DEFAULTS[f])
+    return NamedTuple{names}(map(f -> getfield(settings, f), names))
+end
+
+Base.:(==)(a::KSettings, b::KSettings) =
+    all(getfield(a, f) == getfield(b, f) for f in fieldnames(KSettings))
+Base.hash(s::KSettings, h::UInt) =
+    foldr((f, acc) -> hash(getfield(s, f), acc), fieldnames(KSettings); init = hash(:KSettings, h))
+
+"Printed as the call that rebuilds it, naming only what differs from the defaults."
+function Base.show(io::IO, settings::KSettings)
+    changed = _non_default_fields(settings)
+    print(io, "KSettings(", join(("$k = $(repr(v))" for (k, v) in pairs(changed)), ", "), ")")
+end
+
+"""
+    _as_K_settings(x) -> KSettings
+
+Accept a `KSettings`, a NamedTuple of its fields, or `nothing` for the defaults.
+"""
+_as_K_settings(settings::KSettings) = settings
+_as_K_settings(::Nothing) = KSettings()
+_as_K_settings(settings::NamedTuple) = KSettings(; settings...)
+_as_K_settings(other) = throw(ArgumentError(
+    "K_settings must be a NamedTuple such as (K1_K2_method = \"Roy 1993\",) or a " *
+    "KSettings, got $(repr(other))"))
+
+"`settings` as the literal a user would write, for warning messages."
+_settings_literal(changes::NamedTuple) =
+    "(" * join(("$k = $(repr(v))" for (k, v) in pairs(changes)), ", ") *
+    (length(changes) == 1 ? ",)" : ")")
+
+"""
+Warn about choices that do not belong together. Runs when a `KSettings` is built, because
+these depend only on the settings, not on the water.
+
+Nothing is changed: the warnings say what the published method would have used, and the
+calculation uses what was selected.
+
+`maxlog = 1` with an `_id` per combination, so a solver built once and broadcast warns once,
+and so does a keyword call repeated over a million rows.
+"""
+function _warn_companions(s::KSettings)
+    method = s.K1_K2_method
+    row = SPECIATION.K1_K2_method.options[method]
+
+    # A K1/K2 parameterisation selected without any of its published companion sets.
+    if !isempty(row.companions)
+        if !any(set -> all(getfield(s, k) == v for (k, v) in pairs(set.settings)),
+                row.companions)
+            fields = unique(Iterators.flatten(keys(set.settings) for set in row.companions))
+            sets = join(("  $(set.name): K_settings = " *
+                         _settings_literal(merge((K1_K2_method = method,), set.settings))
+                         for set in row.companions), "\n")
+            current = join(("\"$(getfield(s, f))\" selected for $f" for f in fields), ", ")
+            @warn "You've chosen \"$method\" for K1_K2_method. This K1/K2 method is " *
+                  "intended to be used with " *
+                  (length(row.companions) == 1 ? "this set" : "one of these sets") *
+                  " of companion constants:\n$sets\nYou currently have $current. Your " *
+                  "selections are used as given." maxlog=1 _id=(:companions, s)
+        end
+    end
+
+    # An option that only makes sense beside one K1/K2 parameterisation, used with another.
+    for field in (:BT_method, :fH_method, :pressure_method)
+        option = getfield(s, field)
+        intended = get(_setting_entry(field).options[option], :intended_for, nothing)
+        if !isnothing(intended) && !(method in intended)
+            @warn "You've chosen \"$option\" for $field. This option is intended to be " *
+                  "used with K1_K2_method = " * join(("\"$m\"" for m in intended), " or ") *
+                  ". You currently have \"$method\" selected for K1_K2_method." maxlog=1 _id=(
+                      :intended_for, field, option, method)
+        end
+    end
+
+    # Choices Kgen does not consult. Kgen computes KS, KF and the pressure correction of
+    # everything in its bundle itself.
+    if method == "KGen"
+        for field in (:KSO4_method, :KF_method, :pressure_method)
+            option = getfield(s, field)
+            option == K_SETTINGS_DEFAULTS[field] && continue
+            reach = field === :pressure_method ?
+                "it only reaches KH2S and KNH3, because Kgen pressure-corrects the rest " *
+                "of its constants itself" :
+                "Kgen computes $(field === :KSO4_method ? "KSO4" : "KF") itself"
+            @warn "You've chosen \"$option\" for $field, but you currently have \"KGen\" " *
+                  "selected for K1_K2_method, so $reach. Choose a different K1_K2_method " *
+                  "for $field to apply." maxlog=1 _id=(:kgen_ignores, field, option)
+        end
+    end
+    return nothing
+end
+
+
+"The defaults, built once. `KSettings()` validates and checks companions on every call."
+const DEFAULT_K_SETTINGS = KSettings()
+
+
+# --- Settings given the old way -----------------------------------------------------------
+
+"""
+The keyword arguments that chose the constants before [`KSettings`](@ref), and which still
+work, with a warning.
+"""
+const LEGACY_METHOD_KEYWORDS = (:K_method, :KSO4_method, :BT_method, :KF_method,
+                                :KNH3_method, :Ca_method, :MyAMI_mode)
+
+"""
+What an old `K_method` value did, as `KSettings` fields.
+
+The three that used to switch companions silently translate to those companions explicitly,
+so an old script gets the numbers it always did.
+"""
+function _translate_K_method(name)
+    name = String(name)
+    name in ("default", "KGen") && return (K1_K2_method = "KGen",)
+    name == "Mehrbach 1973 A" && return (K1_K2_method = "Mehrbach 1973", BT_method = "Culkin")
+    name == "Mehrbach 1973 B" && return (K1_K2_method = "Mehrbach 1973",
+                                         fH_method = "Peng 1987")
+    name == "Millero 1979" && return (K1_K2_method = "Millero 1979",
+                                      fH_method = "freshwater", BT_method = "freshwater",
+                                      pressure_method = "Millero 1983")
+    name == "automatic" && throw(ArgumentError(
+        "K_method = \"automatic\" is no longer an option; use K_settings with " *
+        RETIRED_K1_K2_NAMES["automatic"] * "."))
+    return (K1_K2_method = name,)
+end
+
+"Whether a NamedTuple has any old-style method keyword. Settled from the type, so free."
+@generated function _has_legacy(::NamedTuple{names}) where {names}
+    return any(n in LEGACY_METHOD_KEYWORDS for n in names)
+end
+
+"""
+    _fold_K_settings(arguments::NamedTuple) -> NamedTuple
+
+Gather the constants' settings in `arguments` into a single `K_settings::KSettings`.
+
+A NamedTuple `K_settings` becomes a `KSettings`. The old flat keywords (`K_method`,
+`KF_method`, …) are translated, with a warning that shows the `K_settings` to write instead;
+giving both forms is an error, since one would have to be ignored.
+
+The translation of `K_method` wins over a legacy `BT_method`, as the old override did, so an
+old call gets the numbers it always did.
+"""
+function _fold_K_settings(arguments::NamedTuple)
+    if !_has_legacy(arguments)
+        haskey(arguments, :K_settings) || return arguments
+        arguments.K_settings isa KSettings && return arguments
+        return merge(arguments, (K_settings = _as_K_settings(arguments.K_settings),))
+    end
+
+    legacy = NamedTuple{Tuple(k for k in keys(arguments) if k in LEGACY_METHOD_KEYWORDS)}(
+        arguments)
+    rest = Base.structdiff(arguments, legacy)
+    haskey(rest, :K_settings) && throw(ArgumentError(
+        "give the constants' settings either as K_settings or with the old keywords " *
+        "($(join(keys(legacy), ", "))), not both"))
+
+    flat = map(string, Base.structdiff(legacy, NamedTuple{(:K_method,)}))
+    translated = haskey(legacy, :K_method) ? merge(flat, _translate_K_method(legacy.K_method)) :
+                 flat
+    settings = KSettings(; translated...)
+
+    replacement = _non_default_fields(settings)
+    @warn "$(join(keys(legacy), ", ")) $(length(legacy) == 1 ? "is" : "are") replaced by " *
+          "K_settings. Write this instead:\n  K_settings = " *
+          (isempty(replacement) ? "KSettings()" : _settings_literal(replacement)) *
+          "\nThe old form still works for now." maxlog=1 _id=(:legacy_keywords, legacy)
+    return merge(rest, (K_settings = settings,))
+end
+
+"""
+What K1 and K2 must be multiplied by to move them from the scale they were fitted on to the
+total scale. `sws_factor` converts seawater-scale to total; `fH` additionally relates NBS to
+seawater-scale.
+"""
+_to_total_mult(scale::Symbol, sws_factor, fH) =
+    scale === :sws ? sws_factor :
+    scale === :nbs ? sws_factor / fH :
+                     1.0    # :total — already there
+
+
+"""
+    calculate_constants(; temp_c, sal, pres_bar=0.0, K_settings=KSettings(), kwargs...)
 
 Describe a body of seawater: its equilibrium constants, its totals, and the pH-scale
 conversions between them.
 
 Returns a NamedTuple `(; Ks, ST, FT, BT, Ca, Mg, fH, tf_fac, ts_fac, method)`, where `Ks` is
 the inner bundle of 15 equilibrium constants and the rest is the water they were computed
-for. Constants are on the total pH scale.
+for. Constants are on the total pH scale. `method` is the `KSettings` they were computed with.
 
 ```jldoctest
 julia> env = CarbonateCalculator.calculate_constants(temp_c = 20.0, sal = 35.0);
@@ -1276,34 +1649,14 @@ samples, build a solver once and broadcast it; see [`CarbonateSystem`](@ref).
 - `sal`: practical salinity. Required.
 - `pres_bar = 0.0`: hydrostatic pressure, bar.
 - `ST`, `FT`, `BT = nothing`: total sulphate, fluoride and boron in mol/kg, derived from
-  salinity when not given.
+  salinity when not given; `BT` follows `K_settings.BT_method`.
 - `Ca`, `Mg = nothing`: calcium and magnesium in mol/kg. Modern seawater when not given; an
-  explicit value overrides `Ca_method` entirely.
-- `MyAMI_mode = "approximate"`: how the KGen path corrects the constants for Ca and Mg.
-  `"calculate"` runs the full MyAMI model, which is slower and more accurate.
+  explicit value overrides `K_settings.Ca_method` entirely.
+- `K_settings = KSettings()`: which parameterisation to use for each constant, as a
+  [`KSettings`](@ref) or a NamedTuple of its fields. See [`KSettings`](@ref) for every option.
 
-Each `*_method` selects a parameterisation, and `"default"` picks the recommended one.
-
-`K_method` selects the carbonic-acid parameterisation, and defaults to `"KGen"`. Its options are
-`"KGen"`, `"Roy 1993"`, `"GP 1989"`, `"Hansson 1973"`, `"DM 1987"`, `"HM 1973"`,
-`"Mehrbach 1973 A"`, `"Mehrbach 1973 B"`, `"Millero 1979"`, `"CW 2003"`, `"Lueker 2000"`,
-`"MPM 2002"`, `"Millero 2002"`, `"Millero 2006"`, `"Millero 2010"`, `"Waters 2014"`,
-`"SB 2020"`, `"Papadimitriou 2018"`, `"Sulpis 2020"` and `"automatic"`, which picks the one
-best suited to the conditions — see [`which_K`](@ref).
-
-The rest:
-
-| argument | options | default |
-|---|---|---|
-| `KSO4_method` | `"Dickson"`, `"Khoo"`, `"WM13"` | `"Dickson"` (CO2SYS's recommendation) |
-| `BT_method` | `"Uppstrom"`, `"Lee"`, `"KSK18"` | `"Uppstrom"` (CO2SYS's recommendation) |
-| `KF_method` | `"Dickson"`, `"Perez"` | `"Dickson"` (CO2SYS's recommendation) |
-| `KNH3_method` | `"Millero"`, `"Clegg"` | `"Millero"` |
-| `Ca_method` | `"Culkin"`, `"RT67"` | modern seawater Ca (`MODERN_CALCIUM`) |
-
-`Ca_method`'s default is modern seawater rather than Culkin because that is the composition
-Kgen assumes for the MyAMI correction, so the Ca used for saturation state and the Ca used to
-correct the constants agree. `"Culkin"` and `"RT67"` give salinity-scaled concentrations
+The old keywords (`K_method`, `KSO4_method`, `BT_method`, `KF_method`, `KNH3_method`,
+`Ca_method`, `MyAMI_mode`) are still accepted, with a warning naming the `K_settings` to use
 instead.
 
 # Extended help
@@ -1318,40 +1671,32 @@ slice of this.
 Every calculation in the package runs against one of these, and a solver given `Ks=` is given
 *this* value rather than the inner bundle — see `_solve_core`.
 
-Pressure corrections follow Millero (1995), except under `"Millero 1979"`, which uses the
-1983 freshwater coefficients, and under `"KGen"`, where Kgen owns the correction.
+Every choice comes from `K_settings` and from nothing else: no K1/K2 parameterisation
+changes the totals, `fH` or the pressure correction it is used with. Under `"KGen"`, Kgen
+supplies K0, K1, K2, KB, KW, KS, KF, the nutrient constants and both solubility products,
+already pressure-corrected, so `KSO4_method` and `KF_method` have no effect and
+`pressure_method` reaches only KH2S and KNH3.
 
-See also [`which_K`](@ref), [`CarbonateSystem`](@ref).
+See also [`KSettings`](@ref), [`CarbonateSystem`](@ref).
 """
 function calculate_constants(; temp_c, sal, pres_bar=0.0, ST=nothing, FT=nothing,
-    BT=nothing, K_method="KGen", KSO4_method="Dickson", BT_method="Uppstrom",
-    KF_method="Dickson", KNH3_method="Millero", Ca_method="modern", kwargs...)
+    BT=nothing, Ca=nothing, Mg=nothing, K_settings=DEFAULT_K_SETTINGS, legacy...)
 
-    # `"default"` is resolved here rather than in `_apply`, because the method it names has no
-    # K1/K2 function to dispatch to — Kgen delivers a whole bundle, and the branch below is what
-    # reaches it. Left to `_apply`, "default" would be rewritten to "KGen" and then fail to
-    # match any clause, which reports an unknown method that is in its own list of valid names.
-    if K_method == "default"
-        K_method = SPECIATION.K_method.default
-    elseif K_method == "automatic"
-        K_method = which_K(K_method=K_method, temp_c=temp_c, sal=sal; kwargs...)
-    end
+    settings = _settings_for_constants(K_settings, NamedTuple(legacy))
+    K1_K2_method = settings.K1_K2_method
 
     # --- Boron, Sulfate, Fluoride and Calcium Totals ---
     # A supplied total always wins over the method that would otherwise derive it.
-    final_BT = isnothing(BT) ? _apply(Val(:BT_method), BT_method; sal).BT : BT
+    final_BT = isnothing(BT) ? _apply(Val(:BT_method), settings.BT_method; sal).BT : BT
     final_ST = isnothing(ST) ? calc_ST(; sal).ST : ST
     final_FT = isnothing(FT) ? calc_FT(; sal).FT : FT
-
-    Ca_in = get(kwargs, :Ca, nothing)
-    Mg_in = get(kwargs, :Mg, nothing)
 
     # An unspecified Ca or Mg is modern seawater, and "modern" means the same composition
     # Kgen assumes for its KGen correction. Defaulting to that rather than to Culkin
     # keeps the calcium used for saturation state and the calcium used to correct the
     # constants the same number. Culkin and RT67 remain available explicitly.
-    final_Ca = isnothing(Ca_in) ? _apply(Val(:Ca_method), Ca_method; sal) : Ca_in
-    final_Mg = something(Mg_in, MODERN_MAGNESIUM)
+    final_Ca = isnothing(Ca) ? _apply(Val(:Ca_method), settings.Ca_method; sal) : Ca
+    final_Mg = something(Mg, MODERN_MAGNESIUM)
 
     # --- What every method needs -----------------------------------------------------------
     #
@@ -1360,16 +1705,16 @@ function calculate_constants(; temp_c, sal, pres_bar=0.0, ST=nothing, FT=nothing
     # KNH3, which Kgen does not carry, so those two and their pressure factors are computed
     # for every method. Everything else the other parameterisations build on would be
     # computed and discarded on what is the default code path.
-    pressure = _pressure_table(K_method)
+    pressure = _apply(Val(:pressure_method), settings.pressure_method)
 
-    fH_val = calc_fH(temp_c, sal)
+    fH_val = _apply(Val(:fH_method), settings.fH_method; temp_c, sal).fH
     KH2S_surface = calc_KH2S(; temp_c, sal).KH2S
-    KNH3_surface = _apply(Val(:KNH3_method), KNH3_method; temp_c, sal).KNH3
+    KNH3_surface = _apply(Val(:KNH3_method), settings.KNH3_method; temp_c, sal).KNH3
 
     KH2S_at_pressure = KH2S_surface * _pressure_factor(temp_c, pres_bar, pressure.KH2S)
     KNH3_at_pressure = KNH3_surface * _pressure_factor(temp_c, pres_bar, pressure.KNH3)
 
-    if K_method == "KGen"
+    if K1_K2_method == "KGen"
         # Pass the totals computed above rather than deriving new ones here: those honour any
         # explicitly supplied ST/FT/BT and the choice of BT_method, and a second set of
         # formulas would discard BT_method on what is the default code path.
@@ -1378,10 +1723,8 @@ function calculate_constants(; temp_c, sal, pres_bar=0.0, ST=nothing, FT=nothing
         # otherwise. Deliberately not final_Ca, which may have come from Ca_method and be
         # salinity-scaled — that is a concentration, not a composition, and feeding it here
         # would read dilution as a low-Ca ocean.
-        Mg_val = something(Mg_in, MODERN_MAGNESIUM)
-        Ca_val = something(Ca_in, MODERN_CALCIUM)
-
-        MyAMI_mode = get(kwargs, :MyAMI_mode, "approximate")
+        Mg_val = something(Mg, MODERN_MAGNESIUM)
+        Ca_val = something(Ca, MODERN_CALCIUM)
 
         # Positional form, in Kgen's fixed order temp_c, sal, p_bar, magnesium, calcium.
         # Julia cannot broadcast keyword arguments, so this is the form that survives if this
@@ -1392,7 +1735,7 @@ function calculate_constants(; temp_c, sal, pres_bar=0.0, ST=nothing, FT=nothing
             temp_c, sal, pres_bar, Mg_val, Ca_val;
             sulphate = final_ST,
             fluorine = final_FT,
-            MyAMI_mode = MyAMI_mode
+            MyAMI_mode = settings.MyAMI_mode
         )
 
         # Kgen's bundle is on the total scale, so KNH3 needs the same conversion it gets on
@@ -1400,7 +1743,7 @@ function calculate_constants(; temp_c, sal, pres_bar=0.0, ST=nothing, FT=nothing
         # describes. Skipping it leaves the default (Millero, seawater-scale) KNH3 about 2.2 %
         # high, visible only through NH4T, which defaults to zero.
         sws_factor = SWStoTOT(ST = final_ST, FT = final_FT, KS = Ks.KS, KF = Ks.KF)
-        knh3_mult = _to_total_mult(_native_scale(Val(:KNH3_method), KNH3_method),
+        knh3_mult = _to_total_mult(_native_scale(Val(:KNH3_method), settings.KNH3_method),
                                    sws_factor, fH_val)
 
         final_Ks = merge(Ks, (KH2S = KH2S_at_pressure,
@@ -1409,33 +1752,19 @@ function calculate_constants(; temp_c, sal, pres_bar=0.0, ST=nothing, FT=nothing
         # --- The surface environment the parameterisation is a correction to ---
         # `_surface` throughout: these are 1 atm values, not the ones that end up in the
         # bundle. K0 is the exception that never gets corrected, following CO2SYS.
-        KS_surface = _apply(Val(:KSO4_method), KSO4_method; temp_c, sal).KS
-        KF_surface = _apply(Val(:KF_method), KF_method; temp_c, sal).KF
+        KS_surface = _apply(Val(:KSO4_method), settings.KSO4_method; temp_c, sal).KS
+        KF_surface = _apply(Val(:KF_method), settings.KF_method; temp_c, sal).KF
         K0         = calc_K0(; temp_c, sal).K0
         KB_surface = calc_KB(; temp_c, sal, ST = final_ST, FT = final_FT,
                              KS = KS_surface, KF = KF_surface).KB
         KW_surface = calc_KW(; temp_c, sal).KW
         nutrients  = calc_KP(; temp_c, sal, fH = fH_val)
 
-        # Three parameterisations refit part of that surface environment before their K1/K2
-        # can be used. They are spelled out because each replaces a different set; the other
-        # fifteen need nothing but the lookup. Note that `nutrients` above keeps the baseline
-        # fH even where fH is refitted here — only Millero 1979 replaces those constants.
-        if K_method == "Mehrbach 1973 A"
-            final_BT = isnothing(BT) ? case67_BT(; sal).BT : BT
-        elseif K_method == "Mehrbach 1973 B"
-            fH_val = case7_fH(; temp_c, sal).fH
-        elseif K_method == "Millero 1979"
-            # Freshwater, so boron and the nutrient constants go to zero rather than being
-            # rescaled.
-            fH_val = case8_fH(; temp_c, sal).fH
-            final_BT = isnothing(BT) ? case8_BT(; sal).BT : BT
-            KB_surface = case8_KB(; temp_c, sal, fH_val).KB
-            KW_surface = case8_KW(; temp_c, sal).KW
-            nutrients = case68_KP(; temp_c, sal, fH_val)
-        end
-
-        (; K1, K2) = _apply(Val(:K_method), K_method; temp_c, sal, ST = final_ST,
+        # No parameterisation adjusts the environment above. Mehrbach 1973 and Millero 1979
+        # used to replace parts of it (BT, fH, KB, KW, the nutrient constants and the
+        # pressure table); those are now `KSettings` fields, chosen like any other, and
+        # `KSettings` warns when the published companions are not selected.
+        (; K1, K2) = _apply(Val(:K1_K2_method), K1_K2_method; temp_c, sal, ST = final_ST,
                             FT = final_FT, KS = KS_surface, KF = KF_surface, fH = fH_val)
 
         # --- Onto the total pH scale ---
@@ -1447,8 +1776,9 @@ function calculate_constants(; temp_c, sal, pres_bar=0.0, ST=nothing, FT=nothing
 
         # KB and KH2S carry no multiplier because every parameterisation of them here is
         # total-scale native. K1/K2 and KNH3 read theirs off the table.
-        k1k2_mult = _to_total_mult(_native_scale(Val(:K_method), K_method), sws_factor, fH_val)
-        knh3_mult = _to_total_mult(_native_scale(Val(:KNH3_method), KNH3_method),
+        k1k2_mult = _to_total_mult(_native_scale(Val(:K1_K2_method), K1_K2_method),
+                                   sws_factor, fH_val)
+        knh3_mult = _to_total_mult(_native_scale(Val(:KNH3_method), settings.KNH3_method),
                                    sws_factor, fH_val)
 
         final_Ks = (
@@ -1491,10 +1821,28 @@ function calculate_constants(; temp_c, sal, pres_bar=0.0, ST=nothing, FT=nothing
         fH = fH_val,
         tf_fac = free_to_total,
         ts_fac = sws_to_total,
-        method = K_method
+        method = settings
     )
 
 end
 
-export calculate_constants
+"""
+The `KSettings` a direct call to `calculate_constants` asked for.
+
+The old flat keywords are folded the same way the solvers fold them, so a script that called
+`calculate_constants(; K_method = "Lueker 2000")` keeps working, with the same warning. Anything
+else in `legacy` is a typo, and an error: this is a public function and a misspelled setting
+would otherwise be ignored.
+"""
+function _settings_for_constants(K_settings, legacy::NamedTuple)
+    isempty(legacy) && return _as_K_settings(K_settings)
+    unknown = [k for k in keys(legacy) if !(k in LEGACY_METHOD_KEYWORDS)]
+    isempty(unknown) || throw(ArgumentError(
+        "calculate_constants does not take $(join(unknown, ", "))"))
+    given = K_settings === DEFAULT_K_SETTINGS ? legacy :
+            merge(legacy, (K_settings = K_settings,))
+    return _fold_K_settings(given).K_settings
+end
+
+export calculate_constants, KSettings
 end # module

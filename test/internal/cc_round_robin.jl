@@ -10,7 +10,7 @@ ENV_KWARGS = (
     PT = 1.0,     # Was PO4_in
     NH4T = 2.0,   # Was NH3_in
     H2ST = 3.0,   # Was H2S_in
-    K_method = "Lueker 2000"
+    K_settings = (K1_K2_method = "Lueker 2000",)
 )
 
 @testset "carbon_system Round-Robin Internal Consistency" begin

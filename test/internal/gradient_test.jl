@@ -132,8 +132,8 @@ using CarbonateCalculator
         measured = CarbonateSystem(:carbon; varying_errors = (:pHtot, :TA), pHtot = 8.1,
                                    TA = 2300.0, temp_c = 20.0, base...)(0.005, 2.0)
 
-        # 10 °C deliberately, not 2 °C: `which_K` switches parameterisation at exactly 2 °C
-        # for this salinity, and a derivative across that step is meaningless.
+        # 10 °C, well inside every parameterisation's fitted range, so the result does not
+        # depend on how the constants behave at the edge of one.
         collected = adjust(measured; temp_c = 10.0, σ_temp_c = 0.5)
 
         @test !isnothing(collected.source)
