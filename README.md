@@ -331,13 +331,16 @@ For conservative elements, composition is estimated from salinity using the foll
 | `"modern"`* | Modern seawater from `KGen` | $[\text{Ca}^{2+}] = 0.01028 \cdot S / 35\ \text{mol/kg-sw}$.
 | `"Culkin"` | Culkin (1965) | $[\text{Ca}^{2+}] = 0.01026 \cdot S / 35\ \text{mol/kg-sw}$.
 | `"RT67"` | Riley & Tongudai (1967) | $[\text{Ca}^{2+}] = (0.02128 / 40.087) \cdot S / 1.80655\ \text{mol/kg-sw}$.
+| `"CO2SYS"` | Riley & Tongudai (1967), as CO2SYS | The same formula as `"RT67"`, under the name to look for when matching CO2SYS-MATLAB or PyCO2SYS (their default; their GEOSECS options 6 and 7 use `"Culkin"`). Differs from `"modern"` by 2.4 × 10⁻⁴ relative, which moves Ω by the same amount. |
 | `"[a number]"` | User-settable | The concentration of calcium in the seawater in $\text{mol/kg-sw}$ at 35.0 salinity. |
+
+Every option, like a supplied number, is calcium at S = 35, diluted to the sample's salinity for the saturation state. Until November 2026 (version 0.2.0 and earlier), `"Culkin"` and `"RT67"` were diluted twice, which put Ω low by a factor S/35 away from S = 35; results at S = 35 were unaffected.
 
 #### Magnesium Concentration ($[\text{Mg}^{2+}]$) — `Mg`
 
 | Key / Method | Reference | Formulation / Description |
 | :--- | :--- | :--- |
-| `"modern"`* | Modern seawater from `KGen` | $[\text{Mg}^{2+}] = 0.0128 \cdot S / 35\ \text{mol/kg-sw}$.
+| `"modern"`* | Modern seawater from `KGen` | $[\text{Mg}^{2+}] = 0.0528 \cdot S / 35\ \text{mol/kg-sw}$.
 | `"[a number]"` | User-settable | The concentration of magnesium in the seawater in $\text{mol/kg-sw}$ at 35.0 salinity. |
 
 #### Total Sulphate ($S_T$)
@@ -490,7 +493,7 @@ CarbonateCalculator.calculate_constants(temp_c = 20.0, sal = 35.0, K_settings = 
 | `KF_method` | Hydrogen fluoride $K_\text{F}$ | `"Dickson"`, `"Perez"` | `"Dickson"` |
 | `KNH3_method` | Ammonium $K_\text{NH3}$ | `"Millero"`, `"Clegg"` | `"Millero"` |
 | `BT_method` | Total boron from salinity | `"Uppstrom"`, `"Lee"`, `"KSK18"`, `"Culkin"`, `"freshwater"` | `"Uppstrom"` |
-| `Ca_method` | Calcium from salinity | `"modern"`, `"Culkin"`, `"RT67"` | `"modern"` |
+| `Ca_method` | Calcium from salinity | `"modern"`, `"Culkin"`, `"RT67"`, `"CO2SYS"` | `"modern"` |
 | `fH_method` | NBS activity coefficient $f_\text{H}$ | `"Takahashi 1982"`, `"Peng 1987"`, `"freshwater"` | `"Takahashi 1982"` |
 | `pressure_method` | Pressure-correction coefficients | `"Millero 1995"`, `"Millero 1983"` | `"Millero 1995"` |
 | `MyAMI_mode` | KGen's Ca/Mg correction | `"approximate"` | `"approximate"` |

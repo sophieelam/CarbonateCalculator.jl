@@ -28,6 +28,11 @@
 #    Perez and Fraga KF (no mol/kg-H2O conversion) and aragonite's pressure ΔV (-45.96, was
 #    -46.0). So KH2S is never compared; cases with H2ST, WM13 or Perez KF are compared only
 #    for their conditions and totals; and KspA is not compared at pressure.
+# 4. Culkin and RT67 calcium were diluted to the sample's salinity twice (2026-11): they
+#    returned in-situ calcium, which the pipeline then multiplied by S/35 again. They now
+#    return calcium at S = 35, like "modern" and a supplied Ca. So for those two at S ≠ 35,
+#    Ca and the saturation states are not compared; test/internal/calcium_test.jl checks
+#    them against the published formulas instead.
 #
 # Every exception is a skip, never a loosened tolerance, and "as written" = "by hand" is
 # checked for every case regardless.
@@ -75,7 +80,14 @@ pressure_fixed(kw) = get(kw, :pres_bar, 0.0) > 0 && !uses_kgen(kw)
 corrected_throughout(kw) = get(kw, :H2ST, 0.0) > 0 ||
     (!uses_kgen(kw) && (get(kw, :KSO4_method, "") == "WM13" || get(kw, :KF_method, "") == "Perez"))
 
+"Was this case's calcium changed by the end of the double dilution (difference 4)?"
+calcium_fixed(kw) = get(kw, :Ca_method, "") in ("Culkin", "RT67") &&
+    get(kw, :sal, 35.0) != 35.0 && !haskey(kw, :Ca)
+
+const CALCIUM_FIELDS = ("Ca", "ΩA", "ΩC")
+
 function baseline_skips(name, kind, kw, field)
+    calcium_fixed(kw) && field in CALCIUM_FIELDS && return true
     startswith(name, "constants_Millero 1979") && field in MILLERO1979_ZEROED && return true
     field == "KH2S" && return true                        # difference 3, at every condition
     corrected_throughout(kw) && return !(field in CONDITIONS_AND_TOTALS)

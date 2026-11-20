@@ -96,6 +96,10 @@ end
             include("internal/tables_test.jl")
         end
 
+        @testset "Calcium and saturation state" begin
+            include("internal/calcium_test.jl")
+        end
+
         @testset "Conditions" begin
             include("internal/conditions_test.jl")
         end

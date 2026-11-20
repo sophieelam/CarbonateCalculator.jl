@@ -908,21 +908,32 @@ end
 
 
 # Calculate Ca
+#
+# Every Ca_method returns calcium at S = 35, the same convention as a supplied `Ca` and as
+# "modern": the pipeline dilutes it to the sample's salinity (`ps.Ca * ps.sal / 35` in
+# src/pipeline.jl) when it computes saturation state. A method that scaled with salinity
+# itself would be scaled twice. Until 2026-11 Culkin and RT67 did exactly that, which put
+# Ω low by a factor S/35 away from S = 35 (43 % at S = 20).
+#
+# All three formulas are linear in salinity through the origin, so "at S = 35, then × S/35"
+# is the formula evaluated at the sample's salinity, to rounding.
 
-# NOTES FROM CO2SYS
-# *** CalculateCaforGEOSECS:
-# Culkin, F, in Chemical Oceanography, ed. Riley and Skirrow, 1965:
-# (quoted in Takahashi et al, GEOSECS Pacific Expedition v. 3, 1982)
-# Culkin gives Ca = (.0213/40.078)*(Sal/1.80655) in mol/kg-SW
-# which corresponds to Ca = .01030*Sal/35.
-function Culkin_Ca(; sal, kwargs...)
-    return (0.01026 * sal / 35) # in mol/kg-SW
-end
+"""
+    Culkin_Ca(; kwargs...)
 
+Culkin (1965) calcium, as CO2SYS uses for its GEOSECS and Peng et al. options (6 and 7):
+`0.01026 · S / 35` mol/kg-SW. Returned at S = 35, i.e. 0.01026 mol/kg-SW; see the note above.
+"""
+Culkin_Ca(; kwargs...) = 0.01026 # in mol/kg-SW at S = 35
 
-function RT67_Ca(; sal, kwargs...)
-    return (0.02128 / 40.087 * sal / 1.80655) # in mol/kg-SW
-end
+"""
+    RT67_Ca(; kwargs...)
+
+Riley and Tongudai (1967) calcium, CO2SYS's and PyCO2SYS's default:
+`0.02128 / 40.087 · S / 1.80655` mol/kg-SW. Returned at S = 35 (0.0102843 mol/kg-SW); see
+the note above. Selected by `Ca_method = "RT67"` or its alias `"CO2SYS"`.
+"""
+RT67_Ca(; kwargs...) = 0.02128 / 40.087 * 35 / 1.80655 # in mol/kg-SW at S = 35
 
 
 # --- Pressure corrections ------------------------------------------------------------------
@@ -1033,7 +1044,10 @@ const COMPOSITION = (
         options = Dict(
             "modern" => (fn = Modern_Ca,),
             "Culkin" => (fn = Culkin_Ca,),
-            "RT67"   => (fn = RT67_Ca,))
+            "RT67"   => (fn = RT67_Ca,),
+            # The same formula under the name most users will look for: what CO2SYS-MATLAB
+            # and PyCO2SYS use unless a GEOSECS option switches them to Culkin.
+            "CO2SYS" => (fn = RT67_Ca,))
         ),
 )
 
@@ -1325,7 +1339,7 @@ true
 | `KF_method` | `"Dickson"`, `"Perez"` | `"Dickson"` |
 | `KNH3_method` | `"Millero"`, `"Clegg"` | `"Millero"` |
 | `BT_method` | `"Uppstrom"`, `"Lee"`, `"KSK18"`, `"Culkin"`, `"freshwater"` | `"Uppstrom"` |
-| `Ca_method` | `"modern"`, `"Culkin"`, `"RT67"` | `"modern"` |
+| `Ca_method` | `"modern"`, `"Culkin"`, `"RT67"`, `"CO2SYS"` (same as `"RT67"`) | `"modern"` |
 | `fH_method` | `"Takahashi 1982"`, `"Peng 1987"`, `"freshwater"` | `"Takahashi 1982"` |
 | `pressure_method` | `"Millero 1995"`, `"Millero 1983"` | `"Millero 1995"` |
 | `MyAMI_mode` | `"approximate"` | `"approximate"` |
@@ -1743,9 +1757,10 @@ function calculate_constants(; temp_c, sal, pres_bar=0.0, ST=nothing, FT=nothing
         # formulas would discard BT_method on what is the default code path.
 
         # The seawater *composition* KGen corrects for: the explicit Ca/Mg if given, modern
-        # otherwise. Deliberately not final_Ca, which may have come from Ca_method and be
-        # salinity-scaled — that is a concentration, not a composition, and feeding it here
-        # would read dilution as a low-Ca ocean.
+        # otherwise. Deliberately not final_Ca, which may have come from Ca_method: that
+        # chooses the calcium used for saturation state (CO2SYS's or Culkin's formula), not
+        # the ocean's composition, and feeding it here would read a choice of formula as a
+        # slightly different ocean.
         Mg_val = something(Mg, MODERN_MAGNESIUM)
         Ca_val = something(Ca, MODERN_CALCIUM)
 
