@@ -1613,14 +1613,29 @@ function _fold_K_settings(arguments::NamedTuple)
 end
 
 """
-What K1 and K2 must be multiplied by to move them from the scale they were fitted on to the
-total scale. `sws_factor` converts seawater-scale to total; `fH` additionally relates NBS to
-seawater-scale.
+    _to_total_mult(scale, sws_factor, fH, sws_factor_surface = sws_factor)
+
+What a constant must be multiplied by, *after* its pressure correction, to move it from the
+scale it was fitted on to the total scale at pressure.
+
+Millero's (1995) pressure corrections are for constants on the seawater scale, so every
+constant is corrected there, following CO2SYS and PyCO2SYS:
+
+- seawater-scale fits are corrected as they are, then converted with `sws_factor`, the
+  seawater-to-total factor at pressure (built from the pressure-corrected KS and KF);
+- NBS fits are first divided by `fH` to reach the seawater scale at 1 atm;
+- total-scale fits are first divided by `sws_factor_surface`, the same factor at 1 atm,
+  then converted back with `sws_factor` — a net `sws_factor / sws_factor_surface`.
+
+That last ratio is 1 at the surface and falls with depth (about 0.9975 at 5000 dbar), so
+leaving it out shifts pH by about +1.1e-3 at 5000 dbar and +2e-3 at 11000 dbar for TA-DIC
+inputs with Lueker et al. (2000) K1 and K2. Pressure factors are exactly 1 at 0 bar, so the
+ratio is exactly 1.0 there and surface results are unchanged.
 """
-_to_total_mult(scale::Symbol, sws_factor, fH) =
+_to_total_mult(scale::Symbol, sws_factor, fH, sws_factor_surface = sws_factor) =
     scale === :sws ? sws_factor :
     scale === :nbs ? sws_factor / fH :
-                     1.0    # :total — already there
+                     sws_factor / sws_factor_surface    # :total
 
 
 """
@@ -1742,6 +1757,11 @@ function calculate_constants(; temp_c, sal, pres_bar=0.0, ST=nothing, FT=nothing
         # the path below — built from Kgen's own KS and KF, which are the ones this bundle
         # describes. Skipping it leaves the default (Millero, seawater-scale) KNH3 about 2.2 %
         # high, visible only through NH4T, which defaults to zero.
+        #
+        # Known gap: Kgen gives no surface KS and KF, so on this path the total-scale KH2S
+        # and Clegg KNH3 are pressure-corrected on the total scale, without the
+        # sws_factor / sws_factor_surface ratio the other path applies (see
+        # `_to_total_mult`). That matters only with H2ST or NH4T at depth.
         sws_factor = SWStoTOT(ST = final_ST, FT = final_FT, KS = Ks.KS, KF = Ks.KF)
         knh3_mult = _to_total_mult(_native_scale(Val(:KNH3_method), settings.KNH3_method),
                                    sws_factor, fH_val)
@@ -1768,27 +1788,32 @@ function calculate_constants(; temp_c, sal, pres_bar=0.0, ST=nothing, FT=nothing
                             FT = final_FT, KS = KS_surface, KF = KF_surface, fH = fH_val)
 
         # --- Onto the total pH scale ---
-        # KS and KF are pressure-corrected first, because the seawater-to-total factor is
-        # built from the corrected values, not the surface ones.
+        # Pressure corrections apply on the seawater scale (see `_to_total_mult`), so two
+        # seawater-to-total factors are needed: at 1 atm, from the surface KS and KF, to
+        # take total-scale fits onto the seawater scale before correcting them; and at
+        # pressure, from the pressure-corrected KS and KF, to bring everything back.
         KS = KS_surface * _pressure_factor(temp_c, pres_bar, pressure.KS)
         KF = KF_surface * _pressure_factor(temp_c, pres_bar, pressure.KF)
         sws_factor = SWStoTOT(ST = final_ST, FT = final_FT, KS = KS, KF = KF)
+        sws_factor_surface = SWStoTOT(ST = final_ST, FT = final_FT, KS = KS_surface,
+                                      KF = KF_surface)
 
-        # KB and KH2S carry no multiplier because every parameterisation of them here is
-        # total-scale native. K1/K2 and KNH3 read theirs off the table.
+        # K1/K2 and KNH3 read their native scale off the table. KB (Dickson 1990) and KH2S
+        # (Yao and Millero 1995) are always total-scale fits.
         k1k2_mult = _to_total_mult(_native_scale(Val(:K1_K2_method), K1_K2_method),
-                                   sws_factor, fH_val)
+                                   sws_factor, fH_val, sws_factor_surface)
         knh3_mult = _to_total_mult(_native_scale(Val(:KNH3_method), settings.KNH3_method),
-                                   sws_factor, fH_val)
+                                   sws_factor, fH_val, sws_factor_surface)
+        total_mult = _to_total_mult(:total, sws_factor, fH_val, sws_factor_surface)
 
         final_Ks = (
             K1 = (K1 * _pressure_factor(temp_c, pres_bar, pressure.K1)) * k1k2_mult,
             K2 = (K2 * _pressure_factor(temp_c, pres_bar, pressure.K2)) * k1k2_mult,
             K0 = K0,
-            KB = KB_surface * _pressure_factor(temp_c, pres_bar, pressure.KB),
+            KB = KB_surface * _pressure_factor(temp_c, pres_bar, pressure.KB) * total_mult,
             KS = KS,
             KF = KF,
-            KH2S = KH2S_at_pressure,
+            KH2S = KH2S_at_pressure * total_mult,
             KW   = (KW_surface * _pressure_factor(temp_c, pres_bar, pressure.KW)) * sws_factor,
             KP1  = (nutrients.KP1 * _pressure_factor(temp_c, pres_bar, pressure.KP1)) * sws_factor,
             KP2  = (nutrients.KP2 * _pressure_factor(temp_c, pres_bar, pressure.KP2)) * sws_factor,

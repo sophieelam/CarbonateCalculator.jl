@@ -443,6 +443,8 @@ $f_\text{H}$ relates the NBS pH scale to the seawater scale. It converts `pHNBS`
 
 Under KGen this reaches only K_H2S and K_NH3; Kgen corrects its own constants.
 
+Both coefficient sets are for constants on the seawater pH scale, so every correction is applied there, as in CO2SYS and PyCO2SYS: a constant fitted on the total scale (K₁ and K₂ under `"Roy 1993"`, `"Lueker 2000"`, `"Sulpis 2020"`, `"SB 2020"` and `"Papadimitriou 2018"`; K_B; K_H2S; K_NH3 under `"Clegg"`) is moved to the seawater scale with the 1 atm conversion factor, corrected, and returned to the total scale with the factor at pressure. Applying the correction directly on the total scale instead shifts pH by about +1e-3 at 5000 dbar and +2e-3 at 11 000 dbar. Under KGen, K_H2S and a `"Clegg"` K_NH3 are still corrected on the total scale, because Kgen gives no surface K_SO4 and K_F; this matters only with `H2ST` or `NH4T` at depth.
+
 #### KGen's composition correction — `MyAMI_mode`
 
 Only `"approximate"`*, the polynomial approximation to MyAMI, is available in Kgen.jl; the full MyAMI model (`"calculate"`) is in the Python Kgen only, and asking for it is an error.

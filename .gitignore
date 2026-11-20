@@ -1,3 +1,6 @@
 *.zip
 test/field_data/data/*
 test/refactor_baseline/current_*.tsv
+
+# Written by test/external/agreement_common.jl when a comparison fails
+test/external/results/failures_*.csv

@@ -1,77 +1,125 @@
-import PyCO2SYS as pyco
-import pandas as pd
-import numpy as np
+"""Generate the PyCO2SYS v1.8.3 baselines for test/external/compare_*.jl.
+
+    pip install "PyCO2SYS==1.8.3.4"
+    python test/external/generate_pyco2sys_baseline.py
+
+Writes two files to test/external/results/:
+
+* compare_PyCO2SYS_v1_8_3.csv: every K1/K2, pH-scale, KSO4 and KF option and
+  every valid input pair, at one condition (S 33.1, T 24 °C, 10 dbar), with output
+  conditions 12 °C and 1647 dbar (the same conditions as the MATLAB baseline).
+* compare_PyCO2SYS_v1_8_3_conditions.csv: a sweep over temperature, salinity and pressure
+  (0 to 11 000 dbar) for three K1/K2 options of each native pH scale, on the total and
+  free scales. This is the file that tests the pressure corrections.
+
+Columns use CO2SYS-MATLAB names (TAlk, TCO2, pHin, pCO2in, ..., K1input, ...), so one
+reader in agreement_common.jl serves both references. PRESIN and PRESOUT are in dbar, as
+in CO2SYS. Constants are on the input pH scale, except KS and KF (free scale), as in
+CO2SYS; KSPCinput and KSPAinput (solubility products) are extra columns CO2SYS lacks.
+
+Input-type codes in PAR1TYPE/PAR2TYPE follow PyCO2SYS: 6 = CO3, 7 = HCO3 (CO2SYS v3
+swaps these two).
+"""
+
 from itertools import product
+from pathlib import Path
 
-# --- 1. Aligned Parameters (from your MATLAB script) ---
-par_defaults = {1: 2250.0, 2: 2100.0, 3: 8.1, 4: 400.0, 5: 405.0, 6: 200.0, 7: 1800.0, 8: 10.0}
+import numpy as np
+import pandas as pd
+import PyCO2SYS as pyco
 
-k1k2_opts = list(range(1, 18))
-scales_opts = list(range(1, 5))
-kso4_opts = [1, 2, 3] # Dickson, Khoo, WM13
-kf_opts = [1, 2]
-# --- Updated pair_types logic ---
-gas_types = {4, 5, 8} # pCO2, fCO2, CO2(aq)
-pair_types = [
-    (t1, t2) for t1, t2 in product(range(1, 9), range(1, 9)) 
-    if t1 != t2 and not (t1 in gas_types and t2 in gas_types)
-]
-# --- 2. Build Grid ---
-grid = list(product(k1k2_opts, scales_opts, kso4_opts, kf_opts, pair_types))
-n = len(grid)
+assert pyco.__version__.startswith("1.8.3"), f"PyCO2SYS {pyco.__version__}: need 1.8.3"
 
-k1k2_arr = np.array([g[0] for g in grid])
-scale_arr = np.array([g[1] for g in grid])
-kso4_arr = np.array([g[2] for g in grid])
-kf_arr = np.array([g[3] for g in grid])
-p1_type = np.array([g[4][0] for g in grid])
-p2_type = np.array([g[4][1] for g in grid])
-p1_val = np.array([par_defaults[t] for t in p1_type])
-p2_val = np.array([par_defaults[t] for t in p2_type])
+RESULTS = Path(__file__).parent / "results"
+PAR_DEFAULTS = {1: 2250.0, 2: 2100.0, 3: 8.1, 4: 400.0, 5: 405.0, 6: 200.0, 7: 1800.0, 8: 10.0}
+GAS = {4, 5, 8}  # pCO2, fCO2, CO2(aq): no two of these make a valid pair
+PAIRS = [(a, b) for a, b in product(range(1, 9), range(1, 9))
+         if a != b and not (a in GAS and b in GAS)]
+NUTRIENTS = dict(SI=10.0, PO4=1.0, NH4=2.0, H2S=3.0)
 
-# Matched Nutrients
-si, phos, nh3, h2s = 10.0, 1.0, 2.0, 3.0
-
-# --- 3. Execute ---
-print(f"Calculating {n} rows for PyCO2SYS validation...")
-results = pyco.sys(
-    par1=p1_val, par2=p2_val, par1_type=p1_type, par2_type=p2_type,
-    salinity=33.1, temperature=24.0, pressure=1.0,
-    total_silicate=si, total_phosphate=phos, total_ammonia=nh3, total_sulfide=h2s,
-    opt_k_carbonic=k1k2_arr, opt_pH_scale=scale_arr,
-    opt_k_bisulfate=kso4_arr, opt_k_fluoride=kf_arr, opt_total_borate=1
-)
-
-# --- 4. Export ---
-df = pd.DataFrame({
-    'PAR1': p1_val, 'PAR2': p2_val, 'PAR1TYPE': p1_type, 'PAR2TYPE': p2_type,
-    'K1K2CONSTANTS': k1k2_arr, 'pHSCALEIN': scale_arr, 'KSO4CONSTANT': kso4_arr,
-    'KFCONSTANT': kf_arr, 'BORON': 1, 'TEMPIN': 24.0, 'SAL': 33.1, 'PRESIN': 10.0,
-    'PO4': phos, 'SI': si, 'H2S': h2s, 'NH4': nh3,
-    'DIC_out': results['dic'], 'pH_out': results['pH'], 
-    'fCO2_out': results['fCO2'], 'CO3_out': results['CO3']
-})
-df.to_csv("results/compare_PyCO2SYS_v1_8_3.csv", index=False)
-print("Digital twin baseline complete!")
+# PyCO2SYS result key -> CO2SYS-MATLAB column (input conditions; "_out" keys -> "...out")
+OUTPUTS = {
+    "alkalinity": "TAlk", "dic": "TCO2", "pH": "pHin", "pCO2": "pCO2in", "fCO2": "fCO2in",
+    "HCO3": "HCO3in", "CO3": "CO3in", "aqueous_CO2": "CO2in",
+    "saturation_calcite": "OmegaCAin", "saturation_aragonite": "OmegaARin",
+    "revelle_factor": "RFin",
+    "pH_total": "pHinTOTAL", "pH_sws": "pHinSWS", "pH_free": "pHinFREE", "pH_nbs": "pHinNBS",
+}
+OUTPUTS_OUT = {
+    "pH_out": "pHout", "pCO2_out": "pCO2out", "fCO2_out": "fCO2out", "HCO3_out": "HCO3out",
+    "CO3_out": "CO3out", "aqueous_CO2_out": "CO2out",
+    "saturation_calcite_out": "OmegaCAout", "saturation_aragonite_out": "OmegaARout",
+    "revelle_factor_out": "RFout",
+    "pH_total_out": "pHoutTOTAL", "pH_sws_out": "pHoutSWS", "pH_free_out": "pHoutFREE",
+    "pH_nbs_out": "pHoutNBS",
+}
+CONSTANTS = {
+    "k_CO2": "K0input", "k_carbonic_1": "K1input", "k_carbonic_2": "K2input",
+    "k_water": "KWinput", "k_borate": "KBinput", "k_fluoride": "KFinput",
+    "k_bisulfate": "KSinput", "k_phosphoric_1": "KP1input", "k_phosphoric_2": "KP2input",
+    "k_phosphoric_3": "KP3input", "k_silicate": "KSiinput", "k_sulfide": "KH2Sinput",
+    "k_ammonia": "KNH3input", "k_calcite": "KSPCinput", "k_aragonite": "KSPAinput",
+}
 
 
+def run(grid: pd.DataFrame) -> pd.DataFrame:
+    p1 = grid.PAR1TYPE.map(PAR_DEFAULTS).to_numpy()
+    p2 = grid.PAR2TYPE.map(PAR_DEFAULTS).to_numpy()
+    r = pyco.sys(
+        par1=p1, par2=p2, par1_type=grid.PAR1TYPE.to_numpy(), par2_type=grid.PAR2TYPE.to_numpy(),
+        salinity=grid.SAL.to_numpy(), temperature=grid.TEMPIN.to_numpy(),
+        pressure=grid.PRESIN.to_numpy(), temperature_out=grid.TEMPOUT.to_numpy(),
+        pressure_out=grid.PRESOUT.to_numpy(),
+        total_silicate=NUTRIENTS["SI"], total_phosphate=NUTRIENTS["PO4"],
+        total_ammonia=NUTRIENTS["NH4"], total_sulfide=NUTRIENTS["H2S"],
+        opt_k_carbonic=grid.K1K2CONSTANTS.to_numpy(), opt_pH_scale=grid.pHSCALEIN.to_numpy(),
+        opt_k_bisulfate=grid.KSO4CONSTANT.to_numpy(), opt_k_fluoride=grid.KFCONSTANT.to_numpy(),
+        opt_total_borate=grid.BORON.to_numpy(),
+    )
+    out = grid.copy()
+    out["PAR1"], out["PAR2"] = p1, p2
+    for k, v in NUTRIENTS.items():
+        out[k] = v
+    for table in (OUTPUTS, OUTPUTS_OUT, CONSTANTS):
+        for key, col in table.items():
+            out[col] = np.broadcast_to(np.asarray(r[key], dtype=float), len(out))
+    return out
 
-import PyCO2SYS as pyco2
 
-# Row 18 inputs
-results = pyco2.sys(
-    par1=8.1, par1_type=3,    # pH
-    par2=405.0, par2_type=5,  # fCO2
-    temperature=24.0,
-    salinity=33.1,
-    pressure=10.0,            # 10 dbar (equivalent to your 1.0 bar gauge)
-    opt_k_carbonic=1,         # Roy 1993
-    opt_pH_scale=1,           # Total Scale
-    opt_k_fluoride=2,         # Perez (from your PyCO2SYS mapping)
-    opt_k_sulfate=1,          # Dickson
-    opt_b_value=2             # Lee (from your PyCO2SYS mapping)
-)
+def options_sweep() -> pd.DataFrame:
+    # Boron option 1 only, as before: the MATLAB baseline covers both boron options.
+    rows = product(range(1, 18), range(1, 5), (1, 2, 3), (1, 2), (1,), PAIRS)
+    g = pd.DataFrame(rows, columns=["K1K2CONSTANTS", "pHSCALEIN", "KSO4CONSTANT",
+                                    "KFCONSTANT", "BORON", "PAIR"])
+    # Freshwater K1/K2 (option 8) only at S = 0; everything else at S = 33.1
+    g["SAL"] = np.where(g.K1K2CONSTANTS == 8, 0.0, 33.1)
+    g["TEMPIN"], g["PRESIN"], g["TEMPOUT"], g["PRESOUT"] = 24.0, 10.0, 12.0, 1647.0
+    return g
 
-print(f"PyCO2SYS Target K0: {results['k_CO2']}")
-print(f"PyCO2SYS Target K1: {results['k_carbonic_1']}")
-print(f"PyCO2SYS Target K2: {results['k_carbonic_2']}")
+
+def conditions_sweep() -> pd.DataFrame:
+    # One total-scale, one seawater-scale and one more total-scale K1/K2 fit, so that every
+    # route through the pressure correction is exercised: Roy 1993 (total), Lueker 2000
+    # (total), Millero 2010 (seawater).
+    rows = product((0.0, 10.0, 25.0, 35.0), (20.0, 33.1, 38.0),
+                   (0.0, 1000.0, 5000.0, 11000.0), (1, 10, 14), (1, 3), PAIRS)
+    g = pd.DataFrame(rows, columns=["TEMPIN", "SAL", "PRESIN", "K1K2CONSTANTS",
+                                    "pHSCALEIN", "PAIR"])
+    g["KSO4CONSTANT"], g["KFCONSTANT"], g["BORON"] = 1, 1, 2
+    g["TEMPOUT"], g["PRESOUT"] = 2.0, 4000.0
+    return g
+
+
+def finish(g: pd.DataFrame) -> pd.DataFrame:
+    g["PAR1TYPE"] = [p[0] for p in g.PAIR]
+    g["PAR2TYPE"] = [p[1] for p in g.PAIR]
+    return run(g.drop(columns="PAIR"))
+
+
+if __name__ == "__main__":
+    RESULTS.mkdir(exist_ok=True)
+    for name, grid in [("compare_PyCO2SYS_v1_8_3.csv", options_sweep()),
+                       ("compare_PyCO2SYS_v1_8_3_conditions.csv", conditions_sweep())]:
+        df = finish(grid)
+        df.to_csv(RESULTS / name, index=False, float_format="%.17g")
+        print(f"{name}: {len(df):,} rows")
