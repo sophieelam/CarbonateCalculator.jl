@@ -8,10 +8,21 @@
 #   by hand       the K_settings those keywords meant, spelled out below independently of the
 #                 package's translation, so this checks it rather than repeating it
 #
-# and both must match the baseline. The one accepted difference: Millero 1979 no longer zeroes
-# KB and the nutrient constants, which only ever mattered through a phosphate or silicate
-# total that freshwater does not have (and where it did, gave PAlk = -PT). Those five
-# constants are skipped for it; everything computed from them is still compared.
+# and both must match the baseline. Two accepted differences:
+#
+# 1. Millero 1979 no longer zeroes KB and the nutrient constants, which only ever mattered
+#    through a phosphate or silicate total that freshwater does not have (and where it did,
+#    gave PAlk = -PT). Those five constants are skipped for it; everything computed from them
+#    is still compared.
+# 2. Pressure corrections are now applied on the seawater scale (see `_to_total_mult` in
+#    src/constants.jl), as in CO2SYS and PyCO2SYS. The old code corrected total-scale fits
+#    (K1/K2 of Roy 1993, Lueker 2000, Sulpis 2020, SB 2020, Papadimitriou 2018; KB; KH2S; a
+#    Clegg KNH3) directly on the total scale, which put pH about 1e-3 too high at 500 bar.
+#    So at pressure, outside KGen (whose constants come from Kgen, unchanged), those five
+#    constants and every solved quantity are not compared with the old numbers. The case is
+#    still run both ways, and "as written" must still equal "by hand" to 1e-12: the
+#    translation is what this test is for. Surface cases are unaffected (the correction is
+#    exactly 1 at 0 bar) and are compared in full.
 
 using Test, Logging, CarbonateCalculator
 
@@ -42,8 +53,20 @@ end
 
 const MILLERO1979_ZEROED = ("KB", "KP1", "KP2", "KP3", "KSi")
 
-baseline_skips(name, field) =
-    startswith(name, "constants_Millero 1979") && field in MILLERO1979_ZEROED
+"Constants the seawater-scale pressure correction changed (difference 2 above)."
+const PRESSURE_FIXED_CONSTANTS = ("K1", "K2", "KB", "KH2S", "KNH3")
+"Solved quantities that do not depend on the constants: conditions and totals."
+const CONDITIONS_AND_TOTALS = ("temp_c", "sal", "pres_bar", "BT", "ST", "FT", "Ca", "Mg", "fH")
+
+"Was this case changed on purpose by the seawater-scale pressure correction?"
+pressure_fixed(kw) = get(kw, :pres_bar, 0.0) > 0 && get(kw, :K_method, "default") ∉ ("default", "KGen")
+
+function baseline_skips(name, kind, kw, field)
+    startswith(name, "constants_Millero 1979") && field in MILLERO1979_ZEROED && return true
+    pressure_fixed(kw) || return false
+    return kind === :constants ? field in PRESSURE_FIXED_CONSTANTS :
+                                 !(field in CONDITIONS_AND_TOTALS)
+end
 
 @testset "K_settings reproduces the old keywords" begin
     if !isfile(K_BASELINE)
@@ -64,14 +87,22 @@ baseline_skips(name, field) =
             for (name, (kind, kw)) in cases
                 haskey(baseline, name) || continue
                 expected = baseline[name]
+                runs = Dict{String, Dict{String, Float64}}()
                 for (how, call) in (("as written", kw), ("by hand", by_hand(kw)))
-                    got = Dict(run_K_settings_case(kind, call))
+                    got = runs[how] = Dict(run_K_settings_case(kind, call))
                     wrong = [f for (f, v) in expected
-                             if !baseline_skips(name, f) &&
+                             if !baseline_skips(name, kind, kw, f) &&
                                 !(haskey(got, f) && isapprox(got[f], v; rtol = 1e-12))]
                     isempty(wrong) || @info "$name ($how) differs from the baseline in" wrong
                     @test isempty(wrong)
                 end
+                # The translation itself, checked in full even where the baseline is not.
+                a, b = runs["as written"], runs["by hand"]
+                mismatch = [f for (f, v) in a
+                            if !(haskey(b, f) && (isapprox(b[f], v; rtol = 1e-12) ||
+                                                  (isnan(v) && isnan(b[f]))))]
+                isempty(mismatch) || @info "$name: as written and by hand differ in" mismatch
+                @test isempty(mismatch)
             end
         end
     end
