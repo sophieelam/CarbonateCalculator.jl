@@ -670,8 +670,11 @@ function WM13_KS(; temp_c, sal, kwargs...)
     logKS0 = (562.69486 - 102.5154 * log(TK) - 0.0001117033 * TK^2 + 0.2477538 * TK -
     13273.76 / TK)
 
+    # Waters and Millero (2013), as corrected in Waters et al. (2014) and as in PyCO2SYS. The
+    # whole second bracket multiplies S (until 2026-11 only its last term did, which gave KS
+    # around 1e39 at S = 33 and broke every pH-scale conversion under WM13).
     logKSK0 = ((4.24666 - 0.152671 * TK + 0.0267059 * TK * log(TK) - 0.000042128 *
-    TK^2) * sal^0.5 + (0.2542181 - 0.00509534 * TK + 0.00071589 * TK * log(TK) * sal) +
+    TK^2) * sal^0.5 + (0.2542181 - 0.00509534 * TK + 0.00071589 * TK * log(TK)) * sal +
     (-0.00291179 + 0.0000209968 * TK) * sal^1.5 -0.0000403724 * sal^2)
 
     kSO4 = (1 - 0.001005109 * sal) * 10^(logKS0 + logKSK0)
@@ -703,7 +706,9 @@ function Perez_KF(; temp_c, sal, kwargs...)
     TK = temp_c + 273.15
 
     lnKF = 874 / TK - 9.68 + 0.111 * sqrt(sal)
-    KF = (exp(lnKF) * (1.0 - 0.001005109 * sal)) # # in mol/kg-SW
+    # Already in mol/kg-SW on the free scale, so no (1 - 0.001005 S) conversion: as in
+    # CO2SYS v3, PyCO2SYS and seacarb. Applying it (as here until 2026-11) made KF 3.3 % low.
+    KF = exp(lnKF)
     return (; KF=KF)
 end
 
@@ -855,7 +860,9 @@ end
 # Total Scale.
 function calc_KH2S(; temp_c, sal, kwargs...)
     TK = temp_c + 273.15
-    lnKH2S = 225.838 - 13275.3 / TK - 34.6435 * log(TK) + 0.3449 * sqrt(sal) - 0.0247 * sal
+    # Millero et al. (1988), as in CO2SYS and PyCO2SYS. The salinity coefficient is 0.0274;
+    # it was 0.0247 here until 2026-11, which made KH2S about 10 % too high at S = 35.
+    lnKH2S = 225.838 - 13275.3 / TK - 34.6435 * log(TK) + 0.3449 * sqrt(sal) - 0.0274 * sal
     KH2S = exp(lnKH2S)
     return (; KH2S=KH2S)
 end
@@ -945,7 +952,8 @@ const PRESSURE_COEFFICIENTS = (
     KSi  = (ΔV = (-29.48, 0.1622,  -0.002608), κ = (-2.84,  0.0,    0.0)),
     KH2S = (ΔV = (-11.07, -0.009,  -0.000942), κ = (-2.89,  0.054,  0.0)),
     KNH3 = (ΔV = (-26.43, 0.0889,  -0.000905), κ = (-5.03,  0.0814, 0.0)),
-    KspA = (ΔV = (-46.0,  0.5304,  0.0),       κ = (-11.76, 0.3692, 0.0)),
+    # Millero (1979) via CO2SYS: aragonite's ΔV is calcite's + 2.8, i.e. -48.76 + 2.8.
+    KspA = (ΔV = (-45.96, 0.5304,  0.0),       κ = (-11.76, 0.3692, 0.0)),
     KspC = (ΔV = (-48.76, 0.5304,  0.0),       κ = (-11.76, 0.3692, 0.0)),
 )
 

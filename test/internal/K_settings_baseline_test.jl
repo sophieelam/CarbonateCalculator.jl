@@ -8,7 +8,7 @@
 #   by hand       the K_settings those keywords meant, spelled out below independently of the
 #                 package's translation, so this checks it rather than repeating it
 #
-# and both must match the baseline. Two accepted differences:
+# and both must match the baseline, except where the package has since been corrected:
 #
 # 1. Millero 1979 no longer zeroes KB and the nutrient constants, which only ever mattered
 #    through a phosphate or silicate total that freshwater does not have (and where it did,
@@ -23,6 +23,14 @@
 #    still run both ways, and "as written" must still equal "by hand" to 1e-12: the
 #    translation is what this test is for. Surface cases are unaffected (the correction is
 #    exactly 1 at 0 bar) and are compared in full.
+# 3. Four coefficient corrections found by comparison with CO2SYS v3 and PyCO2SYS (2026-11):
+#    KH2S's salinity coefficient (0.0274, was 0.0247), WM13 KSO4 (a misplaced bracket),
+#    Perez and Fraga KF (no mol/kg-H2O conversion) and aragonite's pressure ΔV (-45.96, was
+#    -46.0). So KH2S is never compared; cases with H2ST, WM13 or Perez KF are compared only
+#    for their conditions and totals; and KspA is not compared at pressure.
+#
+# Every exception is a skip, never a loosened tolerance, and "as written" = "by hand" is
+# checked for every case regardless.
 
 using Test, Logging, CarbonateCalculator
 
@@ -53,17 +61,25 @@ end
 
 const MILLERO1979_ZEROED = ("KB", "KP1", "KP2", "KP3", "KSi")
 
-"Constants the seawater-scale pressure correction changed (difference 2 above)."
-const PRESSURE_FIXED_CONSTANTS = ("K1", "K2", "KB", "KH2S", "KNH3")
+"Constants the corrections changed at pressure (differences 2 and 3 above)."
+const PRESSURE_FIXED_CONSTANTS = ("K1", "K2", "KB", "KH2S", "KNH3", "KspA")
 "Solved quantities that do not depend on the constants: conditions and totals."
 const CONDITIONS_AND_TOTALS = ("temp_c", "sal", "pres_bar", "BT", "ST", "FT", "Ca", "Mg", "fH")
 
-"Was this case changed on purpose by the seawater-scale pressure correction?"
-pressure_fixed(kw) = get(kw, :pres_bar, 0.0) > 0 && get(kw, :K_method, "default") ∉ ("default", "KGen")
+uses_kgen(kw) = get(kw, :K_method, "default") in ("default", "KGen")
+
+"Was this case changed on purpose by the seawater-scale pressure correction (difference 2)?"
+pressure_fixed(kw) = get(kw, :pres_bar, 0.0) > 0 && !uses_kgen(kw)
+
+"Was every number in this case changed by a coefficient correction (difference 3)?"
+corrected_throughout(kw) = get(kw, :H2ST, 0.0) > 0 ||
+    (!uses_kgen(kw) && (get(kw, :KSO4_method, "") == "WM13" || get(kw, :KF_method, "") == "Perez"))
 
 function baseline_skips(name, kind, kw, field)
     startswith(name, "constants_Millero 1979") && field in MILLERO1979_ZEROED && return true
-    pressure_fixed(kw) || return false
+    field == "KH2S" && return true                        # difference 3, at every condition
+    corrected_throughout(kw) && return !(field in CONDITIONS_AND_TOTALS)
+    pressure_fixed(kw) || return false       # KGen supplies its own KspA, unchanged
     return kind === :constants ? field in PRESSURE_FIXED_CONSTANTS :
                                  !(field in CONDITIONS_AND_TOTALS)
 end

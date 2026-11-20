@@ -65,20 +65,25 @@ CONSTANTS = {
 def run(grid: pd.DataFrame) -> pd.DataFrame:
     p1 = grid.PAR1TYPE.map(PAR_DEFAULTS).to_numpy()
     p2 = grid.PAR2TYPE.map(PAR_DEFAULTS).to_numpy()
+    # No nutrients with the freshwater constants (option 8): CO2SYS zeroes their equilibrium
+    # constants there, which CarbonateCalculator.jl does not (a documented difference), so
+    # nutrients would hide the freshwater carbonate chemistry this row is meant to test.
+    fresh = grid.K1K2CONSTANTS.to_numpy() == 8
+    nut = {k: np.where(fresh, 0.0, v) for k, v in NUTRIENTS.items()}
     r = pyco.sys(
         par1=p1, par2=p2, par1_type=grid.PAR1TYPE.to_numpy(), par2_type=grid.PAR2TYPE.to_numpy(),
         salinity=grid.SAL.to_numpy(), temperature=grid.TEMPIN.to_numpy(),
         pressure=grid.PRESIN.to_numpy(), temperature_out=grid.TEMPOUT.to_numpy(),
         pressure_out=grid.PRESOUT.to_numpy(),
-        total_silicate=NUTRIENTS["SI"], total_phosphate=NUTRIENTS["PO4"],
-        total_ammonia=NUTRIENTS["NH4"], total_sulfide=NUTRIENTS["H2S"],
+        total_silicate=nut["SI"], total_phosphate=nut["PO4"],
+        total_ammonia=nut["NH4"], total_sulfide=nut["H2S"],
         opt_k_carbonic=grid.K1K2CONSTANTS.to_numpy(), opt_pH_scale=grid.pHSCALEIN.to_numpy(),
         opt_k_bisulfate=grid.KSO4CONSTANT.to_numpy(), opt_k_fluoride=grid.KFCONSTANT.to_numpy(),
         opt_total_borate=grid.BORON.to_numpy(),
     )
     out = grid.copy()
     out["PAR1"], out["PAR2"] = p1, p2
-    for k, v in NUTRIENTS.items():
+    for k, v in nut.items():
         out[k] = v
     for table in (OUTPUTS, OUTPUTS_OUT, CONSTANTS):
         for key, col in table.items():

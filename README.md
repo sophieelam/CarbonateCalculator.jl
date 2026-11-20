@@ -396,7 +396,7 @@ Two K₁/K₂ parameterisations were published, or are conventionally used, with
 CO2SYS changes more than this under options 6–8, and those parts are **not implemented** here, so results under these sets agree with CO2SYS for the carbonate system but not in every detail:
 
 * GEOSECS and Peng et al. (options 6, 7): K_B from Li et al. (1969) on the NBS scale; K_W of zero (GEOSECS) or Millero (1979)'s seawater K_W (Peng); zero phosphate and silicate constants (GEOSECS) or Peng's fixed values; the GEOSECS pressure corrections and solubility products; fCO₂ equal to pCO₂; and Peng's convention of including phosphate in alkalinity.
-* Freshwater (option 8): CO2SYS also forces salinity to 0. Here salinity is whatever you give, and `"Millero 1979"` warns if it is not 0. K_B and the phosphate and silicate constants are computed as usual (they are irrelevant with no boron, phosphate or silicate).
+* Freshwater (option 8): CO2SYS also forces salinity to 0. Here salinity is whatever you give, and `"Millero 1979"` warns if it is not 0. CO2SYS also sets K_B, the phosphate and silicate constants, K_H2S and K_NH4 to zero, so phosphate, silicate, sulfide and ammonia add no alkalinity; here they are computed as usual. With no boron or nutrients the two agree; with `PT`, `SiT`, `H2ST` or `NH4T` given in fresh water, this package includes their alkalinity and CO2SYS does not.
 
 #### Sulfate ($K_\text{SO4}$, $K_\text{HSO4}$) — `KSO4_method`
 

@@ -62,7 +62,16 @@ const PH_FIELD = Dict(1 => :pHtot, 2 => :pHsws, 3 => :pHfree, 4 => :pHNBS)
 const DOCUMENTED_DIFFERENCES = Dict(
     6 => "GEOSECS parts of CO2SYS not implemented (README, options 6-8)",
     7 => "Peng et al. parts of CO2SYS not implemented (README, options 6-8)",
+    8 => "freshwater with nutrients: CO2SYS zeroes KB, KP, KSi, KH2S, KNH4 (README, option 8)",
 )
+
+"""
+Is a disagreement on this row a documented difference? Options 6 and 7 always; option 8
+only where phosphate, silicate, sulfide or ammonia is given, because CO2SYS sets their
+constants to zero for fresh water (so they add no alkalinity) and this package does not.
+"""
+documented(k1k2, row) = k1k2 in (6, 7) ||
+    (k1k2 == 8 && any(row[c] > 0 for c in (:PO4, :SI, :H2S, :NH4)))
 
 # (label, result field or function, baseline column, tolerance). Tolerances are absolute
 # (atol) or relative (rtol), as in 3C's config/variables.yaml.
@@ -148,7 +157,7 @@ function run_agreement(name, path, solve)
                          error = Float64[], tolerance = String[])
     counts = Dict(:compared => 0, :identical => 0, :agree => 0, :fail => 0,
                   :documented => 0, :errors => 0, :skipped => 0)
-    documented = Dict{Int, Int}()
+    documented_n = Dict{Int, Int}()
     out_unsupported = false
 
     for (i, row) in enumerate(eachrow(df))
@@ -188,6 +197,7 @@ function run_agreement(name, path, solve)
             end
         end
         pair_name = join(pair, "+")
+        is_documented = documented(k1k2, row)
 
         function record(label, calc, ref, tol)
             (ismissing(ref) || isnan(ref)) && return
@@ -196,9 +206,9 @@ function run_agreement(name, path, solve)
             if ok
                 counts[:agree] += 1
                 same && (counts[:identical] += 1)
-            elseif haskey(DOCUMENTED_DIFFERENCES, k1k2)
+            elseif is_documented
                 counts[:documented] += 1
-                documented[k1k2] = get(documented, k1k2, 0) + 1
+                documented_n[k1k2] = get(documented_n, k1k2, 0) + 1
             else
                 counts[:fail] += 1
                 push!(failures, (i, k1k2, scale, pair_name, row.TEMPIN, row.SAL, row.PRESIN,
@@ -221,7 +231,14 @@ function run_agreement(name, path, solve)
         if scale == 1 && hasproperty(res, :Ks)
             for (label, field, col, tol) in CONSTANTS
                 (col in cols && hasproperty(res.Ks, field)) || continue
-                record(label, Float64(getproperty(res.Ks, field)), df[i, col], tol)
+                ref = df[i, col]
+                if k1k2 == 8 && !ismissing(ref) && ref == 0
+                    # CO2SYS's freshwater zeroing (option 8), whatever the totals
+                    counts[:compared] += 1; counts[:documented] += 1
+                    documented_n[8] = get(documented_n, 8, 0) + 1
+                    continue
+                end
+                record(label, Float64(getproperty(res.Ks, field)), ref, tol)
             end
         end
         if "TEMPOUT" in cols && !out_unsupported
@@ -255,7 +272,7 @@ function run_agreement(name, path, solve)
             counts[:identical])
     @printf("  FAILURES                %10d\n", counts[:fail])
     @printf("  errors                  %10d\n", counts[:errors])
-    for (k, n) in sort(collect(documented))
+    for (k, n) in sort(collect(documented_n))
         @printf("  documented (option %2d)  %10d   %s\n", k, n, DOCUMENTED_DIFFERENCES[k])
     end
     counts[:skipped] > 0 &&
